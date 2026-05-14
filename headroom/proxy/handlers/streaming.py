@@ -1303,11 +1303,17 @@ class StreamingMixin:
 
         start_time = time.time()
 
-        # Mutable state for the generator
+        # Mutable state for the generator. Cache fields mirror the
+        # native ``_finalize_stream_response`` shape so the PERF log
+        # values match between paths (issue #327).
         stream_state: dict[str, Any] = {
             "input_tokens": 0,
             "output_tokens": 0,
             "ttfb_ms": None,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "cache_creation_ephemeral_5m_input_tokens": 0,
+            "cache_creation_ephemeral_1h_input_tokens": 0,
         }
 
         async def generate():
@@ -1332,6 +1338,15 @@ class StreamingMixin:
                         usage = msg.get("usage", {})
                         if "input_tokens" in usage:
                             stream_state["input_tokens"] = usage["input_tokens"]
+                        stream_state["cache_read_input_tokens"] = usage.get(
+                            "cache_read_input_tokens", 0
+                        )
+                        stream_state["cache_creation_input_tokens"] = usage.get(
+                            "cache_creation_input_tokens", 0
+                        )
+                        cw_5m, cw_1h = self._extract_anthropic_cache_ttl_metrics(usage)
+                        stream_state["cache_creation_ephemeral_5m_input_tokens"] = cw_5m
+                        stream_state["cache_creation_ephemeral_1h_input_tokens"] = cw_1h
 
                     # Track output tokens from message_delta
                     if event.event_type == "message_delta":
@@ -1355,6 +1370,15 @@ class StreamingMixin:
                 # Record metrics
                 total_latency = (time.time() - start_time) * 1000
                 output_tokens = stream_state["output_tokens"]
+                cache_read_tokens = stream_state["cache_read_input_tokens"]
+                cache_write_tokens = stream_state["cache_creation_input_tokens"]
+                cache_write_5m_tokens = stream_state["cache_creation_ephemeral_5m_input_tokens"]
+                cache_write_1h_tokens = stream_state["cache_creation_ephemeral_1h_input_tokens"]
+                cache_hit_pct = (
+                    round(cache_read_tokens / (cache_read_tokens + cache_write_tokens) * 100)
+                    if (cache_read_tokens + cache_write_tokens) > 0
+                    else 0
+                )
 
                 _backend_name = (
                     self.anthropic_backend.name if self.anthropic_backend else "anthropic"
@@ -1371,7 +1395,7 @@ class StreamingMixin:
                     output_tokens=output_tokens,
                     tokens_saved=tokens_saved,
                     latency_ms=total_latency,
-                    cached=False,
+                    cached=cache_read_tokens > 0,
                     overhead_ms=optimization_latency,
                     ttfb_ms=stream_state["ttfb_ms"] or 0,
                     pipeline_timing=pipeline_timing,
@@ -1379,7 +1403,15 @@ class StreamingMixin:
                 )
 
                 if self.cost_tracker:
-                    self.cost_tracker.record_tokens(model, tokens_saved, optimized_tokens)
+                    self.cost_tracker.record_tokens(
+                        model,
+                        tokens_saved,
+                        optimized_tokens,
+                        cache_read_tokens=cache_read_tokens,
+                        cache_write_tokens=cache_write_tokens,
+                        cache_write_5m_tokens=cache_write_5m_tokens,
+                        cache_write_1h_tokens=cache_write_1h_tokens,
+                    )
 
                 # Log request
                 if self.logger:
@@ -1399,7 +1431,7 @@ class StreamingMixin:
                             optimization_latency_ms=optimization_latency,
                             total_latency_ms=total_latency,
                             tags=tags,
-                            cache_hit=False,
+                            cache_hit=cache_read_tokens > 0,
                             transforms_applied=transforms_applied,
                             request_messages=body.get("messages")
                             if self.config.log_full_messages
@@ -1417,7 +1449,8 @@ class StreamingMixin:
                     f"model={model} msgs={num_msgs} "
                     f"tok_before={original_tokens} tok_after={optimized_tokens} "
                     f"tok_saved={tokens_saved} "
-                    f"cache_read=0 cache_write=0 cache_hit_pct=0 "
+                    f"cache_read={cache_read_tokens} cache_write={cache_write_tokens} "
+                    f"cache_hit_pct={cache_hit_pct} "
                     f"opt_ms={optimization_latency:.0f} "
                     f"transforms={_summarize_transforms(transforms_applied)}"
                 )
@@ -1445,25 +1478,51 @@ class StreamingMixin:
     ) -> StreamingResponse:
         """Stream OpenAI chat completion response from backend.
 
-        Routes stream:true requests through the backend's stream_openai_message(),
-        yielding SSE events to the client. Tracks the final
-        `usage.completion_tokens` online (LiteLLM emits this only when the
-        request included ``stream_options.include_usage=true``) using
-        :func:`_parse_completion_tokens_from_sse_chunk`, so memory stays
-        O(1) regardless of stream length.
+        Routes stream:true requests through the backend's
+        ``stream_openai_message()``, yielding SSE events to the client.
+        Buffers chunk bytes into ``stream_state["sse_buffer"]`` and
+        incrementally drains complete events via
+        :meth:`_parse_sse_usage_from_buffer` so the final usage frame
+        (LiteLLM/OpenAI emits this only when the request included
+        ``stream_options.include_usage=true``) yields ``prompt_tokens``,
+        ``completion_tokens``, and
+        ``prompt_tokens_details.cached_tokens``. OpenAI exposes no
+        separate cache-write counter, so the write portion is inferred
+        via :func:`_infer_openai_cache_write_tokens`. Memory stays O(1)
+        because the buffer-parser consumes whole events as they arrive.
         """
         from fastapi.responses import StreamingResponse
+
+        from headroom.proxy.cost import _summarize_transforms
+        from headroom.proxy.handlers.openai import _infer_openai_cache_write_tokens
 
         assert self.anthropic_backend is not None
 
         async def generate():
-            output_tokens = 0
+            stream_state: dict[str, Any] = {
+                "sse_buffer": bytearray(),
+                "input_tokens": None,
+                "output_tokens": None,
+                "cache_read_input_tokens": None,
+            }
+
+            def _absorb(usage: dict[str, int] | None) -> None:
+                if not usage:
+                    return
+                for key in ("input_tokens", "output_tokens", "cache_read_input_tokens"):
+                    if key in usage and not stream_state.get(key):
+                        stream_state[key] = usage[key]
+
             try:
                 async for sse_chunk in self.anthropic_backend.stream_openai_message(body, headers):
                     chunk_bytes = sse_chunk.encode() if isinstance(sse_chunk, str) else sse_chunk
+                    stream_state["sse_buffer"].extend(chunk_bytes)
+                    _absorb(self._parse_sse_usage_from_buffer(stream_state, "openai"))
+                    # Per-chunk fallback for upstreams that emit only
+                    # ``completion_tokens`` and not a full usage frame.
                     parsed = _parse_completion_tokens_from_sse_chunk(chunk_bytes)
-                    if parsed is not None:
-                        output_tokens = parsed
+                    if parsed is not None and not stream_state["output_tokens"]:
+                        stream_state["output_tokens"] = parsed
                     yield chunk_bytes
             except Exception as e:
                 logger.error(f"[{request_id}] Backend streaming error: {e}")
@@ -1477,6 +1536,39 @@ class StreamingMixin:
                 yield f"data: {json.dumps(error_data)}\n\n".encode()
                 yield b"data: [DONE]\n\n"
             finally:
+                # Late-flush: if upstream truncated the stream mid-event,
+                # the buffer parser hasn't seen the closing ``\n\n`` yet.
+                # Mirror _finalize_stream_response: append the terminator
+                # and drain anything still parseable.
+                buf = stream_state["sse_buffer"]
+                if len(buf) > 0:
+                    buf.extend(b"\n\n")
+                    _absorb(self._parse_sse_usage_from_buffer(stream_state, "openai"))
+
+                # Mirror the non-streaming sibling (``_extract_responses_usage``
+                # in handlers/openai.py): only infer cache metrics when
+                # upstream actually reported a usage frame. Otherwise the
+                # proxy-side ``optimized_tokens`` would masquerade as a
+                # cache write — wrong, and indistinguishable from a real
+                # hit-rate-zero call in the dashboard.
+                upstream_input = stream_state["input_tokens"]
+                output_tokens = stream_state["output_tokens"] or 0
+                cache_read_tokens = stream_state["cache_read_input_tokens"] or 0
+                if upstream_input is None:
+                    input_tokens = 0
+                    cache_write_tokens = 0
+                    uncached_input_tokens = 0
+                    cache_hit_pct = 0
+                else:
+                    input_tokens = upstream_input
+                    cache_write_tokens = _infer_openai_cache_write_tokens(
+                        input_tokens, cache_read_tokens
+                    )
+                    uncached_input_tokens = max(input_tokens - cache_read_tokens, 0)
+                    cache_hit_pct = (
+                        round(cache_read_tokens / input_tokens * 100) if input_tokens > 0 else 0
+                    )
+
                 total_latency = (time.time() - start_time) * 1000
                 # Active-compression denominator for backend-routed
                 # streaming. No per-message live-zone tracking is wired
@@ -1493,12 +1585,22 @@ class StreamingMixin:
                     output_tokens=output_tokens,
                     tokens_saved=tokens_saved,
                     latency_ms=total_latency,
-                    cached=False,
+                    cached=cache_read_tokens > 0,
                     overhead_ms=optimization_latency,
                     pipeline_timing=pipeline_timing,
                     waste_signals=waste_signals,
                     attempted_input_tokens=attempted_input_tokens,
                 )
+
+                if self.cost_tracker:
+                    self.cost_tracker.record_tokens(
+                        model,
+                        tokens_saved,
+                        optimized_tokens,
+                        cache_read_tokens=cache_read_tokens,
+                        cache_write_tokens=cache_write_tokens,
+                        uncached_tokens=uncached_input_tokens,
+                    )
 
                 # Mirror the Anthropic-stream path: log to RequestLogger so
                 # /stats.recent_requests and /transformations/feed see this
@@ -1522,7 +1624,7 @@ class StreamingMixin:
                             optimization_latency_ms=optimization_latency,
                             total_latency_ms=total_latency,
                             tags=tags or {},
-                            cache_hit=False,
+                            cache_hit=cache_read_tokens > 0,
                             transforms_applied=transforms_applied,
                             waste_signals=waste_signals,
                             request_messages=body.get("messages")
@@ -1530,6 +1632,23 @@ class StreamingMixin:
                             else None,
                         )
                     )
+
+                # Structured perf log line for `headroom perf` analysis.
+                # Missing this line is why issue #327 reported
+                # ``Cache write: 0`` on Azure-GPT/Codex backend-routed
+                # traffic: the entire request was invisible to the perf
+                # parser, not zero — but the symptom is identical.
+                num_msgs = len(body.get("messages", []))
+                logger.info(
+                    f"[{request_id}] PERF "
+                    f"model={model} msgs={num_msgs} "
+                    f"tok_before={original_tokens} tok_after={optimized_tokens} "
+                    f"tok_saved={tokens_saved} "
+                    f"cache_read={cache_read_tokens} cache_write={cache_write_tokens} "
+                    f"cache_hit_pct={cache_hit_pct} "
+                    f"opt_ms={optimization_latency:.0f} "
+                    f"transforms={_summarize_transforms(transforms_applied)}"
+                )
 
                 if tokens_saved > 0:
                     logger.info(
