@@ -64,7 +64,7 @@ pub fn compare_fixture(
             return Ok(ComparisonOutcome::Skipped {
                 reason: format!("comparator error: {e}"),
             })
-        }
+        },
     };
     let actual_normalized: serde_json::Value =
         serde_json::from_str(&serde_json::to_string(&actual)?)
@@ -136,10 +136,10 @@ pub fn run_comparator(dir: &Path, comparator: &dyn TransformComparator) -> Resul
             ComparisonOutcome::Match => report.matched += 1,
             ComparisonOutcome::Diff { expected, actual } => {
                 report.diffed.push((path, expected, actual));
-            }
+            },
             ComparisonOutcome::Skipped { reason } => {
                 report.skipped.push((path, reason));
-            }
+            },
         }
     }
     Ok(report)
@@ -404,10 +404,6 @@ impl TransformComparator for SmartCrusherComparator {
                 .get("enable_ccr_marker")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(defaults.enable_ccr_marker),
-            // Compaction heuristics are moot here: this comparator uses
-            // `without_compaction` (fixtures were recorded against the
-            // lossy-only path). Take the defaults wholesale.
-            ..defaults
         };
 
         // Use without_compaction so the legacy fixtures (recorded

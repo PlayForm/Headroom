@@ -97,7 +97,7 @@ mod tests {
         match err {
             TransformError::InvalidInput { transform, .. } => {
                 assert_eq!(transform, "json_minifier")
-            }
+            },
             _ => panic!("expected InvalidInput, got {err:?}"),
         }
     }
@@ -117,7 +117,7 @@ mod tests {
             .apply("   \n\t  ")
             .expect_err("ws-only must skip");
         match err {
-            TransformError::Skipped { .. } => {}
+            TransformError::Skipped { .. } => {},
             _ => panic!("expected Skipped"),
         }
     }

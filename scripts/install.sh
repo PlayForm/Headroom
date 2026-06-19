@@ -6,57 +6,57 @@ IMAGE_DEFAULT="ghcr.io/chopratejas/headroom:latest"
 INSTALL_IMAGE="${HEADROOM_DOCKER_IMAGE:-${IMAGE_DEFAULT}}"
 INSTALL_DIR="${HOME}/.local/bin"
 if [[ ! -d "${HOME}/.local" ]]; then
-  INSTALL_DIR="${HOME}/bin"
+	INSTALL_DIR="${HOME}/bin"
 fi
 
 BASH_PATH="${BASH:-$(command -v bash)}"
 if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3))); then
-  printf 'ERROR: Headroom Docker-native install requires bash >= 4.3\n' >&2
-  exit 1
+	printf 'ERROR: Headroom Docker-native install requires bash >= 4.3\n' >&2
+	exit 1
 fi
 
 info() {
-  printf '==> %s\n' "$*"
+	printf '==> %s\n' "$*"
 }
 
 warn() {
-  printf 'WARN: %s\n' "$*" >&2
+	printf 'WARN: %s\n' "$*" >&2
 }
 
 die() {
-  printf 'ERROR: %s\n' "$*" >&2
-  exit 1
+	printf 'ERROR: %s\n' "$*" >&2
+	exit 1
 }
 
 require_cmd() {
-  command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"
+	command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"
 }
 
 append_path_block() {
-  local target_file="$1"
-  local marker_start="# >>> headroom docker-native >>>"
-  local marker_end="# <<< headroom docker-native <<<"
-  local block="${marker_start}
+	local target_file="$1"
+	local marker_start="# >>> headroom docker-native >>>"
+	local marker_end="# <<< headroom docker-native <<<"
+	local block="${marker_start}
 export PATH=\"${INSTALL_DIR}:\$PATH\"
 ${marker_end}"
 
-  touch "${target_file}"
-  if grep -Fq "${marker_start}" "${target_file}"; then
-    return
-  fi
+	touch "${target_file}"
+	if grep -Fq "${marker_start}" "${target_file}"; then
+		return
+	fi
 
-  {
-    printf '\n%s\n' "${block}"
-  } >>"${target_file}"
+	{
+		printf '\n%s\n' "${block}"
+	} >>"${target_file}"
 }
 
 write_wrapper() {
-  local wrapper_path="${INSTALL_DIR}/headroom"
+	local wrapper_path="${INSTALL_DIR}/headroom"
 
-  {
-    printf '#!%s\n\n' "${BASH_PATH}"
-    printf 'HEADROOM_IMAGE_DEFAULT=%q\n' "${INSTALL_IMAGE}"
-    cat <<'WRAPPER'
+	{
+		printf '#!%s\n\n' "${BASH_PATH}"
+		printf 'HEADROOM_IMAGE_DEFAULT=%q\n' "${INSTALL_IMAGE}"
+		cat <<'WRAPPER'
 
 set -euo pipefail
 
@@ -1628,35 +1628,35 @@ EOF
 
 main "$@"
 WRAPPER
-  } >"${wrapper_path}"
+	} >"${wrapper_path}"
 
-  chmod +x "${wrapper_path}"
+	chmod +x "${wrapper_path}"
 }
 
 main() {
-  require_cmd docker
-  docker version >/dev/null 2>&1 || die "Docker is installed but not available to the current user"
+	require_cmd docker
+	docker version >/dev/null 2>&1 || die "Docker is installed but not available to the current user"
 
-  mkdir -p "${INSTALL_DIR}"
-  write_wrapper
+	mkdir -p "${INSTALL_DIR}"
+	write_wrapper
 
-  append_path_block "${HOME}/.bashrc"
-  append_path_block "${HOME}/.zshrc"
-  append_path_block "${HOME}/.profile"
+	append_path_block "${HOME}/.bashrc"
+	append_path_block "${HOME}/.zshrc"
+	append_path_block "${HOME}/.profile"
 
-  if [[ -n "${HEADROOM_DOCKER_IMAGE:-}" ]]; then
-    if docker image inspect "${INSTALL_IMAGE}" >/dev/null 2>&1; then
-      info "Using existing HEADROOM_DOCKER_IMAGE=${INSTALL_IMAGE}"
-    else
-      info "Pulling ${INSTALL_IMAGE}"
-      docker pull "${INSTALL_IMAGE}" >/dev/null
-    fi
-  else
-    info "Pulling ${IMAGE_DEFAULT}"
-    docker pull "${IMAGE_DEFAULT}" >/dev/null
-  fi
+	if [[ -n "${HEADROOM_DOCKER_IMAGE:-}" ]]; then
+		if docker image inspect "${INSTALL_IMAGE}" >/dev/null 2>&1; then
+			info "Using existing HEADROOM_DOCKER_IMAGE=${INSTALL_IMAGE}"
+		else
+			info "Pulling ${INSTALL_IMAGE}"
+			docker pull "${INSTALL_IMAGE}" >/dev/null
+		fi
+	else
+		info "Pulling ${IMAGE_DEFAULT}"
+		docker pull "${IMAGE_DEFAULT}" >/dev/null
+	fi
 
-  cat <<EOF
+	cat <<EOF
 
 Headroom Docker-native install complete.
 

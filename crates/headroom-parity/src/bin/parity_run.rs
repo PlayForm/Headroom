@@ -37,7 +37,7 @@ fn main() -> Result<()> {
                 println!("{}", c.name());
             }
             Ok(())
-        }
+        },
         Cmd::Run { fixtures, only } => {
             let mut any_diffs = false;
             for comparator in builtin_comparators() {
@@ -69,7 +69,7 @@ fn main() -> Result<()> {
                 std::process::exit(1);
             }
             Ok(())
-        }
+        },
     }
 }
 

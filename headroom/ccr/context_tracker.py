@@ -21,6 +21,7 @@ Example:
 from __future__ import annotations
 
 import json
+from collections import deque
 import logging
 import re
 import time
@@ -81,7 +82,7 @@ class ContextTrackerConfig:
     max_tracked_contexts: int = 100
 
     # Relevance threshold for recommending expansion (0-1)
-    relevance_threshold: float = 0.3
+    relevance_threshold: float = 0.5
 
     # Maximum age for contexts (seconds) - older contexts less likely to expand
     max_context_age_seconds: float = 300.0  # 5 minutes
@@ -90,7 +91,7 @@ class ContextTrackerConfig:
     proactive_expansion: bool = True
 
     # Maximum items to proactively expand per turn
-    max_proactive_expansions: int = 2
+    max_proactive_expansions: int = 5
 
 
 class ContextTracker:
@@ -126,7 +127,7 @@ class ContextTracker:
     def __init__(self, config: ContextTrackerConfig | None = None):
         self.config = config or ContextTrackerConfig()
         self._contexts: dict[str, CompressedContext] = {}
-        self._turn_order: list[str] = []  # For LRU
+        self._turn_order: deque[str] = deque()  # For LRU
         self._current_turn: int = 0
 
     def track_compression(
@@ -174,13 +175,16 @@ class ContextTracker:
 
         # Add or update context
         if hash_key in self._contexts:
-            self._turn_order.remove(hash_key)
+            try:
+                self._turn_order.remove(hash_key)
+            except ValueError:
+                pass  # hash was evicted but context dict still has it
         self._contexts[hash_key] = context
         self._turn_order.append(hash_key)
 
         # LRU eviction
         while len(self._contexts) > self.config.max_tracked_contexts:
-            oldest = self._turn_order.pop(0)
+            oldest = self._turn_order.popleft()
             del self._contexts[oldest]
 
         self._current_turn = max(self._current_turn, turn_number)
@@ -432,6 +436,29 @@ class ContextTracker:
             "my",
             "i",
             "you",
+            # Common coding terms that trigger false relevance
+            "file",
+            "code",
+            "test",
+            "src",
+            "lib",
+            "api",
+            "data",
+            "type",
+            "name",
+            "user",
+            "path",
+            "error",
+            "import",
+            "from",
+            "class",
+            "def",
+            "function",
+            "return",
+            "self",
+            "main",
+            "line",
+            "size",
         }
 
         return [w for w in words if w not in stop_words and len(w) >= 2]

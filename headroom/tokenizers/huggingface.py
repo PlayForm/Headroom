@@ -62,6 +62,10 @@ MODEL_TO_TOKENIZER: dict[str, str] = {
     "qwen2.5-7b": "Qwen/Qwen2.5-7B",
     "qwen2.5-72b": "Qwen/Qwen2.5-72B",
     # DeepSeek
+    "deepseek-chat": "deepseek-ai/DeepSeek-V3",
+    "deepseek-r1": "deepseek-ai/DeepSeek-V3",
+    "deepseek-v4": "deepseek-ai/DeepSeek-V3",
+    "deepseek-v4-pro": "deepseek-ai/DeepSeek-V3",
     "deepseek": "deepseek-ai/deepseek-llm-7b-base",
     "deepseek-7b": "deepseek-ai/deepseek-llm-7b-base",
     "deepseek-67b": "deepseek-ai/deepseek-llm-67b-base",

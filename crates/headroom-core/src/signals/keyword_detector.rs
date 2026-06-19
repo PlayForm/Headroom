@@ -251,12 +251,12 @@ impl KeywordDetector {
                 if let Some(cat) = self.security.first_word_match(line) {
                     return Some((cat, priority_for(cat)));
                 }
-            }
+            },
             ImportanceContext::Text | ImportanceContext::Search | ImportanceContext::Log => {
                 if let Some(cat) = self.warning.first_word_match(line) {
                     return Some((cat, priority_for(cat)));
                 }
-            }
+            },
         }
         // Markdown structural prefixes only count in Text context.
         if matches!(ctx, ImportanceContext::Text) {
@@ -285,7 +285,7 @@ impl LineImportanceDetector for KeywordDetector {
         match self.match_in_context(line, ctx) {
             Some((category, priority)) => {
                 ImportanceSignal::matched(category, priority, KEYWORD_CONFIDENCE)
-            }
+            },
             None => ImportanceSignal::neutral(),
         }
     }

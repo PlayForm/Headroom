@@ -37,7 +37,7 @@ pub async fn ws_handler(
         Err(e) => {
             tracing::warn!(error = %e, "failed to build upstream ws url");
             return (StatusCode::BAD_GATEWAY, e).into_response_body();
-        }
+        },
     };
 
     // Build forwarded headers (drop hop-by-hop EXCEPT Upgrade/Connection — but

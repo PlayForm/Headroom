@@ -198,7 +198,7 @@ pub fn sort_schema_keys_recursive(value: &mut Value) {
             for (k, v) in entries {
                 map.insert(k, v);
             }
-        }
+        },
         Value::Array(items) => {
             // Preserve array order — JSON Schema arrays are ordered.
             // Recurse into each element so nested objects inside the
@@ -206,9 +206,9 @@ pub fn sort_schema_keys_recursive(value: &mut Value) {
             for item in items.iter_mut() {
                 sort_schema_keys_recursive(item);
             }
-        }
+        },
         // Strings, numbers, booleans, null have no keys to sort.
-        _ => {}
+        _ => {},
     }
 }
 

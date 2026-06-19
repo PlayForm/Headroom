@@ -6,7 +6,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="${HEADROOM_DOCKER_IMAGE:?set HEADROOM_DOCKER_IMAGE to a built test image}"
 PROFILE="ci-smoke"
 TMP_HOME="$(mktemp -d)"
-PORT="$(python3 - <<'PY'
+PORT="$(
+	python3 - <<'PY'
 import socket
 
 with socket.socket() as sock:
@@ -16,8 +17,8 @@ PY
 )"
 
 cleanup() {
-  docker rm -f "headroom-${PROFILE}" >/dev/null 2>&1 || true
-  rm -rf "${TMP_HOME}"
+	docker rm -f "headroom-${PROFILE}" >/dev/null 2>&1 || true
+	rm -rf "${TMP_HOME}"
 }
 trap cleanup EXIT
 
@@ -34,10 +35,10 @@ WRAPPER="${HOME}/.local/bin/headroom"
 "${WRAPPER}" install -? | grep -Fq "persistent-docker preset only"
 
 "${WRAPPER}" install apply \
-  --profile "${PROFILE}" \
-  --port "${PORT}" \
-  --image "${IMAGE}" \
-  --no-telemetry
+	--profile "${PROFILE}" \
+	--port "${PORT}" \
+	--image "${IMAGE}" \
+	--no-telemetry
 
 status_output="$("${WRAPPER}" install status --profile "${PROFILE}")"
 printf '%s\n' "${status_output}"
@@ -45,7 +46,7 @@ grep -Fq "Status:     running" <<<"${status_output}"
 curl --fail --silent "http://127.0.0.1:${PORT}/readyz" >/dev/null
 health_output="$(curl --fail --silent "http://127.0.0.1:${PORT}/health")"
 
-python3 - <<'PY' "${HOME}" "${PROFILE}" "${PORT}" "${health_output}"
+python3 - "${HOME}" "${PROFILE}" "${PORT}" "${health_output}" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -64,8 +65,8 @@ assert health["deployment"]["runtime"] == "docker"
 PY
 
 if apply_error="$("${WRAPPER}" install apply --scope user 2>&1)"; then
-  echo "expected docker-native install apply --scope user to fail" >&2
-  exit 1
+	echo "expected docker-native install apply --scope user to fail" >&2
+	exit 1
 fi
 grep -Fq "does not support provider/user/system mutation flags" <<<"${apply_error}"
 
@@ -81,12 +82,12 @@ container_env="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{en
 printf '%s\n' "${container_env}"
 
 if ! grep -Fxq "HEADROOM_WORKSPACE_DIR=${expected_workspace_dir}" <<<"${container_env}"; then
-  echo "HEADROOM_WORKSPACE_DIR missing from ${CONTAINER_NAME} env (expected=${expected_workspace_dir})" >&2
-  exit 1
+	echo "HEADROOM_WORKSPACE_DIR missing from ${CONTAINER_NAME} env (expected=${expected_workspace_dir})" >&2
+	exit 1
 fi
 if ! grep -Fxq "HEADROOM_CONFIG_DIR=${expected_config_dir}" <<<"${container_env}"; then
-  echo "HEADROOM_CONFIG_DIR missing from ${CONTAINER_NAME} env (expected=${expected_config_dir})" >&2
-  exit 1
+	echo "HEADROOM_CONFIG_DIR missing from ${CONTAINER_NAME} env (expected=${expected_config_dir})" >&2
+	exit 1
 fi
 
 # Belt-and-suspenders: also assert via `docker exec` so we prove the vars are
@@ -94,12 +95,12 @@ fi
 # Config.Env snapshot).
 exec_env="$(docker exec "${CONTAINER_NAME}" env)"
 if ! grep -Fxq "HEADROOM_WORKSPACE_DIR=${expected_workspace_dir}" <<<"${exec_env}"; then
-  echo "HEADROOM_WORKSPACE_DIR not visible to docker exec in ${CONTAINER_NAME}" >&2
-  exit 1
+	echo "HEADROOM_WORKSPACE_DIR not visible to docker exec in ${CONTAINER_NAME}" >&2
+	exit 1
 fi
 if ! grep -Fxq "HEADROOM_CONFIG_DIR=${expected_config_dir}" <<<"${exec_env}"; then
-  echo "HEADROOM_CONFIG_DIR not visible to docker exec in ${CONTAINER_NAME}" >&2
-  exit 1
+	echo "HEADROOM_CONFIG_DIR not visible to docker exec in ${CONTAINER_NAME}" >&2
+	exit 1
 fi
 
 "${WRAPPER}" install stop --profile "${PROFILE}"

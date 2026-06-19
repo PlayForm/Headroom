@@ -100,7 +100,7 @@ pub fn compress_openai_chat_request(
             return Outcome::Passthrough {
                 reason: PassthroughReason::NotJson,
             };
-        }
+        },
     };
 
     if parsed.get("messages").and_then(|v| v.as_array()).is_none() {
@@ -163,7 +163,7 @@ pub fn compress_openai_chat_request(
                 };
             }
             Outcome::NoCompression
-        }
+        },
         Ok(LiveZoneOutcome::Modified { new_body, manifest }) => {
             // Aggregate manifest stats. Mirrors the Anthropic
             // module — same metric shape so dashboards don't need
@@ -209,10 +209,10 @@ pub fn compress_openai_chat_request(
                                 compressed_tokens,
                             });
                         }
-                    }
+                    },
                     BlockAction::RejectedNotSmaller { strategy, .. } => {
                         crate::observability::record_compression_rejected_by_token_check(strategy);
-                    }
+                    },
                     BlockAction::CompressorError {
                         strategy,
                         ref error,
@@ -226,8 +226,8 @@ pub fn compress_openai_chat_request(
                             error = %error,
                             "openai chat compressor error on a block; that block reverts to original"
                         );
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
             // Stitch in PR-E1 strategy tags so dashboards see the
@@ -271,7 +271,7 @@ pub fn compress_openai_chat_request(
                 markers_inserted: Vec::new(),
                 per_strategy_tokens,
             }
-        }
+        },
         Err(LiveZoneError::BodyNotJson(_)) => {
             tracing::warn!(
                 event = "compression_decision",
@@ -282,7 +282,7 @@ pub fn compress_openai_chat_request(
             Outcome::Passthrough {
                 reason: PassthroughReason::NotJson,
             }
-        }
+        },
         Err(LiveZoneError::NoMessagesArray) => {
             tracing::info!(
                 event = "compression_decision",
@@ -298,7 +298,7 @@ pub fn compress_openai_chat_request(
             Outcome::Passthrough {
                 reason: PassthroughReason::NoMessages,
             }
-        }
+        },
     }
 }
 
@@ -445,7 +445,7 @@ fn normalize_tool_definitions_openai_chat(
                  to original body bytes"
             );
             (body.clone(), NormalizationApplied::default())
-        }
+        },
     }
 }
 

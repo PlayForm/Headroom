@@ -143,7 +143,7 @@ impl SseFramer {
                 Some((end, len)) => {
                     term_len = len;
                     end
-                }
+                },
                 None => return None,
             };
             // The block is bytes [0, block_end); skip past the
@@ -159,7 +159,7 @@ impl SseFramer {
                         self.done_seen = true;
                     }
                     return Some(Ok(event));
-                }
+                },
                 // No data lines (comment-only / empty event /
                 // pure ping). Skip and try the next block.
                 Ok(None) => continue,
@@ -273,14 +273,14 @@ fn parse_event_block(block: Bytes) -> Result<Option<SseEvent>, FramingError> {
             b"event" => {
                 let name = std::str::from_utf8(value).map_err(FramingError::EventNameNotUtf8)?;
                 event_name = Some(name.to_string());
-            }
+            },
             b"data" => {
                 // We slice `block` (a `Bytes`) so the resulting
                 // payload shares the underlying allocation. No copy.
                 let abs_start = value.as_ptr() as usize - block.as_ptr() as usize;
                 let abs_end = abs_start + value.len();
                 data_parts.push(block.slice(abs_start..abs_end));
-            }
+            },
             // `id:` and `retry:` are valid SSE fields but neither
             // Anthropic nor OpenAI uses them on streamed responses.
             // Track-and-ignore: future providers can be added.

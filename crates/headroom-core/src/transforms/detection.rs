@@ -58,7 +58,7 @@ pub fn detect(content: &str) -> ContentType {
             // Magika says "I don't know" or "plain text". Continue
             // to Tier 2 — magika frequently mis-classifies short
             // diffs and prose-prefixed diffs as text.
-        }
+        },
         Ok(content_type) => return content_type,
         Err(e) => {
             // Init or inference failure. Log it (so an ops-side
@@ -69,7 +69,7 @@ pub fn detect(content: &str) -> ContentType {
                 error = %e,
                 "magika detection failed; falling through to unidiff tier"
             );
-        }
+        },
     }
 
     // ── Tier 2: unidiff parser ──────────────────────────────────

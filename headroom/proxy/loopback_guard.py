@@ -1,7 +1,7 @@
 """Loopback-only access guard for /debug/* endpoints.
 
 Unit 5 of the Codex-proxy resilience plan. A FastAPI dependency that
-raises :class:`fastapi.HTTPException` with status 404 — *not* 403 — for
+raises :class:`fastapi.HTTPException` with status 404 - *not* 403 - for
 any request whose client address is not the loopback interface. 404 is
 deliberate: debug endpoints should be invisible to external scanners,
 not merely forbidden.
@@ -29,7 +29,7 @@ policy (``allow_origins=['*']``), so attacker JS can then read the
 response.
 
 To close that gap the guard also requires the ``Host:`` header to name
-loopback — ``127.0.0.1[:port]``, ``[::1][:port]``, or
+loopback - ``127.0.0.1[:port]``, ``[::1][:port]``, or
 ``localhost[:port]``. Same-origin XHR from a real local tool always
 sets one of those values; cross-origin rebinding does not. This is the
 canonical Host-header allowlist mitigation called out in OWASP's
@@ -49,11 +49,25 @@ except ImportError:  # pragma: no cover - fastapi is a hard dep in practice
 
 
 __all__ = [
+    "LOOPBACK_EXEMPT_PATHS",
     "LOOPBACK_HOSTS",
     "is_loopback_host",
     "is_loopback_host_header",
     "require_loopback",
 ]
+
+
+# Paths exempt from loopback checking - service endpoints that must be
+# reachable from the local tool even when accessed via a non-loopback
+# interface (e.g. Docker host, Kubernetes sidecar).
+LOOPBACK_EXEMPT_PATHS: frozenset[str] = frozenset(
+    {
+        "/retrieve",
+        "/health",
+        "/stats",
+        "/v1/models",
+    }
+)
 
 
 # Legacy canonical loopback literal set. Retained for backwards
@@ -67,7 +81,7 @@ LOOPBACK_HOSTS: frozenset[str] = frozenset({"127.0.0.1", "::1", "localhost"})
 def is_loopback_host(host: str | None) -> bool:
     """Return True if ``host`` represents a loopback interface.
 
-    ``None`` is treated as loopback — this covers ``TestClient`` /
+    ``None`` is treated as loopback - this covers ``TestClient`` /
     UDS-style requests where FastAPI does not populate
     ``request.client``.
 
@@ -101,7 +115,7 @@ def is_loopback_host_header(header_value: str | None) -> bool:
     the trailing ``:port`` (if any) and delegates the address-vs-name
     decision to :func:`is_loopback_host`.
 
-    Missing / empty headers return ``False`` rather than ``True`` —
+    Missing / empty headers return ``False`` rather than ``True`` -
     a real local browser or CLI always sets ``Host:``, so absence is
     suspicious. Server-internal callers that bypass HTTP entirely
     (``TestClient`` with a manual call) do not hit the guard.
@@ -111,7 +125,7 @@ def is_loopback_host_header(header_value: str | None) -> bool:
     candidate = header_value.strip()
     if not candidate:
         return False
-    # Bracketed IPv6: [::1] or [::1]:8787 — strip the brackets and
+    # Bracketed IPv6: [::1] or [::1]:8787 - strip the brackets and
     # everything after the matching ``]`` (which is the port suffix).
     if candidate.startswith("["):
         closing = candidate.find("]")
@@ -144,15 +158,26 @@ def require_loopback(request: Request) -> None:  # type: ignore[valid-type]
        / ``::1``.
     2. The inbound ``Host:`` header must also name loopback. Stops
        DNS-rebinding attacks where a browser sends requests to the
-       loopback IP but the page origin is ``attacker.com`` — the IP
+       loopback IP but the page origin is ``attacker.com`` - the IP
        check alone passes, but the ``Host:`` header still reads
        ``attacker.com`` and we reject the request here.
 
     Returning 404 (not 403) keeps debug endpoints invisible to
-    external scanners — indistinguishable from "no such route".
+    external scanners - indistinguishable from "no such route".
     """
     if HTTPException is None:  # pragma: no cover - defensive
         raise RuntimeError("FastAPI is required for the loopback guard")
+
+    # Exempt paths that must be reachable from non-loopback callers
+    # (e.g. service endpoints called from Docker/K8s sidecars).
+    try:
+        path = getattr(request, "url", None)
+        if path is not None:
+            url_path = str(getattr(path, "path", ""))
+            if any(url_path.startswith(exempt) for exempt in LOOPBACK_EXEMPT_PATHS):
+                return
+    except Exception:  # pragma: no cover - defensive
+        pass
 
     client = getattr(request, "client", None)
     host = getattr(client, "host", None) if client is not None else None
@@ -162,7 +187,7 @@ def require_loopback(request: Request) -> None:  # type: ignore[valid-type]
 
     headers = getattr(request, "headers", None)
     if headers is None:
-        # Manual ``Request`` stub with no ``headers`` attribute — used
+        # Manual ``Request`` stub with no ``headers`` attribute - used
         # by older unit tests that pre-date this gate. Treat the same
         # way as the IP-only path did and accept.
         return

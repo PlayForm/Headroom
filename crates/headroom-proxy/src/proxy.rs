@@ -612,7 +612,7 @@ pub(crate) async fn forward_http(
                 return Err(ProxyError::PayloadTooLarge(format!(
                     "request body exceeds compression buffer limit ({max} bytes): {e}"
                 )));
-            }
+            },
         };
 
         // PR-C2: dispatch on the endpoint classification so each
@@ -673,10 +673,10 @@ pub(crate) async fn forward_http(
                 compression::CompressibleEndpoint::AnthropicMessages => Some(ApiKind::Anthropic),
                 compression::CompressibleEndpoint::OpenAiChatCompletions => {
                     Some(ApiKind::OpenAiChat)
-                }
+                },
                 compression::CompressibleEndpoint::OpenAiResponses => {
                     Some(ApiKind::OpenAiResponses)
-                }
+                },
             };
             if let (Some(kind), Some(headers)) = (drift_kind, headers_snapshot.as_ref()) {
                 let session_key = derive_session_key(headers, &client_addr);
@@ -697,7 +697,7 @@ pub(crate) async fn forward_http(
                     auth_mode,
                     &request_id,
                 )
-            }
+            },
             compression::CompressibleEndpoint::OpenAiChatCompletions => {
                 let skip = compression::should_skip_compression(&buffered);
                 if skip.is_skip() {
@@ -721,7 +721,7 @@ pub(crate) async fn forward_http(
                         &request_id,
                     )
                 }
-            }
+            },
             // PR-C3: OpenAI Responses (`/v1/responses`). The Responses
             // dispatcher walks an explicitly-typed `input` array and
             // only rewrites the latest of each compressible `*_output`
@@ -734,7 +734,7 @@ pub(crate) async fn forward_http(
                     auth_mode,
                     &request_id,
                 )
-            }
+            },
         };
 
         // C2 fix: snapshot the original buffered byte-length AND the
@@ -756,7 +756,7 @@ pub(crate) async fn forward_http(
                 // — the dispatcher only mutates body bytes when at
                 // least one block compressed.
                 buffered
-            }
+            },
             // PR-B3+ produces `Compressed` from the live-zone
             // dispatcher when at least one per-type compressor
             // mutates a block. Already wired here so the next phase
@@ -825,7 +825,7 @@ pub(crate) async fn forward_http(
                     );
                 }
                 body
-            }
+            },
             compression::Outcome::Passthrough { reason } => {
                 tracing::warn!(
                     request_id = %request_id,
@@ -834,7 +834,7 @@ pub(crate) async fn forward_http(
                     "compression: passthrough on parse/serialize"
                 );
                 buffered
-            }
+            },
         };
 
         // C2 fix: cache-safety alarm. When the dispatcher returned
@@ -875,7 +875,7 @@ pub(crate) async fn forward_http(
                 let shape = match endpoint {
                     compression::CompressibleEndpoint::OpenAiResponses => {
                         cache_stabilization::openai_cache_key::OpenAiShape::Responses
-                    }
+                    },
                     _ => cache_stabilization::openai_cache_key::OpenAiShape::ChatCompletions,
                 };
                 maybe_inject_openai_prompt_cache_key(
@@ -885,7 +885,7 @@ pub(crate) async fn forward_http(
                     &request_id,
                     &path_for_log,
                 )
-            }
+            },
             compression::CompressibleEndpoint::AnthropicMessages => body_to_send,
         };
 
@@ -1051,11 +1051,11 @@ pub(crate) async fn forward_http(
                 }
             }
             Ok(b)
-        }
+        },
         Err(e) => {
             tracing::warn!(request_id = %rid, error = %e, "upstream stream error mid-response");
             Err(e)
-        }
+        },
     });
     let body = Body::from_stream(resp_stream);
 
@@ -1192,7 +1192,7 @@ fn maybe_inject_openai_prompt_cache_key(
         Ok(v) => v,
         Err(_) => {
             return body;
-        }
+        },
     };
 
     match inject_prompt_cache_key(&mut parsed, shape) {
@@ -1213,7 +1213,7 @@ fn maybe_inject_openai_prompt_cache_key(
                         "PR-E4: injected prompt_cache_key"
                     );
                     bytes::Bytes::from(buf)
-                }
+                },
                 Err(e) => {
                     tracing::error!(
                         event = "e4_serialize_error",
@@ -1223,9 +1223,9 @@ fn maybe_inject_openai_prompt_cache_key(
                         "PR-E4: re-serialize after injection failed; forwarding original bytes"
                     );
                     body
-                }
+                },
             }
-        }
+        },
         InjectOutcome::Skipped { reason } => {
             // Log only the customer-visible KeyPresent skip; the
             // NotAnObject skip is structurally impossible past
@@ -1240,7 +1240,7 @@ fn maybe_inject_openai_prompt_cache_key(
                         reason = SkipReason::KeyPresent.as_str(),
                         "PR-E4: skipped prompt_cache_key injection (customer-set value preserved)"
                     );
-                }
+                },
                 SkipReason::NotAnObject => {
                     tracing::warn!(
                         event = "e4_skipped",
@@ -1249,10 +1249,10 @@ fn maybe_inject_openai_prompt_cache_key(
                         reason = SkipReason::NotAnObject.as_str(),
                         "PR-E4: body is not a JSON object; passthrough"
                     );
-                }
+                },
             }
             body
-        }
+        },
     }
 }
 
@@ -1284,14 +1284,14 @@ async fn run_sse_state_machine(
                                     "sse anthropic state-machine apply error"
                                 );
                             }
-                        }
+                        },
                         Err(e) => {
                             tracing::warn!(
                                 request_id = %request_id,
                                 error = %e,
                                 "sse framer error"
                             );
-                        }
+                        },
                     }
                 }
             }
@@ -1307,7 +1307,7 @@ async fn run_sse_state_machine(
                         &request_id,
                         rate,
                     );
-                }
+                },
                 None => {
                     tracing::debug!(
                         event = "cache_hit_rate_skipped",
@@ -1319,7 +1319,7 @@ async fn run_sse_state_machine(
                         cache_creation_input_tokens = state.usage.cache_creation_input_tokens,
                         "skipping proxy_cache_hit_rate_per_session: H2 gate or zero denominator"
                     );
-                }
+                },
             }
             tracing::info!(
                 request_id = %request_id,
@@ -1332,7 +1332,7 @@ async fn run_sse_state_machine(
                 blocks = state.blocks.len(),
                 "sse stream closed"
             );
-        }
+        },
         SseStreamKind::OpenAiChat => {
             let mut state = crate::sse::openai_chat::ChunkState::new();
             while let Some(chunk) = rx.recv().await {
@@ -1347,14 +1347,14 @@ async fn run_sse_state_machine(
                                     "sse openai_chat state-machine apply error"
                                 );
                             }
-                        }
+                        },
                         Err(e) => {
                             tracing::warn!(
                                 request_id = %request_id,
                                 error = %e,
                                 "sse framer error"
                             );
-                        }
+                        },
                     }
                 }
             }
@@ -1407,7 +1407,7 @@ async fn run_sse_state_machine(
                                 &request_id,
                                 rate,
                             );
-                        }
+                        },
                         None => {
                             tracing::debug!(
                                 event = "cache_hit_rate_skipped",
@@ -1416,7 +1416,7 @@ async fn run_sse_state_machine(
                                 reason = "zero_denominator",
                                 "skipping proxy_cache_hit_rate_per_session: no input tokens"
                             );
-                        }
+                        },
                     }
                 }
             } else {
@@ -1435,7 +1435,7 @@ async fn run_sse_state_machine(
                 has_usage = state.usage.is_some(),
                 "sse stream closed"
             );
-        }
+        },
         SseStreamKind::OpenAiResponses => {
             let mut state = crate::sse::openai_responses::ResponseState::new();
             while let Some(chunk) = rx.recv().await {
@@ -1450,14 +1450,14 @@ async fn run_sse_state_machine(
                                     "sse openai_responses state-machine apply error"
                                 );
                             }
-                        }
+                        },
                         Err(e) => {
                             tracing::warn!(
                                 request_id = %request_id,
                                 error = %e,
                                 "sse framer error"
                             );
-                        }
+                        },
                     }
                 }
             }
@@ -1514,7 +1514,7 @@ async fn run_sse_state_machine(
                                     &request_id,
                                     rate,
                                 );
-                            }
+                            },
                             None => {
                                 tracing::debug!(
                                     event = "cache_hit_rate_skipped",
@@ -1523,7 +1523,7 @@ async fn run_sse_state_machine(
                                     reason = "zero_denominator",
                                     "skipping proxy_cache_hit_rate_per_session: no input tokens"
                                 );
-                            }
+                            },
                         }
                     }
                 }
@@ -1566,8 +1566,8 @@ async fn run_sse_state_machine(
                 incomplete_reason = state.incomplete_reason.as_deref().unwrap_or(""),
                 "sse stream closed"
             );
-        }
-        SseStreamKind::None => {}
+        },
+        SseStreamKind::None => {},
     }
 }
 

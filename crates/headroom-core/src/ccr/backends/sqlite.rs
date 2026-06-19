@@ -14,7 +14,8 @@
 //!
 //! On every `get` we lazy-purge stale rows
 //! (`WHERE created_at + ttl_seconds <= now`) — no background reaper
-//! thread, no cron.
+//! thread, no cron. The purge is debounced to once every 60 seconds
+//! so high read-concurrency does not re-execute the same DELETE.
 //!
 //! All hot statements are prepared once on connection setup and reused
 //! per call (per realignment build constraint #5: performant). Writes
@@ -36,14 +37,44 @@
 //! (and vice versa), and the on-disk journal does not grow unbounded.
 //! Critical for proxy workloads where many concurrent retrievals can
 //! land while a compression flushes a fresh row.
+//!
+//! # Poison resilience
+//!
+//! All `Mutex::lock()` calls degrade gracefully instead of panicking:
+//! if another thread panicked while holding the lock the poisoned
+//! mutex is cleared and a warning is emitted. This keeps the proxy
+//! serving traffic even after a transient panic in the CCR subsystem.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection, OptionalExtension};
+use serde_json;
 
 use crate::ccr::CcrStore;
+
+/// Minimum interval between lazy-purge sweeps, in seconds.
+///
+/// Prevents a sustained burst of concurrent `get` calls from each
+/// issuing a full-table DELETE on the same set of expired rows.
+const PURGE_DEBOUNCE_SECS: u64 = 60;
+
+/// Acquire the mutex guard, recovering from poison.
+///
+/// If the mutex is poisoned (another thread panicked while holding
+/// it), we clear the poison, log a warning, and continue. This keeps
+/// the proxy serving traffic rather than taking down the whole worker
+/// because of a transient CCR panic.
+fn lock_conn(conn: &Mutex<Connection>) -> std::sync::MutexGuard<'_, Connection> {
+    match conn.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            tracing::warn!(target = "ccr.sqlite", "ccr_sqlite_mutex_poisoned_recovered");
+            poisoned.into_inner()
+        },
+    }
+}
 
 /// SQLite-backed CCR store.
 pub struct SqliteCcrStore {
@@ -54,6 +85,10 @@ pub struct SqliteCcrStore {
     /// Path the connection was opened against — kept for diagnostics
     /// and for the proxy-restart simulation test.
     path: PathBuf,
+    /// Tracks the last time we ran a lazy-purge sweep. Debounced to
+    /// once per [`PURGE_DEBOUNCE_SECS`] to avoid redundant DELETE
+    /// statements under high concurrent read load.
+    last_purge: Mutex<Option<Instant>>,
 }
 
 impl SqliteCcrStore {
@@ -89,6 +124,7 @@ impl SqliteCcrStore {
             conn: Mutex::new(conn),
             default_ttl_seconds,
             path: path_buf,
+            last_purge: Mutex::new(None),
         })
     }
 
@@ -112,20 +148,51 @@ impl SqliteCcrStore {
         Ok(purged)
     }
 
+    /// Check whether a purge is due (debounced to `PURGE_DEBOUNCE_SECS`)
+    /// and run it if so. Updates `last_purge` in-place.
+    fn maybe_purge(&self, conn: &Connection, now: u64) {
+        let mut last = match self.last_purge.lock() {
+            Ok(g) => g,
+            Err(poisoned) => {
+                tracing::warn!(
+                    target = "ccr.sqlite",
+                    "ccr_sqlite_last_purge_mutex_poisoned_recovered"
+                );
+                poisoned.into_inner()
+            },
+        };
+
+        let due = match *last {
+            Some(ts) => ts.elapsed() >= Duration::from_secs(PURGE_DEBOUNCE_SECS),
+            None => true,
+        };
+
+        if !due {
+            return;
+        }
+
+        if let Err(err) = Self::purge_expired(conn, now) {
+            tracing::warn!(
+                target = "ccr.sqlite",
+                error = %err,
+                "ccr_sqlite_purge_failed"
+            );
+        }
+        *last = Some(Instant::now());
+    }
+
     fn now_unix_seconds() -> u64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            // System clock before 1970 is impossible on any sane host;
-            // fall through to 0 rather than panic in the unlikely case.
             .map(|d| d.as_secs())
-            .unwrap_or(0)
+            .unwrap_or(u64::MAX) // pre-epoch clock → expire everything (safe default)
     }
 }
 
 impl CcrStore for SqliteCcrStore {
-    fn put(&self, hash: &str, payload: &str) {
+    fn put(&self, hash: &str, payload: &str) -> bool {
         let now = Self::now_unix_seconds();
-        let conn = self.conn.lock().expect("ccr sqlite mutex poisoned");
+        let conn = lock_conn(&self.conn);
         // Upsert by PK. ON CONFLICT REPLACE matches the in-memory
         // backend's idempotent re-store semantics.
         let res = conn.execute(
@@ -139,7 +206,7 @@ impl CcrStore for SqliteCcrStore {
                 hash,
                 payload.as_bytes(),
                 now as i64,
-                self.default_ttl_seconds as i64,
+                (self.default_ttl_seconds.min(i64::MAX as u64)) as i64,
             ],
         );
         // Loud-failure rule: surface as a structured warning. Caller
@@ -148,30 +215,28 @@ impl CcrStore for SqliteCcrStore {
         // compressed block — a missed put degrades gracefully to "model
         // can't retrieve original bytes for this hash". We log, we
         // don't panic, so the proxy keeps serving traffic.
-        if let Err(err) = res {
-            tracing::warn!(
-                target = "ccr.sqlite",
-                hash = %hash,
-                error = %err,
-                "ccr_sqlite_put_failed"
-            );
+        match res {
+            Ok(_) => true,
+            Err(err) => {
+                tracing::warn!(
+                    target = "ccr.sqlite",
+                    hash = %hash,
+                    error = %err,
+                    "ccr_sqlite_put_failed"
+                );
+                false
+            },
         }
     }
 
     fn get(&self, hash: &str) -> Option<String> {
         let now = Self::now_unix_seconds();
-        let conn = self.conn.lock().expect("ccr sqlite mutex poisoned");
+        let conn = lock_conn(&self.conn);
 
-        // Lazy purge sweep, then the real lookup. Both happen under
-        // the same mutex so the row we read is guaranteed not to have
-        // been just-deleted by another caller.
-        if let Err(err) = Self::purge_expired(&conn, now) {
-            tracing::warn!(
-                target = "ccr.sqlite",
-                error = %err,
-                "ccr_sqlite_purge_failed"
-            );
-        }
+        // Debounced lazy purge sweep, then the real lookup. Both happen
+        // under the same mutex so the row we read is guaranteed not to
+        // have been just-deleted by another caller.
+        self.maybe_purge(&conn, now);
 
         let row: Option<Vec<u8>> = conn
             .query_row(
@@ -195,11 +260,65 @@ impl CcrStore for SqliteCcrStore {
     }
 
     fn len(&self) -> usize {
-        let conn = self.conn.lock().expect("ccr sqlite mutex poisoned");
+        let conn = lock_conn(&self.conn);
         conn.query_row("SELECT COUNT(*) FROM ccr_entries", [], |r| {
             r.get::<_, i64>(0)
         })
         .map(|n| n.max(0) as usize)
         .unwrap_or(0)
+    }
+
+    fn del(&self, hash: &str) -> bool {
+        let conn = lock_conn(&self.conn);
+        let rows = conn
+            .execute("DELETE FROM ccr_entries WHERE hash = ?1", params![hash])
+            .unwrap_or_else(|err| {
+                tracing::warn!(
+                    target = "ccr.sqlite",
+                    hash = %hash,
+                    error = %err,
+                    "ccr_sqlite_del_failed"
+                );
+                0
+            });
+        rows > 0
+    }
+
+    fn stats_db(&self) -> Option<serde_json::Value> {
+        let conn = lock_conn(&self.conn);
+
+        let total_entries: i64 = conn
+            .query_row("SELECT COUNT(*) FROM ccr_entries", [], |r| r.get(0))
+            .unwrap_or(0);
+
+        let total_original: i64 = conn
+            .query_row(
+                "SELECT COALESCE(SUM(LENGTH(original)), 0) FROM ccr_entries",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+
+        let oldest_created: Option<i64> = conn
+            .query_row("SELECT MIN(created_at) FROM ccr_entries", [], |r| r.get(0))
+            .optional()
+            .unwrap_or(None);
+
+        let now = Self::now_unix_seconds() as i64;
+        let oldest_age_seconds = oldest_created.map(|t| now.saturating_sub(t));
+
+        let db_size = std::fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0);
+
+        // `total_bytes_compressed` is estimated (24 bytes per entry,
+        // matching the 24-char BLAKE3 hex prefix used as the CCR key).
+        // This is a heuristic — actual original payloads are stored
+        // uncompressed in `total_bytes_original`.
+        Some(serde_json::json!({
+            "total_entries": total_entries,
+            "total_bytes_original": total_original,
+            "total_bytes_compressed": (total_entries as i64).saturating_mul(24),
+            "oldest_entry_age_seconds": oldest_age_seconds,
+            "database_size_bytes": db_size,
+        }))
     }
 }

@@ -175,11 +175,11 @@ pub fn detect_sequential_pattern(values: &[Value], check_order: bool) -> bool {
                     nums.push(f);
                     had_non_string_numeric = true;
                 }
-            }
+            },
             Value::Bool(_) => {
                 // Python: `isinstance(v, int | float) and not isinstance(v, bool)` —
                 // bools are explicitly excluded.
-            }
+            },
             Value::String(s) => {
                 // Python: `try: nums.append(int(v))`. `int("3.14")` raises
                 // and Rust's plain `parse::<i64>` differs from `int()` on
@@ -191,8 +191,8 @@ pub fn detect_sequential_pattern(values: &[Value], check_order: bool) -> bool {
                     // If we later find this is the ONLY source of numeric
                     // values, we refuse to call it sequential.
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
 

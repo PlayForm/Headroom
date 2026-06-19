@@ -101,7 +101,7 @@ pub fn compress_openai_responses_request(
             return Outcome::Passthrough {
                 reason: PassthroughReason::NotJson,
             };
-        }
+        },
     };
 
     let has_array_field = parsed
@@ -174,7 +174,7 @@ pub fn compress_openai_responses_request(
                 };
             }
             Outcome::NoCompression
-        }
+        },
         Ok(LiveZoneOutcome::Modified { new_body, manifest }) => {
             // Aggregate per-block savings for the structured log.
             // Mirrors the Chat Completions sibling so dashboards
@@ -217,10 +217,10 @@ pub fn compress_openai_responses_request(
                                 compressed_tokens,
                             });
                         }
-                    }
+                    },
                     BlockAction::RejectedNotSmaller { strategy, .. } => {
                         crate::observability::record_compression_rejected_by_token_check(strategy);
-                    }
+                    },
                     BlockAction::CompressorError {
                         strategy,
                         ref error,
@@ -234,8 +234,8 @@ pub fn compress_openai_responses_request(
                             error = %error,
                             "openai responses compressor error on a block; that block reverts to original"
                         );
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
             // Stitch in PR-E1 strategy tags so dashboards see the
@@ -279,7 +279,7 @@ pub fn compress_openai_responses_request(
                 markers_inserted: Vec::new(),
                 per_strategy_tokens,
             }
-        }
+        },
         Err(LiveZoneError::BodyNotJson(_)) => {
             tracing::warn!(
                 event = "compression_decision",
@@ -290,7 +290,7 @@ pub fn compress_openai_responses_request(
             Outcome::Passthrough {
                 reason: PassthroughReason::NotJson,
             }
-        }
+        },
         Err(LiveZoneError::NoMessagesArray) => {
             tracing::info!(
                 event = "compression_decision",
@@ -306,7 +306,7 @@ pub fn compress_openai_responses_request(
             Outcome::Passthrough {
                 reason: PassthroughReason::NoMessages,
             }
-        }
+        },
     }
 }
 
@@ -453,7 +453,7 @@ fn normalize_tool_definitions_responses(
                  to original body bytes"
             );
             (body.clone(), NormalizationApplied::default())
-        }
+        },
     }
 }
 
@@ -496,7 +496,7 @@ fn log_item_telemetry(parsed: &serde_json::Value, request_id: &str) {
                 "could not classify Responses items array; passthrough preserves bytes"
             );
             return;
-        }
+        },
     };
 
     let mut by_type: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
@@ -513,7 +513,7 @@ fn log_item_telemetry(parsed: &serde_json::Value, request_id: &str) {
                     "responses item with unknown `type` — preserving verbatim"
                 );
                 *by_type.entry("unknown").or_insert(0) += 1;
-            }
+            },
             Some(item) => {
                 let tag = item.type_tag();
                 *by_type.entry(tag).or_insert(0) += 1;
@@ -531,7 +531,7 @@ fn log_item_telemetry(parsed: &serde_json::Value, request_id: &str) {
                         "image_generation_call seen (image bytes redacted from log)"
                     );
                 }
-            }
+            },
         }
     }
     tracing::info!(

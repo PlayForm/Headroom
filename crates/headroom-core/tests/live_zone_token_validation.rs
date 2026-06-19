@@ -131,9 +131,9 @@ fn compressed_more_tokens_falls_back() {
                 "RejectedNotSmaller invariant: compressed_tokens ({compressed_tokens}) \
                  must be >= original_tokens ({original_tokens})"
             );
-        }
+        },
         // Compressor declined before producing output — also safe.
-        BlockAction::NoCompressionApplied { .. } => {}
+        BlockAction::NoCompressionApplied { .. } => {},
         // Compressor produced output AND it shrunk the token count —
         // also acceptable (this means our fixture wasn't actually
         // pathological for this tokenizer).
@@ -147,14 +147,14 @@ fn compressed_more_tokens_falls_back() {
                 "Compressed invariant: compressed_tokens ({compressed_tokens}) \
                  must be < original_tokens ({original_tokens})"
             );
-        }
+        },
         BlockAction::BelowByteThreshold { .. } => {
             panic!(
                 "fixture was supposed to clear the byte threshold; got BelowByteThreshold. \
                  payload len = {}",
                 payload.len()
             );
-        }
+        },
         other => panic!("unexpected dispatcher outcome: {other:?}"),
     }
 }
@@ -191,7 +191,7 @@ fn compressed_fewer_tokens_accepted() {
                 "tokenizer-validated gate must produce strict token shrinkage \
                  ({compressed_tokens} < {original_tokens})"
             );
-        }
+        },
         other => panic!(
             "expected token-shrinking Compressed for 200-dict SmartCrusher fodder, got {other:?}"
         ),

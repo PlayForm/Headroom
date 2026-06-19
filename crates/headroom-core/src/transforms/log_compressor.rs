@@ -523,15 +523,15 @@ impl StackTraceDetector {
                 } else {
                     !trimmed.starts_with(char::is_uppercase)
                 }
-            }
+            },
             TraceFlavor::Js | TraceFlavor::Java => {
                 // Terminate on the first non-`at` line.
                 !trimmed.starts_with("at ") && !line.is_empty()
-            }
+            },
             TraceFlavor::RustError => !trimmed.starts_with("--> ") && !line.is_empty(),
             TraceFlavor::Go => {
                 !trimmed.chars().next().is_some_and(|c| c.is_ascii_digit()) && !line.is_empty()
-            }
+            },
         }
     }
 }
@@ -763,7 +763,7 @@ impl LogCompressor {
                 LogLevel::Error => errors.push(line.clone()),
                 LogLevel::Fail => fails.push(line.clone()),
                 LogLevel::Warn => warnings.push(line.clone()),
-                _ => {}
+                _ => {},
             }
             if line.is_stack_trace {
                 current_stack.push(line.clone());

@@ -167,7 +167,7 @@ impl CompressionPipeline {
                     current = out.output;
                     steps.push(offload.name().to_string());
                     cache_keys.push(out.cache_key);
-                }
+                },
                 Err(TransformError::Internal { message, .. }) => {
                     tracing::warn!(
                         target: "headroom::pipeline",
@@ -175,7 +175,7 @@ impl CompressionPipeline {
                         error = %message,
                         "offload internal error"
                     );
-                }
+                },
                 Err(e) => {
                     tracing::trace!(
                         target: "headroom::pipeline",
@@ -183,7 +183,7 @@ impl CompressionPipeline {
                         error = %e,
                         "offload skipped"
                     );
-                }
+                },
             }
         }
 
@@ -227,7 +227,7 @@ impl CompressionPipeline {
                     total_saved = total_saved.saturating_add(out.bytes_saved);
                     current = out.output;
                     steps.push(transform.name().to_string());
-                }
+                },
                 Err(TransformError::Internal { message, .. }) => {
                     tracing::warn!(
                         target: "headroom::pipeline",
@@ -235,7 +235,7 @@ impl CompressionPipeline {
                         error = %message,
                         "reformat internal error"
                     );
-                }
+                },
                 Err(e) => {
                     tracing::trace!(
                         target: "headroom::pipeline",
@@ -243,7 +243,7 @@ impl CompressionPipeline {
                         error = %e,
                         "reformat skipped"
                     );
-                }
+                },
             }
         }
 

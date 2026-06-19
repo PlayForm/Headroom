@@ -312,7 +312,7 @@ impl<'a> SmartCrusherPlanner<'a> {
                         .map(|i| serde_json::to_string(i).unwrap_or_default())
                         .collect();
                     owned_strings.iter().map(|s| s.as_str()).collect()
-                }
+                },
             };
             let scores = self.scorer.score_batch(&strs, query_context);
             // Higher threshold and capped count to avoid adding everything.
@@ -390,7 +390,8 @@ impl<'a> SmartCrusherPlanner<'a> {
                     .unwrap_or("");
                 let truncated: String = msg.chars().take(50).collect();
                 let digest = Md5::digest(truncated.as_bytes());
-                let hash = format!("{:x}", digest)[..8].to_string();
+                let hex: String = digest.iter().map(|b| format!("{:02x}", b)).collect();
+                let hash = hex[..8].to_string();
                 clusters.entry(hash).or_default().push(i);
             }
             // Keep up to 2 representatives from each cluster.
@@ -504,7 +505,7 @@ impl<'a> SmartCrusherPlanner<'a> {
                     .map(|i| serde_json::to_string(i).unwrap_or_default())
                     .collect();
                 owned_strings.iter().map(|s| s.as_str()).collect()
-            }
+            },
         };
         let scores = self.scorer.score_batch(&strs, query_context);
         for (i, sc) in scores.iter().enumerate() {

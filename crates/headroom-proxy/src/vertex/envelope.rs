@@ -75,7 +75,7 @@ pub fn parse(body: &[u8]) -> Result<ParsedEnvelope, VertexEnvelopeError> {
             // structured event upstream of this call so operators
             // see it. The handler is responsible for the warn log.
             other.to_string()
-        }
+        },
         None => return Err(VertexEnvelopeError::MissingAnthropicVersion),
     };
 
@@ -135,7 +135,7 @@ mod tests {
         match err {
             VertexEnvelopeError::UnexpectedModelField { got } => {
                 assert_eq!(got, "claude-3-5-sonnet");
-            }
+            },
             other => panic!("wrong error: {other:?}"),
         }
     }

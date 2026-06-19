@@ -1,7 +1,7 @@
-"""Trusted-gateway gate for ``X-Forwarded-*`` headers — Phase F PR-F4.
+"""Trusted-gateway gate for ``X-Forwarded-*`` headers - Phase F PR-F4.
 
 The proxy must not blindly trust ``X-Forwarded-For``,
-``X-Forwarded-Proto``, or ``X-Forwarded-Host`` from arbitrary clients —
+``X-Forwarded-Proto``, or ``X-Forwarded-Host`` from arbitrary clients -
 a malicious upstream client can forge any of those values and spoof
 their origin IP, scheme, or host. We trust them ONLY when the
 connecting peer's IP is in a configured CIDR allow-list (i.e. behind
@@ -15,7 +15,7 @@ Single env var, comma-separated CIDR blocks::
     HEADROOM_PROXY_TRUSTED_GATEWAY_CIDRS=10.0.0.0/8,172.16.0.0/12,fd00::/8
 
 Whitespace around the commas is tolerated. Empty / unset is the
-**default** and the **most secure** setting — it means *no gateway is
+**default** and the **most secure** setting - it means *no gateway is
 trusted*, so every ``X-Forwarded-*`` header is ignored regardless of
 peer.
 
@@ -33,8 +33,8 @@ configured                    no                     headers IGNORED + ``forward
 Public API
 ----------
 
-* :func:`resolve_client_ip` — the IP to log / rate-limit / authorize on.
-* :func:`trusted_forwarded_headers` — sanitized ``{proto, host, for}``
+* :func:`resolve_client_ip` - the IP to log / rate-limit / authorize on.
+* :func:`trusted_forwarded_headers` - sanitized ``{proto, host, for}``
   dict; values are empty strings when the gate fails.
 
 Both helpers cache their result on ``request.state`` so they run at
@@ -63,12 +63,24 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "PASSTHROUGH_HEADERS",
     "TRUSTED_GATEWAY_CIDRS_ENV",
     "load_trusted_gateway_cidrs",
     "peer_is_trusted_gateway",
     "resolve_client_ip",
     "trusted_forwarded_headers",
 ]
+
+
+# Internal headers that MUST be forwarded upstream (not stripped) so
+# downstream handling can read per-request routing/metadata from them.
+# Additive: any header not in this set may be stripped by the proxy.
+PASSTHROUGH_HEADERS: frozenset[str] = frozenset(
+    {
+        "x-aphrodite-port",
+        "x-aphrodite-session",
+    }
+)
 
 
 #: Environment variable that holds the comma-separated CIDR allow-list.
@@ -82,7 +94,7 @@ def _parse_cidr_list(
 
     Whitespace around commas is tolerated. Empty individual entries
     (e.g. trailing comma) are skipped. Malformed entries raise
-    :class:`ValueError` — we *deliberately* do not silently skip bad
+    :class:`ValueError` - we *deliberately* do not silently skip bad
     CIDRs, because a config typo that quietly empties the allow-list
     would silently downgrade the proxy from "strict" to "more strict",
     masking the operator's intent.
@@ -93,10 +105,10 @@ def _parse_cidr_list(
     for chunk in raw.split(","):
         entry = chunk.strip()
         if not entry:
-            # Tolerate `"10.0.0.0/8,"` — trailing comma is benign.
+            # Tolerate `"10.0.0.0/8,"` - trailing comma is benign.
             continue
         # ``strict=False`` so ``10.0.0.1/8`` is accepted as the network
-        # ``10.0.0.0/8`` instead of rejecting host bits — operators
+        # ``10.0.0.0/8`` instead of rejecting host bits - operators
         # routinely paste a sample IP with a netmask and expect it to
         # mean the network.
         nets.append(ipaddress.ip_network(entry, strict=False))
@@ -111,7 +123,7 @@ def load_trusted_gateway_cidrs(
     ``raw`` is exposed for tests and direct callers; production code
     passes nothing and we read :data:`TRUSTED_GATEWAY_CIDRS_ENV` from
     the process environment. A malformed entry raises
-    :class:`ValueError` — let it propagate so the failure is loud at
+    :class:`ValueError` - let it propagate so the failure is loud at
     startup instead of silently disabling the gate.
     """
     if raw is None:
@@ -124,8 +136,8 @@ def _normalize_ip(
 ) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     """Parse ``host`` into an IPv4/IPv6 address, unmapping ``::ffff:*``.
 
-    IPv4-mapped IPv6 addresses (``::ffff:10.0.0.1``) — emitted by Linux
-    dual-stack sockets — are normalized to their underlying IPv4 form
+    IPv4-mapped IPv6 addresses (``::ffff:10.0.0.1``) - emitted by Linux
+    dual-stack sockets - are normalized to their underlying IPv4 form
     so a CIDR allow-list of ``10.0.0.0/8`` matches them naturally.
     Returns ``None`` on malformed input; callers treat that as "not a
     trusted gateway".
@@ -181,7 +193,7 @@ def _header_first(value: str) -> str:
     """Return the leftmost element of a comma-separated header value.
 
     ``X-Forwarded-For: client, proxy1, proxy2`` → ``"client"``. Empty
-    input returns ``""``. We intentionally do NOT walk the chain — the
+    input returns ``""``. We intentionally do NOT walk the chain - the
     leftmost hop is the only one whose authenticity the immediate
     gateway can vouch for, and beyond that we have no trust signal.
     """
@@ -266,7 +278,7 @@ def _resolve(request: Any) -> tuple[str, dict[str, str]]:
         }
     else:
         # Headers may be absent (legitimate direct client). Only emit
-        # the rejection event if the peer ACTUALLY tried to set one —
+        # the rejection event if the peer ACTUALLY tried to set one -
         # otherwise we'd spam logs for every direct request.
         if fwd_for_raw or fwd_proto_raw or fwd_host_raw:
             _emit_rejection_event(peer_host or None, fwd_for_raw, fwd_proto_raw, fwd_host_raw)
@@ -279,7 +291,7 @@ def _resolve(request: Any) -> tuple[str, dict[str, str]]:
             state.forwarded = forwarded
         except Exception:  # pragma: no cover - defensive
             # Some test fakes use a frozen ``state`` namespace; don't
-            # crash — the helpers still return the right value, just
+            # crash - the helpers still return the right value, just
             # without caching.
             pass
     return client_ip, forwarded

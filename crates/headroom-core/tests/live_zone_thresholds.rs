@@ -81,7 +81,7 @@ fn below_threshold_no_compression_attempted() {
             assert_eq!(content_type, "json_array");
             assert_eq!(byte_count, payload.len());
             assert_eq!(threshold_bytes, 512);
-        }
+        },
         other => panic!("expected BelowByteThreshold for sub-threshold JSON, got {other:?}"),
     }
 }
@@ -120,7 +120,7 @@ fn above_threshold_compression_attempted() {
         BlockAction::Compressed { .. } | BlockAction::RejectedNotSmaller { .. } => {
             // Either outcome proves the byte-threshold gate did
             // NOT short-circuit and a compressor actually ran.
-        }
+        },
         other => panic!(
             "expected Compressed or RejectedNotSmaller after byte-threshold pass, got {other:?}"
         ),

@@ -153,7 +153,7 @@ impl RelevanceScorer for EmbeddingScorer {
                     .iter()
                     .map(|_| RelevanceScore::empty("Embedding: lock poisoned"))
                     .collect();
-            }
+            },
         };
 
         // Encode items + context in one batch — saves model dispatch
@@ -167,7 +167,7 @@ impl RelevanceScorer for EmbeddingScorer {
                     .iter()
                     .map(|_| RelevanceScore::empty(format!("Embedding: inference failed: {}", e)))
                     .collect();
-            }
+            },
         };
         if embeddings.len() != items.len() + 1 {
             return items

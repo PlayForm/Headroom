@@ -140,14 +140,6 @@ pub struct SearchCompressorConfig {
     /// to a config field here (Python had it inline) so a future
     /// pipeline can tune per-content-type.
     pub min_compression_ratio_for_ccr: f64,
-    /// Group output by file (`rg --heading` style): emit each file path
-    /// once as a header line, then `line:content` rows beneath it, with
-    /// a blank line between file groups. Eliminates per-match path
-    /// repetition — the dominant remaining token waste on large result
-    /// sets (a 70-char path repeated 15× is ~250 wasted tokens).
-    /// Default `false` (classic `file:line:content`) for parity; the
-    /// proxy enables it in token mode.
-    pub group_by_file: bool,
 }
 
 impl Default for SearchCompressorConfig {
@@ -163,7 +155,6 @@ impl Default for SearchCompressorConfig {
             enable_ccr: true,
             min_matches_for_ccr: 10,
             min_compression_ratio_for_ccr: 0.8,
-            group_by_file: false,
         }
     }
 }
@@ -354,7 +345,7 @@ impl SearchCompressor {
                         .or_insert_with(|| FileMatches::new(file))
                         .matches
                         .push(SearchMatch::new(file, line_no, body));
-                }
+                },
                 None => stats.lines_unparsed += 1,
             }
         }
@@ -536,31 +527,15 @@ impl SearchCompressor {
     ) -> (String, BTreeMap<String, String>) {
         let mut lines: Vec<String> = Vec::new();
         let mut summaries: BTreeMap<String, String> = BTreeMap::new();
-        let grouped = self.config.group_by_file;
 
         for (file, fm) in selected {
-            if grouped {
-                // `rg --heading` style: path once, then line:content rows.
-                if !lines.is_empty() {
-                    lines.push(String::new());
-                }
-                lines.push(file.clone());
-                for m in &fm.matches {
-                    lines.push(format!("{}:{}", m.line_number, m.content));
-                }
-            } else {
-                for m in &fm.matches {
-                    lines.push(format!("{}:{}:{}", m.file, m.line_number, m.content));
-                }
+            for m in &fm.matches {
+                lines.push(format!("{}:{}:{}", m.file, m.line_number, m.content));
             }
             if let Some(orig_fm) = original.get(file) {
                 if orig_fm.matches.len() > fm.matches.len() {
                     let omitted = orig_fm.matches.len() - fm.matches.len();
-                    let summary = if grouped {
-                        format!("[... and {} more matches]", omitted)
-                    } else {
-                        format!("[... and {} more matches in {}]", omitted, file)
-                    };
+                    let summary = format!("[... and {} more matches in {}]", omitted, file);
                     lines.push(summary.clone());
                     summaries.insert(file.clone(), summary);
                 }

@@ -134,15 +134,15 @@ min_lines = 30
 # WITH this suffix and the next char is `/` or start-of-path." Add
 # project-specific lock files here without code changes.
 lockfile_suffixes = [
-    "Cargo.lock",
-    "package-lock.json",
-    "yarn.lock",
-    "pnpm-lock.yaml",
-    "poetry.lock",
-    "Pipfile.lock",
-    "Gemfile.lock",
-    "go.sum",
-    "composer.lock",
+	"Cargo.lock",
+	"package-lock.json",
+	"yarn.lock",
+	"pnpm-lock.yaml",
+	"poetry.lock",
+	"Pipfile.lock",
+	"Gemfile.lock",
+	"go.sum",
+	"composer.lock",
 ]
 # Drop hunks where every change is whitespace-only (added/removed
 # blank lines, trailing whitespace, indentation-only changes). These

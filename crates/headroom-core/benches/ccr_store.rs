@@ -1,10 +1,10 @@
-//! CCR store throughput benchmark — single-threaded and multi-threaded.
+//! CCR store throughput benchmark - single-threaded and multi-threaded.
 //!
 //! Pins the win from PR9: replacing the single-`Mutex<HashMap>` design
 //! with a `DashMap`-backed sharded store. The single-threaded numbers
 //! should be roughly comparable (DashMap has a small per-op shard-hash
 //! overhead vs a raw Mutex), but the multi-threaded numbers should
-//! diverge sharply — distinct keys hit distinct shards and never
+//! diverge sharply - distinct keys hit distinct shards and never
 //! contend.
 //!
 //! Run with:
@@ -59,7 +59,7 @@ impl LegacyMutexStore {
 }
 
 impl CcrStore for LegacyMutexStore {
-    fn put(&self, hash: &str, payload: &str) {
+    fn put(&self, hash: &str, payload: &str) -> bool {
         let mut g = self.inner.lock().unwrap();
         if g.map.contains_key(hash) {
             g.map.insert(
@@ -69,7 +69,7 @@ impl CcrStore for LegacyMutexStore {
                     inserted: Instant::now(),
                 },
             );
-            return;
+            return true;
         }
         while g.map.len() >= self.capacity {
             let Some(oldest) = g.order.pop_front() else {
@@ -85,6 +85,7 @@ impl CcrStore for LegacyMutexStore {
             },
         );
         g.order.push_back(hash.to_string());
+        true
     }
 
     fn get(&self, hash: &str) -> Option<String> {
@@ -185,7 +186,7 @@ fn run_mt_workload(store: Arc<dyn CcrStore>, threads: usize, n: u64) -> Duration
     start.elapsed()
 }
 
-/// Multi-threaded mixed put/get — direct A/B between the legacy
+/// Multi-threaded mixed put/get - direct A/B between the legacy
 /// `Mutex<HashMap>` design and the new DashMap-backed store. The
 /// legacy version serializes every op on one lock; the new version
 /// shards across keys so distinct hashes never contend.

@@ -26,7 +26,7 @@ pub async fn healthz_upstream(State(state): State<AppState>) -> Response {
     match state.client.get(url).send().await {
         Ok(resp) if resp.status().is_success() => {
             (StatusCode::OK, Json(json!({"ok": true}))).into_response()
-        }
+        },
         Ok(resp) => (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({"ok": false, "upstream_status": resp.status().as_u16()})),

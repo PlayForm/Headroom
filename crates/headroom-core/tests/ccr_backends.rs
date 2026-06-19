@@ -103,7 +103,7 @@ fn from_config_redis_unsupported_when_feature_off() {
         Err(CcrBackendInitError::UnsupportedBackend { backend, feature }) => {
             assert_eq!(backend, "redis");
             assert_eq!(feature, "redis");
-        }
+        },
         Err(other) => panic!("expected UnsupportedBackend, got {other:?}"),
         Ok(_) => panic!("redis must error when feature is off"),
     }

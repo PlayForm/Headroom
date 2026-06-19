@@ -193,7 +193,7 @@ pub fn map_magika_label(label: &str) -> ContentType {
         // with a code-aware compressor.
         "markdown" | "rst" | "latex" | "txt" | "empty" | "unknown" | "undefined" => {
             ContentType::PlainText
-        }
+        },
 
         // ── Default: passthrough ───────────────────────────────────
         _ => ContentType::PlainText,

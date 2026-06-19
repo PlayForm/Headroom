@@ -304,11 +304,11 @@ async fn e2e_anthropic_streaming() {
                 if buf.contains("message_stop") {
                     break;
                 }
-            }
+            },
             Err(e) => {
                 last_err = Some(e.to_string());
                 break;
-            }
+            },
         }
     }
     eprintln!(

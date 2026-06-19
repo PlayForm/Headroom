@@ -133,7 +133,7 @@ pub fn classify(headers: &HeaderMap) -> AuthMode {
                     "non-UTF-8 user-agent header; falling through to bearer-token classification"
                 );
                 String::new()
-            }
+            },
         },
         None => String::new(),
     };
@@ -156,7 +156,7 @@ pub fn classify(headers: &HeaderMap) -> AuthMode {
                     "non-UTF-8 authorization header; falling back to default Payg"
                 );
                 ""
-            }
+            },
         },
         None => "",
     };

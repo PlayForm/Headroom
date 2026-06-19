@@ -220,7 +220,7 @@ fn write_compaction(out: &mut String, c: &Compaction, fmt: &CsvSchemaFormatter) 
             original_count,
         } => {
             write_table(out, schema, rows, *original_count, fmt);
-        }
+        },
         Compaction::Buckets {
             discriminator,
             buckets,
@@ -239,17 +239,17 @@ fn write_compaction(out: &mut String, c: &Compaction, fmt: &CsvSchemaFormatter) 
                 out.push_str(&format!("__key:{}\n", json_scalar_to_csv(&b.key)));
                 write_table(out, &b.schema, &b.rows, b.rows.len(), fmt);
             }
-        }
+        },
         Compaction::OpaqueRef {
             ccr_hash,
             byte_size,
             kind,
         } => {
             out.push_str(&format_ccr_marker(ccr_hash, *byte_size, kind));
-        }
+        },
         Compaction::Untouched(v) => {
             out.push_str(&serde_json::to_string(v).unwrap_or_default());
-        }
+        },
     }
 }
 
@@ -299,7 +299,7 @@ fn format_cell(c: &CellValue) -> String {
             // contains commas and structural chars.
             let nested_fmt = JsonFormatter::new();
             csv_quote(&nested_fmt.format(sub))
-        }
+        },
         CellValue::OpaqueRef {
             ccr_hash,
             byte_size,
@@ -346,7 +346,7 @@ fn json_scalar_to_csv(v: &Value) -> String {
             } else {
                 s.clone()
             }
-        }
+        },
         // Object/array fall back to JSON-quoted (rare — usually
         // already promoted to Nested by the compactor).
         _ => csv_quote(&serde_json::to_string(v).unwrap_or_default()),
@@ -430,7 +430,7 @@ fn write_compaction_kv(out: &mut String, c: &Compaction, fmt: &MarkdownKvFormatt
             original_count,
         } => {
             write_kv_table(out, schema, rows, *original_count, fmt);
-        }
+        },
         Compaction::Buckets {
             discriminator,
             buckets,
@@ -449,17 +449,17 @@ fn write_compaction_kv(out: &mut String, c: &Compaction, fmt: &MarkdownKvFormatt
                 out.push_str(&format!("__key:{}\n", kv_scalar(&b.key)));
                 write_kv_table(out, &b.schema, &b.rows, b.rows.len(), fmt);
             }
-        }
+        },
         Compaction::OpaqueRef {
             ccr_hash,
             byte_size,
             kind,
         } => {
             out.push_str(&format_ccr_marker(ccr_hash, *byte_size, kind));
-        }
+        },
         Compaction::Untouched(v) => {
             out.push_str(&serde_json::to_string(v).unwrap_or_default());
-        }
+        },
     }
 }
 
@@ -539,7 +539,7 @@ fn kv_scalar(v: &Value) -> String {
             } else {
                 s.clone()
             }
-        }
+        },
         // Object/array fall back to compact JSON (rare — usually
         // already promoted to Nested by the compactor).
         _ => serde_json::to_string(v).unwrap_or_default(),

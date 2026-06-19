@@ -17,23 +17,23 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 log() {
-    printf '[build_rust_extension] %s\n' "$*" >&2
+	printf '[build_rust_extension] %s\n' "$*" >&2
 }
 
 fail() {
-    printf '[build_rust_extension] error: %s\n' "$*" >&2
-    exit 1
+	printf '[build_rust_extension] error: %s\n' "$*" >&2
+	exit 1
 }
 
 # Pre-flight: a venv should be active. The install would otherwise write
 # into the system Python.
 if [[ -z "${VIRTUAL_ENV:-}" ]]; then
-    log "warning: VIRTUAL_ENV is unset; pip will install into the system Python."
-    log "         If that is not what you want, abort and 'source .venv/bin/activate' first."
+	log "warning: VIRTUAL_ENV is unset; pip will install into the system Python."
+	log "         If that is not what you want, abort and 'source .venv/bin/activate' first."
 fi
 
 if ! command -v cargo >/dev/null 2>&1; then
-    fail "cargo not found on PATH. Install Rust toolchain (rustup) first."
+	fail "cargo not found on PATH. Install Rust toolchain (rustup) first."
 fi
 
 # Build + install in one shot. The `[build-system] build-backend = "maturin"`

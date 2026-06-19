@@ -157,7 +157,7 @@ pub mod service_tier {
                     "unknown service_tier value bucketed to 'other' to bound cardinality"
                 );
                 OTHER
-            }
+            },
         }
     }
 }

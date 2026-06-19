@@ -481,7 +481,7 @@ mod tests {
                 // Critical: arguments stays as STRING (the model's
                 // serialized JSON, not parsed).
                 assert_eq!(arguments.as_deref(), Some("{\"q\":\"hello\"}"));
-            }
+            },
             other => panic!("expected FunctionCall, got {other:?}"),
         }
     }
@@ -515,7 +515,7 @@ mod tests {
                 assert_eq!(arr[0], json!("bash"));
                 assert_eq!(arr[1], json!("-c"));
                 assert_eq!(arr[2], json!("ls -la"));
-            }
+            },
             other => panic!("expected LocalShellCall, got {other:?}"),
         }
     }
@@ -547,7 +547,7 @@ mod tests {
         match classified[0].typed.as_ref().unwrap() {
             ResponseItem::Message { phase, .. } => {
                 assert_eq!(phase.as_deref(), Some("commentary"));
-            }
+            },
             _ => panic!("expected message"),
         }
     }

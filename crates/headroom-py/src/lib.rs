@@ -469,13 +469,8 @@ impl PySmartCrusherConfig {
         first_fraction = 0.3,
         last_fraction = 0.15,
         relevance_threshold = 0.3,
-        lossless_min_savings_ratio = 0.15,
+        lossless_min_savings_ratio = 0.30,
         enable_ccr_marker = true,
-        compaction_core_field_fraction = 0.8,
-        compaction_heterogeneous_core_ratio = 0.6,
-        compaction_max_flatten_inner_keys = 6,
-        compaction_min_buckets = 2,
-        compaction_max_buckets = 8,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -497,11 +492,6 @@ impl PySmartCrusherConfig {
         relevance_threshold: f64,
         lossless_min_savings_ratio: f64,
         enable_ccr_marker: bool,
-        compaction_core_field_fraction: f64,
-        compaction_heterogeneous_core_ratio: f64,
-        compaction_max_flatten_inner_keys: usize,
-        compaction_min_buckets: usize,
-        compaction_max_buckets: usize,
     ) -> Self {
         Self {
             inner: RustSmartCrusherConfig {
@@ -523,11 +513,6 @@ impl PySmartCrusherConfig {
                 relevance_threshold,
                 lossless_min_savings_ratio,
                 enable_ccr_marker,
-                compaction_core_field_fraction,
-                compaction_heterogeneous_core_ratio,
-                compaction_max_flatten_inner_keys,
-                compaction_min_buckets,
-                compaction_max_buckets,
             },
         }
     }
@@ -599,30 +584,6 @@ impl PySmartCrusherConfig {
     #[getter]
     fn enable_ccr_marker(&self) -> bool {
         self.inner.enable_ccr_marker
-    }
-    #[getter]
-    fn lossless_min_savings_ratio(&self) -> f64 {
-        self.inner.lossless_min_savings_ratio
-    }
-    #[getter]
-    fn compaction_core_field_fraction(&self) -> f64 {
-        self.inner.compaction_core_field_fraction
-    }
-    #[getter]
-    fn compaction_heterogeneous_core_ratio(&self) -> f64 {
-        self.inner.compaction_heterogeneous_core_ratio
-    }
-    #[getter]
-    fn compaction_max_flatten_inner_keys(&self) -> usize {
-        self.inner.compaction_max_flatten_inner_keys
-    }
-    #[getter]
-    fn compaction_min_buckets(&self) -> usize {
-        self.inner.compaction_min_buckets
-    }
-    #[getter]
-    fn compaction_max_buckets(&self) -> usize {
-        self.inner.compaction_max_buckets
     }
 
     fn __repr__(&self) -> String {
@@ -935,7 +896,7 @@ impl PyDetectionResult {
                     } else {
                         dict.set_item(k, py.None())?
                     }
-                }
+                },
                 serde_json::Value::String(s) => dict.set_item(k, s)?,
                 serde_json::Value::Null => dict.set_item(k, py.None())?,
                 // Detection never emits arrays / objects in metadata
@@ -1119,7 +1080,6 @@ impl PySearchCompressorConfig {
         enable_ccr = true,
         min_matches_for_ccr = 10,
         min_compression_ratio_for_ccr = 0.8,
-        group_by_file = false,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -1133,7 +1093,6 @@ impl PySearchCompressorConfig {
         enable_ccr: bool,
         min_matches_for_ccr: usize,
         min_compression_ratio_for_ccr: f64,
-        group_by_file: bool,
     ) -> Self {
         Self {
             inner: RustSearchConfig {
@@ -1147,7 +1106,6 @@ impl PySearchCompressorConfig {
                 enable_ccr,
                 min_matches_for_ccr,
                 min_compression_ratio_for_ccr,
-                group_by_file,
             },
         }
     }
@@ -1589,7 +1547,7 @@ fn compress_openai_responses_live_zone(
                 transforms,
                 Some(reason),
             )
-        }
+        },
         Ok(LiveZoneOutcome::Modified { new_body, manifest }) => {
             // `RawValue::get` returns the underlying serialized JSON
             // as `&str`; bytes are valid UTF-8 by construction.
@@ -1607,7 +1565,7 @@ fn compress_openai_responses_live_zone(
                 transforms,
                 None,
             )
-        }
+        },
         Err(_) => {
             // BodyNotJson / NoMessagesArray are non-fatal: nothing to
             // compress, fall through to passthrough byte-for-byte.
@@ -1618,7 +1576,7 @@ fn compress_openai_responses_live_zone(
                 Vec::new(),
                 Some("dispatch_error".to_string()),
             )
-        }
+        },
     }
 }
 

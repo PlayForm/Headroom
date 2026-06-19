@@ -241,7 +241,7 @@ fn extract_system(body: &Value, shape: OpenAiShape) -> Value {
                 }
             }
             first_system_message_content(body, "messages")
-        }
+        },
     }
 }
 
@@ -313,7 +313,7 @@ mod tests {
             InjectOutcome::Applied { key_prefix } => {
                 assert_eq!(key_prefix.len(), KEY_PREFIX_LOG_LEN);
                 assert!(is_hex(&key_prefix));
-            }
+            },
             other => panic!("expected Applied, got {other:?}"),
         }
         let key = injected_key(&body);

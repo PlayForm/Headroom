@@ -155,7 +155,7 @@ fn write_python_repr(out: &mut String, value: &Value) {
             // since anchor strings rarely contain numeric literals
             // beyond the digit prefix.
             out.push_str(&n.to_string());
-        }
+        },
         Value::String(s) => {
             // Python `repr(s)` chooses single or double quotes
             // depending on content. Default preference is single
@@ -169,7 +169,7 @@ fn write_python_repr(out: &mut String, value: &Value) {
             out.push('\'');
             out.push_str(s);
             out.push('\'');
-        }
+        },
         Value::Array(items) => {
             out.push('[');
             for (i, item) in items.iter().enumerate() {
@@ -179,7 +179,7 @@ fn write_python_repr(out: &mut String, value: &Value) {
                 write_python_repr(out, item);
             }
             out.push(']');
-        }
+        },
         Value::Object(map) => {
             out.push('{');
             // Python preserves insertion order in `dict.__str__` (since
@@ -201,7 +201,7 @@ fn write_python_repr(out: &mut String, value: &Value) {
                 write_python_repr(out, v);
             }
             out.push('}');
-        }
+        },
     }
 }
 

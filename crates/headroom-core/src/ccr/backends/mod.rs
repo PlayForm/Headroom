@@ -112,7 +112,7 @@ pub fn from_config(config: &CcrBackendConfig) -> Result<Box<dyn CcrStore>, CcrBa
                 "ccr_backend_initialized"
             );
             Ok(Box::new(store))
-        }
+        },
         CcrBackendConfig::Sqlite { path, ttl_seconds } => {
             let store = SqliteCcrStore::open(path, *ttl_seconds)?;
             tracing::info!(
@@ -123,7 +123,7 @@ pub fn from_config(config: &CcrBackendConfig) -> Result<Box<dyn CcrStore>, CcrBa
                 "ccr_backend_initialized"
             );
             Ok(Box::new(store))
-        }
+        },
         #[cfg(feature = "redis")]
         CcrBackendConfig::Redis {
             url,
@@ -142,7 +142,7 @@ pub fn from_config(config: &CcrBackendConfig) -> Result<Box<dyn CcrStore>, CcrBa
                 "ccr_backend_initialized"
             );
             Ok(Box::new(store))
-        }
+        },
         #[cfg(not(feature = "redis"))]
         CcrBackendConfig::Redis { .. } => Err(CcrBackendInitError::UnsupportedBackend {
             backend: "redis",

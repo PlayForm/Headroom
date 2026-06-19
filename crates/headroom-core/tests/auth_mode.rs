@@ -28,15 +28,15 @@ fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
 
 #[test]
 fn api_key_classified_payg() {
-    // Anthropic PAYG: `Authorization: Bearer sk-ant-api03-XXX`.
-    let h = headers(&[("authorization", "Bearer sk-ant-api03-abc123def456")]);
+    // Anthropic PAYG: `Authorization: Bearer ***
+    let h = headers(&[("authorization", "Bearer sk-ant...f456")]);
     assert_eq!(classify(&h), AuthMode::Payg);
 }
 
 #[test]
 fn oauth_jwt_classified_oauth() {
     // Codex / Cursor OAuth bearer: classic 3-segment JWT.
-    let jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0In0.signaturepart";
+    let jwt = "eyJhbG...part";
     let h = headers(&[("authorization", &format!("Bearer {}", jwt))]);
     assert_eq!(classify(&h), AuthMode::OAuth);
 }
@@ -44,7 +44,9 @@ fn oauth_jwt_classified_oauth() {
 #[test]
 fn oauth_sk_ant_oat_classified_oauth() {
     // Claude Pro / Max OAuth: `Bearer sk-ant-oat-...`.
-    let h = headers(&[("authorization", "Bearer sk-ant-oat-01-abc123def456")]);
+    // The `sk-ant-oat-` prefix is checked BEFORE the broad `sk-` PAYG
+    // catch-all, so this should classify as OAuth.
+    let h = headers(&[("authorization", "Bearer sk-ant-oat-eyJ...token")]);
     assert_eq!(classify(&h), AuthMode::OAuth);
 }
 
@@ -79,7 +81,7 @@ fn bedrock_no_auth_classified_oauth() {
     // OAuth (passthrough-prefer).
     let h = headers(&[(
         "authorization",
-        "AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20260501/us-east-1/bedrock/aws4_request, \
+        "AWS4-HMAC-SHA256 Credential=AKIAIO...MPLE/20260501/us-east-1/bedrock/aws4_request, \
          SignedHeaders=host;x-amz-date, Signature=fe5f80f77d5fa3beca038a248ff027",
     )]);
     assert_eq!(classify(&h), AuthMode::OAuth);
@@ -89,8 +91,8 @@ fn bedrock_no_auth_classified_oauth() {
 
 #[test]
 fn openai_payg_sk_classified_payg() {
-    // OpenAI PAYG: `Authorization: Bearer sk-proj-...`.
-    let h = headers(&[("authorization", "Bearer sk-proj-abcdef0123456789")]);
+    // OpenAI PAYG: `Authorization: Bearer ***
+    let h = headers(&[("authorization", "Bearer sk-pro...6789")]);
     assert_eq!(classify(&h), AuthMode::Payg);
 }
 
@@ -108,17 +110,137 @@ fn subscription_takes_precedence_over_oauth_token() {
     // request count, never identify Headroom). UA wins.
     let h = headers(&[
         ("user-agent", "claude-code/1.5.0 (linux; x86_64)"),
-        ("authorization", "Bearer sk-ant-oat-01-abc123"),
+        ("authorization", "Bearer sk-ant...c123"),
     ]);
     assert_eq!(classify(&h), AuthMode::Subscription);
 }
 
 // ── Edge cases (defensive coverage; not in the required matrix) ──
+//
+// The tests below were added in v0.5.68 / 1.62.13 (2026-06-16)
+// as regression coverage for the CCR auth-mode classifier. None of
+// them modify classification logic — they only assert existing
+// behaviour.
+
+#[test]
+fn spoofed_subscription_ua_wins_over_oat_token() {
+    // Scenario: a subscription-like UA (containing "anthropic-cli/")
+    // paired with a Claude Pro OAuth bearer token ("sk-ant-oat-...").
+    // Rule: UA match wins → Subscription. This is the key precedence
+    // test: the CLI's self-identification is more specific than the
+    // bearer token shape it happens to carry.
+    let h = headers(&[
+        ("user-agent", "Mozilla/5.0 (anthropic-cli/2.1; darwin)"),
+        ("authorization", "Bearer sk-ant...6789"),
+    ]);
+    assert_eq!(classify(&h), AuthMode::Subscription);
+}
+
+#[test]
+fn jwt_with_extra_segments_oauth() {
+    // JWT with 5 dot-separated segments (header.payload.signature.extra.tail).
+    // The classifier checks `token.split('.').count() >= 3`, so any JWT
+    // with 3+ dots is classified as OAuth. Extra segments should not
+    // affect the outcome — the ≥3 rule is a minimum, not an exact match.
+    let h = headers(&[("authorization", "Bearer a.b.c.d.e")]);
+    assert_eq!(classify(&h), AuthMode::OAuth);
+}
+
+#[test]
+fn non_utf8_user_agent_does_not_panic() {
+    // Non-UTF-8 bytes in the User-Agent header. The classifier's
+    // `value.to_str()` returns Err; it logs a warn! and substitutes
+    // an empty String, then falls through. With no other matching
+    // headers, the default is Payg. This asserts we never panic on
+    // malformed input.
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "user-agent",
+        HeaderValue::from_bytes(b"\xFF\xFE\xFFinject\x80").unwrap(),
+    );
+    assert_eq!(classify(&headers), AuthMode::Payg);
+}
+
+#[test]
+fn both_non_utf8_ua_and_auth_do_not_panic() {
+    // Simultaneous non-UTF-8 User-Agent AND non-UTF-8 Authorization.
+    // Each triggers the warn! fallback independently; the classifier
+    // should still complete without a panic. With no valid headers,
+    // default is Payg.
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "user-agent",
+        HeaderValue::from_bytes(b"\xFFuser\xFFagent").unwrap(),
+    );
+    headers.insert(
+        "authorization",
+        HeaderValue::from_bytes(b"Bearer \x80\x81\x82").unwrap(),
+    );
+    assert_eq!(classify(&headers), AuthMode::Payg);
+}
+
+#[test]
+fn subscription_like_ua_mismatch_falls_to_bearer() {
+    // Scenario: a User-Agent that looks like a subscription client from
+    // the user's perspective ("Claude Desktop") but does NOT match any
+    // SUBSCRIPTION_UA_PREFIX (no "claude-cli/", "claude-code/", etc.).
+    // The Authorization is "Bearer sk-..." which is a PAYG key.
+    // Because the UA doesn't trigger Subscription, we fall through to
+    // bearer detection → Payg. The "sk-" prefix catches this before
+    // the JWT check.
+    let h = headers(&[
+        ("user-agent", "Claude Desktop/1.0 (macOS)"),
+        ("authorization", "Bearer sk-pro...2345"),
+    ]);
+    assert_eq!(classify(&h), AuthMode::Payg);
+}
+
+#[test]
+fn missing_auth_but_has_x_api_key_payg() {
+    // No Authorization header at all, but the vendor-specific
+    // `x-api-key` header is present. The classifier should detect
+    // this via `headers.contains_key("x-api-key")` and return Payg.
+    // This covers the Anthropic API-key-over-x-api-key usage pattern.
+    let h = headers(&[("x-api-key", "sk-ant...3456")]);
+    assert_eq!(classify(&h), AuthMode::Payg);
+}
+
+#[test]
+fn bearer_token_and_x_api_key_both_present_authorization_wins() {
+    // Both `Authorization: Bearer *** and `x-api-key` are present.
+    // The classifier checks Authorization BEFORE x-api-key, so the
+    // bearer token's classification wins (if it's not a subscription
+    // UA match). For a non-OAuth sk- token, this is Payg — reached
+    // via the bearer path before the x-api-key path is ever checked.
+    let h = headers(&[
+        ("authorization", "Bearer sk-ant...beef"),
+        ("x-api-key", "sk-ant...7890"),
+    ]);
+    assert_eq!(classify(&h), AuthMode::Payg);
+}
+
+#[test]
+fn ua_substring_not_a_prefix_does_not_match() {
+    // UA "Claude Code/2.0" — the subscription prefix is "claude-code/"
+    // (lowercased). "Claude Code/2.0" (with space, no hyphen) lowercased
+    // is "claude code/2.0" which does NOT contain "claude-code/".
+    // The classifier uses `str::contains`, not an exact match, but the
+    // substring must include the hyphen. So this falls through to bearer
+    // detection → Payg. This guards against a future change that might
+    // over-match on partial UA substrings.
+    let h = headers(&[
+        ("user-agent", "Claude Code/2.0"),
+        ("authorization", "Bearer sk-ant...y123"),
+    ]);
+    assert_eq!(classify(&h), AuthMode::Payg);
+}
+
+// ── Edge cases (original; kept for backward parity with Python) ──
 
 #[test]
 fn anthropic_x_api_key_classified_payg() {
     // Anthropic API key style: `x-api-key: sk-ant-...`.
-    let h = headers(&[("x-api-key", "sk-ant-api03-abcdef")]);
+    let h = headers(&[("x-api-key", "sk-ant...cdef")]);
     assert_eq!(classify(&h), AuthMode::Payg);
 }
 
@@ -159,10 +281,7 @@ fn classify_under_10us_per_call() {
             "user-agent",
             "claude-code/1.5.0 (linux; x86_64) anthropic/0.42.0",
         ),
-        (
-            "authorization",
-            "Bearer sk-ant-oat-01-abcdefghijklmnopqrstuv",
-        ),
+        ("authorization", "Bearer sk-ant...stuv"),
         ("content-type", "application/json"),
         ("accept", "application/json"),
         ("host", "api.anthropic.com"),

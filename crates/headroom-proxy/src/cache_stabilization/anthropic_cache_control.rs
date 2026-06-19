@@ -243,7 +243,7 @@ pub fn auto_place_anthropic_cache_control(body: &mut Value) -> AutoPlaceOutcome 
                 placed_count: 0,
                 locations: Vec::new(),
             };
-        }
+        },
     };
     let last_idx = tools.len() - 1;
     let last_tool = &mut tools[last_idx];
@@ -278,7 +278,7 @@ fn insert_cache_control_on_object(value: &mut Value) -> bool {
         Some(map) => {
             map.insert("cache_control".to_string(), json!({"type": "ephemeral"}));
             true
-        }
+        },
         None => false,
     }
 }
@@ -318,7 +318,7 @@ mod tests {
             } => {
                 assert_eq!(placed_count, 1);
                 assert_eq!(locations, vec!["tools[0]"]);
-            }
+            },
             other => panic!("expected Applied{{1}}, got {other:?}"),
         }
         // Marker visible at the right path.
@@ -347,7 +347,7 @@ mod tests {
             } => {
                 assert_eq!(placed_count, 1);
                 assert_eq!(locations, vec!["tools[2]"]);
-            }
+            },
             other => panic!("expected Applied{{1}}, got {other:?}"),
         }
         assert!(body.pointer("/tools/0/cache_control").is_none());

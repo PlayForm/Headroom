@@ -132,7 +132,7 @@ impl ReformatTransform for LogTemplate {
                 Some(r) if Self::extends_run(r, tokens, self.config.similarity_threshold) => {
                     r.indices.push(i);
                     Self::merge_into_template(&mut r.template, tokens);
-                }
+                },
                 _ => {
                     if let Some(r) = run.take() {
                         Self::flush_run(
@@ -145,7 +145,7 @@ impl ReformatTransform for LogTemplate {
                         );
                     }
                     run = Some(Run::start(i, tokens));
-                }
+                },
             }
         }
         if let Some(r) = run.take() {
@@ -192,7 +192,7 @@ impl LogTemplate {
             match &run.template[pos] {
                 Some(constant) if constant == tok => matches += 1,
                 None => matches += 1, // already a wildcard; counts as match
-                _ => {}
+                _ => {},
             }
         }
         (matches as f32 / len) >= sim_threshold
@@ -331,7 +331,7 @@ mod tests {
         let log = "INFO a\nINFO b\nINFO c\n";
         let err = reformat().apply(log).expect_err("must skip");
         match err {
-            TransformError::Skipped { .. } => {}
+            TransformError::Skipped { .. } => {},
             _ => panic!("expected Skipped"),
         }
     }

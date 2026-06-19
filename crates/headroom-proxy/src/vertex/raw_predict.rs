@@ -93,7 +93,7 @@ pub(crate) async fn forward_vertex_request(
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "request body exceeds buffer limit",
             );
-        }
+        },
     };
 
     // ─── 2. ENVELOPE PARSE ─────────────────────────────────────────────
@@ -111,7 +111,7 @@ pub(crate) async fn forward_vertex_request(
                 has_messages = env.has_messages,
                 "vertex envelope detected"
             );
-        }
+        },
         Err(e) => {
             tracing::warn!(
                 event = "vertex_envelope_invalid",
@@ -123,7 +123,7 @@ pub(crate) async fn forward_vertex_request(
                 "vertex envelope did not match expected shape; rejecting with 400"
             );
             return error_response(StatusCode::BAD_REQUEST, "vertex envelope invalid");
-        }
+        },
     }
 
     // ─── 3. LIVE-ZONE COMPRESSION (when enabled) ───────────────────────
@@ -157,7 +157,7 @@ pub(crate) async fn forward_vertex_request(
                     "vertex live-zone dispatcher returned NoCompression"
                 );
                 buffered
-            }
+            },
             compression::Outcome::Compressed {
                 body,
                 tokens_before,
@@ -178,7 +178,7 @@ pub(crate) async fn forward_vertex_request(
                     "vertex live-zone compression applied"
                 );
                 body
-            }
+            },
             compression::Outcome::Passthrough { reason } => {
                 tracing::warn!(
                     event = "vertex_compression_passthrough",
@@ -188,7 +188,7 @@ pub(crate) async fn forward_vertex_request(
                     "vertex live-zone dispatcher passthrough on parse/serialize"
                 );
                 buffered
-            }
+            },
         }
     } else {
         tracing::info!(
@@ -222,7 +222,7 @@ pub(crate) async fn forward_vertex_request(
                 TokenSourceError::Fetch(_) => StatusCode::BAD_GATEWAY,
             };
             return error_response(status, "vertex ADC token fetch failed");
-        }
+        },
     };
 
     // ─── 5. BUILD UPSTREAM URL ─────────────────────────────────────────
@@ -249,7 +249,7 @@ pub(crate) async fn forward_vertex_request(
                 "could not construct vertex upstream URL"
             );
             return error_response(StatusCode::BAD_GATEWAY, "vertex upstream URL build failed");
-        }
+        },
     };
 
     // ─── 6. BUILD HEADERS ──────────────────────────────────────────────
@@ -285,7 +285,7 @@ pub(crate) async fn forward_vertex_request(
     match http::HeaderValue::from_str(&format!("Bearer {bearer}")) {
         Ok(v) => {
             outgoing_headers.insert(http::header::AUTHORIZATION, v);
-        }
+        },
         Err(e) => {
             tracing::error!(
                 event = "vertex_authorization_invalid",
@@ -294,7 +294,7 @@ pub(crate) async fn forward_vertex_request(
                 "ADC bearer token contained invalid header bytes; refusing to forward"
             );
             return error_response(StatusCode::BAD_GATEWAY, "vertex auth header build failed");
-        }
+        },
     }
 
     // ─── 7. FORWARD ────────────────────────────────────────────────────
@@ -309,7 +309,7 @@ pub(crate) async fn forward_vertex_request(
                 "could not convert axum method to reqwest method"
             );
             return error_response(StatusCode::BAD_REQUEST, "vertex method invalid");
-        }
+        },
     };
     let upstream_resp = match state
         .client
@@ -329,7 +329,7 @@ pub(crate) async fn forward_vertex_request(
                 "vertex upstream call failed"
             );
             return error_response(StatusCode::BAD_GATEWAY, "vertex upstream error");
-        }
+        },
     };
 
     // ─── 8. STREAM RESPONSE ────────────────────────────────────────────
@@ -380,7 +380,7 @@ pub(crate) async fn forward_vertex_request(
                 }
             }
             Ok(b)
-        }
+        },
         Err(e) => {
             tracing::warn!(
                 request_id = %rid_for_stream,
@@ -388,7 +388,7 @@ pub(crate) async fn forward_vertex_request(
                 "vertex upstream stream error mid-response"
             );
             Err(e)
-        }
+        },
     });
     let body = Body::from_stream(resp_stream);
 
@@ -409,7 +409,7 @@ pub(crate) async fn forward_vertex_request(
                 "could not build vertex response"
             );
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "response build failed");
-        }
+        },
     };
 
     tracing::info!(
@@ -464,14 +464,14 @@ async fn run_anthropic_sse_state_machine(
                             "vertex sse anthropic state-machine apply error"
                         );
                     }
-                }
+                },
                 Err(e) => {
                     tracing::warn!(
                         request_id = %request_id,
                         error = %e,
                         "vertex sse framer error"
                     );
-                }
+                },
             }
         }
     }

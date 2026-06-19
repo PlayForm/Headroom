@@ -385,16 +385,12 @@ class TestCCRContextVarScoping:
 class TestCCREntryPointLoading:
     """Verify _create_default_ccr_backend() env-based loading."""
 
-    def test_no_env_returns_sqlite(self, monkeypatch, tmp_path):
-        """No HEADROOM_CCR_BACKEND → SQLiteBackend (the persistent default;
-        restart survival + cross-worker sharing for the 30-min TTL)."""
+    def test_no_env_returns_none(self, monkeypatch):
+        """No HEADROOM_CCR_BACKEND → returns None (use InMemoryBackend)."""
         monkeypatch.delenv("HEADROOM_CCR_BACKEND", raising=False)
-        monkeypatch.setenv("HEADROOM_CCR_SQLITE_PATH", str(tmp_path / "ccr.db"))
         from headroom.cache.compression_store import _create_default_ccr_backend
 
-        backend = _create_default_ccr_backend()
-        assert backend is not None
-        assert backend.get_stats()["backend_type"] == "sqlite"
+        assert _create_default_ccr_backend() is None
 
     def test_memory_env_returns_none(self, monkeypatch):
         """HEADROOM_CCR_BACKEND=memory → returns None (use default)."""

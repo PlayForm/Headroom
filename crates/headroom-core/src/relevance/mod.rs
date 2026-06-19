@@ -55,7 +55,7 @@ pub fn create_scorer(tier: &str) -> Result<Box<dyn RelevanceScorer + Send + Sync
                         .to_string(),
                 )
             }
-        }
+        },
         other => Err(format!(
             "Unknown scorer tier: {}. Valid tiers: bm25, embedding, hybrid",
             other

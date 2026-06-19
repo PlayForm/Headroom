@@ -102,7 +102,7 @@ impl OffloadTransform for DiffOffload {
             match line.as_bytes().first() {
                 Some(b'+') | Some(b'-') => change += 1,
                 Some(b' ') => context += 1,
-                _ => {}
+                _ => {},
             }
         }
 

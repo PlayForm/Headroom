@@ -65,7 +65,7 @@ fn ccr_marker_injected_when_store_wired() {
         LiveZoneOutcome::Modified { new_body, .. } => new_body.get().to_string(),
         LiveZoneOutcome::NoChange { .. } => {
             panic!("expected Modified; SmartCrusher should compress this payload")
-        }
+        },
     };
 
     let expected_hash = compute_key(payload.as_bytes());

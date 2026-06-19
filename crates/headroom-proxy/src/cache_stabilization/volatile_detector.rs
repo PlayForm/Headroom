@@ -129,7 +129,7 @@ impl ApiKind {
             CompressibleEndpoint::AnthropicMessages => ApiKind::Anthropic,
             CompressibleEndpoint::OpenAiChatCompletions | CompressibleEndpoint::OpenAiResponses => {
                 ApiKind::OpenAi
-            }
+            },
         }
     }
 }
@@ -261,9 +261,9 @@ fn scan_value_for_strings(v: &Value, location: &str, out: &mut Vec<VolatileFindi
                 let nested = format!("{location}[{i}]");
                 scan_value_recursive(item, &nested, out);
             }
-        }
+        },
         Value::Object(_) => scan_value_recursive(v, location, out),
-        _ => {}
+        _ => {},
     }
 }
 
@@ -285,7 +285,7 @@ fn scan_value_recursive(v: &Value, location: &str, out: &mut Vec<VolatileFinding
                 let nested = format!("{location}[{i}]");
                 scan_value_recursive(item, &nested, out);
             }
-        }
+        },
         Value::Object(map) => {
             for (k, sub) in map.iter() {
                 if out.len() >= MAX_FINDINGS_PER_REQUEST {
@@ -304,8 +304,8 @@ fn scan_value_recursive(v: &Value, location: &str, out: &mut Vec<VolatileFinding
                 let nested = format!("{location}.{k}");
                 scan_value_recursive(sub, &nested, out);
             }
-        }
-        _ => {}
+        },
+        _ => {},
     }
 }
 
@@ -395,7 +395,7 @@ fn looks_like_uuid_v4(window: &[u8]) -> bool {
         return false;
     }
     match window[19] {
-        b'8' | b'9' | b'a' | b'b' | b'A' | b'B' => {}
+        b'8' | b'9' | b'a' | b'b' | b'A' | b'B' => {},
         _ => return false,
     }
     for (i, &c) in window.iter().enumerate().take(36) {

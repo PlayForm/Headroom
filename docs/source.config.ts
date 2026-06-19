@@ -38,7 +38,7 @@ export default defineConfig({
           },
         }),
       ],
-      langs: ['js', 'jsx', 'ts', 'tsx', 'python', 'bash', 'json', 'yaml', 'toml', 'css', 'mermaid'],
+      langs: ['js', 'jsx', 'ts', 'tsx', 'python', 'bash', 'json', 'yaml', 'toml', 'css'],
     },
   },
 });

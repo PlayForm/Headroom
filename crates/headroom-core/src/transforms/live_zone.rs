@@ -457,10 +457,10 @@ pub fn summarize_openai_responses_no_change_reason(manifest: &CompressionManifes
                 } else {
                     saw_below_plain_text_floor = true;
                 }
-            }
+            },
             BlockAction::NoCompressionApplied { .. } => saw_no_compression_applied = true,
             BlockAction::Excluded { .. } => saw_excluded = true,
-            BlockAction::Compressed { .. } => {}
+            BlockAction::Compressed { .. } => {},
         }
     }
 
@@ -698,7 +698,7 @@ pub fn compress_anthropic_live_zone_with_ccr(
                     block_outcomes,
                 },
             });
-        }
+        },
     };
 
     let mut block_outcomes: Vec<BlockOutcome> = Vec::with_capacity(plan.len());
@@ -739,7 +739,7 @@ pub fn compress_anthropic_live_zone_with_ccr(
                     ccr_store,
                 );
                 outcome
-            }
+            },
             SlotKind::StringContent {
                 content_text,
                 content_byte_range,
@@ -756,7 +756,7 @@ pub fn compress_anthropic_live_zone_with_ccr(
                     &mut replacements,
                     ccr_store,
                 )
-            }
+            },
         };
         block_outcomes.push(outcome);
     }
@@ -789,14 +789,14 @@ pub fn compress_anthropic_live_zone_with_ccr(
             // every replacement was a JSON-encoded string (also UTF-8).
             // Fall back rather than risk shipping malformed bytes.
             return Ok(LiveZoneOutcome::NoChange { manifest });
-        }
+        },
     };
     let raw = match RawValue::from_string(new_body_str.to_string()) {
         Ok(r) => r,
         Err(_) => {
             // Same defensive bail-out; should not happen.
             return Ok(LiveZoneOutcome::NoChange { manifest });
-        }
+        },
     };
 
     Ok(LiveZoneOutcome::Modified {
@@ -927,7 +927,7 @@ fn compress_one_block(
                     },
                 }
             }
-        }
+        },
         DispatchResult::Error { strategy, error } => BlockOutcome {
             message_index,
             block_index,
@@ -1009,23 +1009,6 @@ enum SlotKind {
 /// latest user message. Errors out on shapes the dispatcher does not
 /// support (e.g. structured-array `content` inside a tool_result —
 /// rare; we degrade to NoChange in that case).
-/// Whether a content block (no `type` key) carries a JSON-string `text`
-/// field — the Bedrock Converse text-block shape (`{"text": "..."}`).
-/// Used to route typeless Converse text through the Anthropic text path.
-/// Blocks whose `text` is absent or non-string (e.g. `{"image": ...}`,
-/// `{"toolUse": ...}`) return false and stay unrecognized → no-op.
-fn block_has_string_text_field(block_json: &str) -> bool {
-    #[derive(Deserialize)]
-    struct Probe<'a> {
-        #[serde(borrow, default)]
-        text: Option<&'a RawValue>,
-    }
-    serde_json::from_str::<Probe<'_>>(block_json)
-        .ok()
-        .and_then(|p| p.text)
-        .is_some_and(|t| t.get().trim_start().starts_with('"'))
-}
-
 fn plan_block_replacements(
     body_raw: &[u8],
     target_msg_idx: usize,
@@ -1089,18 +1072,7 @@ fn plan_block_replacements(
 
         let header: BlockHeader<'_> =
             serde_json::from_str(block_raw.get()).map_err(|_| PlanError::ParseFailed)?;
-        // Bedrock Converse content blocks carry no `type` discriminator —
-        // the variant is the key itself (`{"text": ...}`, `{"image": ...}`,
-        // `{"toolUse": ...}`). A typeless block whose `text` field is a
-        // JSON string is Converse text; route it through the same surgical
-        // path as an Anthropic `{"type":"text","text":...}` block so
-        // Converse user-message text compresses too. Anthropic blocks
-        // always carry `type`, so this never alters the Anthropic path.
-        let block_type = match header.r#type {
-            Some(t) => t.to_string(),
-            None if block_has_string_text_field(block_raw.get()) => "text".to_string(),
-            None => "unknown".to_string(),
-        };
+        let block_type = header.r#type.unwrap_or("unknown").to_string();
 
         if HOT_ZONE_BLOCK_TYPES.iter().any(|t| *t == block_type) {
             slots.push(PlanSlot {
@@ -1130,7 +1102,7 @@ fn plan_block_replacements(
                 let off = bytes_offset_of(block_raw.get(), field_raw.get())
                     .ok_or(PlanError::OffsetMissing)?;
                 (field_raw.get(), off)
-            }
+            },
             "text" => {
                 #[derive(Deserialize)]
                 struct TextHeader<'a> {
@@ -1153,7 +1125,7 @@ fn plan_block_replacements(
                 let off = bytes_offset_of(block_raw.get(), text_raw.get())
                     .ok_or(PlanError::OffsetMissing)?;
                 (text_raw.get(), off)
-            }
+            },
             _ => {
                 // image, document, etc. — record as compressible
                 // block-type but with empty content so no compressor
@@ -1167,7 +1139,7 @@ fn plan_block_replacements(
                     },
                 });
                 continue;
-            }
+            },
         };
 
         // The compressors expect a plain string, not a JSON-quoted
@@ -1350,7 +1322,7 @@ fn dispatch_compressor(text: &str, content_type: ContentType) -> DispatchResult 
                 strategy: STRATEGY_SMART_CRUSHER,
                 compressed: result.compressed,
             }
-        }
+        },
         ContentType::BuildOutput => {
             let (result, _stats) = log_compressor().compress(text, DEFAULT_BIAS);
             if result.compressed == result.original {
@@ -1362,7 +1334,7 @@ fn dispatch_compressor(text: &str, content_type: ContentType) -> DispatchResult 
                 strategy: STRATEGY_LOG_COMPRESSOR,
                 compressed: result.compressed,
             }
-        }
+        },
         ContentType::SearchResults => {
             let (result, _stats) = search_compressor().compress(text, EMPTY_QUERY, DEFAULT_BIAS);
             if result.compressed == result.original {
@@ -1374,7 +1346,7 @@ fn dispatch_compressor(text: &str, content_type: ContentType) -> DispatchResult 
                 strategy: STRATEGY_SEARCH_COMPRESSOR,
                 compressed: result.compressed,
             }
-        }
+        },
         ContentType::GitDiff => {
             let result = diff_compressor().compress(text, EMPTY_QUERY);
             if result.compressed == text {
@@ -1386,7 +1358,7 @@ fn dispatch_compressor(text: &str, content_type: ContentType) -> DispatchResult 
                 strategy: STRATEGY_DIFF_COMPRESSOR,
                 compressed: result.compressed,
             }
-        }
+        },
         // TODO(PR-B4 / Rust code-compressor port): Python has a
         // CodeAwareCompressor; the Rust port is not yet shipped. Once
         // that crate lands, `ContentType::SourceCode` routes here
@@ -1480,7 +1452,7 @@ mod tests {
                 assert_eq!(manifest.messages_total, 0);
                 assert_eq!(manifest.latest_user_message_index, None);
                 assert!(manifest.block_outcomes.is_empty());
-            }
+            },
             _ => panic!("expected NoChange"),
         }
     }
@@ -1637,61 +1609,6 @@ mod tests {
         }));
         let out = compress_anthropic_live_zone(&b, 0, AuthMode::Payg, DEFAULT_MODEL).unwrap();
         assert!(matches!(out, LiveZoneOutcome::NoChange { .. }));
-    }
-
-    #[test]
-    fn block_has_string_text_field_detects_converse_text_only() {
-        // Converse text block: typeless, string `text` → recognized.
-        assert!(block_has_string_text_field(r#"{"text":"hello"}"#));
-        // Non-text Converse blocks must NOT be mistaken for text.
-        assert!(!block_has_string_text_field(
-            r#"{"image":{"format":"png"}}"#
-        ));
-        assert!(!block_has_string_text_field(r#"{"toolUse":{"name":"x"}}"#));
-        // `text` present but not a JSON string → not Converse text.
-        assert!(!block_has_string_text_field(r#"{"text":["a"]}"#));
-        assert!(!block_has_string_text_field(r#"{"text":{"v":1}}"#));
-    }
-
-    #[test]
-    fn converse_typeless_text_block_routes_like_anthropic_text() {
-        // Bedrock Converse content blocks omit the `type` discriminator —
-        // `{"text": "..."}` instead of `{"type":"text","text":"..."}`. The
-        // dispatcher must treat the two identically so Converse user-message
-        // text compresses like Anthropic text.
-        let payload = "{\"k\": \"v\", \"n\": 1}\n".repeat(200);
-        let converse = body(json!({
-            "messages": [{"role": "user", "content": [{"text": payload}]}]
-        }));
-        let anthropic = body(json!({
-            "messages": [{"role": "user", "content": [{"type": "text", "text": payload}]}]
-        }));
-        let c = compress_anthropic_live_zone(&converse, 0, AuthMode::Payg, DEFAULT_MODEL).unwrap();
-        let a = compress_anthropic_live_zone(&anthropic, 0, AuthMode::Payg, DEFAULT_MODEL).unwrap();
-
-        // Identical dispatch outcome (both Modified or both NoChange).
-        assert_eq!(
-            std::mem::discriminant(&c),
-            std::mem::discriminant(&a),
-            "converse text block must dispatch like an anthropic text block"
-        );
-        let cm = match &c {
-            LiveZoneOutcome::NoChange { manifest } => manifest,
-            LiveZoneOutcome::Modified { manifest, .. } => manifest,
-        };
-        let am = match &a {
-            LiveZoneOutcome::NoChange { manifest } => manifest,
-            LiveZoneOutcome::Modified { manifest, .. } => manifest,
-        };
-        // The Converse block is now classified the same as Anthropic text
-        // (before this change it was an unrecognized typeless block).
-        assert_eq!(cm.block_outcomes.len(), 1);
-        assert_eq!(am.block_outcomes.len(), 1);
-        assert_eq!(
-            cm.block_outcomes[0].block_type,
-            am.block_outcomes[0].block_type
-        );
-        assert_eq!(cm.block_outcomes[0].block_type, "text");
     }
 
     #[test]
@@ -2205,7 +2122,7 @@ mod openai_chat_tests {
                     .block_outcomes
                     .iter()
                     .all(|b| matches!(b.action, BlockAction::BelowByteThreshold { .. })));
-            }
+            },
             _ => panic!("expected NoChange"),
         }
     }
@@ -2228,7 +2145,7 @@ mod openai_chat_tests {
             LiveZoneOutcome::NoChange { manifest } => {
                 assert_eq!(manifest.block_outcomes.len(), 1);
                 assert_eq!(manifest.block_outcomes[0].block_type, "user_text");
-            }
+            },
             _ => panic!("expected NoChange"),
         }
     }
@@ -2384,8 +2301,8 @@ pub fn compress_openai_responses_live_zone(
                     continue;
                 }
                 output_candidates.push((idx, type_tag));
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
 
@@ -2412,12 +2329,12 @@ pub fn compress_openai_responses_live_zone(
     for (idx, kind_tag) in candidates {
         match plan_responses_item(body_raw, idx, kind_tag) {
             Ok(Some(slot)) => all_slots.push((idx, slot)),
-            Ok(None) => {}
+            Ok(None) => {},
             Err(_) => {
                 // Body shape doesn't match what we expect for this
                 // item — skip it but keep going for the others.
                 continue;
-            }
+            },
         }
     }
 
@@ -2582,7 +2499,7 @@ fn plan_responses_item(
                 ),
                 is_output_item: true,
             }))
-        }
+        },
         "message" => {
             let view: MessageItemView<'_> =
                 serde_json::from_str(item_raw.get()).map_err(|_| PlanError::ParseFailed)?;
@@ -2670,7 +2587,7 @@ fn plan_responses_item(
                 }));
             }
             Ok(None)
-        }
+        },
         _ => Ok(None),
     }
 }
@@ -2729,10 +2646,10 @@ mod openai_responses_tests {
                         assert_eq!(*content_type, "output_item");
                         assert_eq!(*byte_count, 256);
                         assert_eq!(*threshold_bytes, RESPONSES_OUTPUT_MIN_BYTES);
-                    }
+                    },
                     other => panic!("expected BelowByteThreshold, got {other:?}"),
                 }
-            }
+            },
             _ => panic!("expected NoChange"),
         }
     }
@@ -2816,7 +2733,7 @@ mod openai_responses_tests {
         match &out {
             LiveZoneOutcome::NoChange { manifest } => {
                 assert!(manifest.block_outcomes.is_empty());
-            }
+            },
             _ => panic!("expected NoChange"),
         }
     }
@@ -2848,7 +2765,7 @@ mod openai_responses_tests {
                     .block_outcomes
                     .iter()
                     .any(|b| matches!(b.action, BlockAction::Compressed { .. })));
-            }
+            },
             LiveZoneOutcome::NoChange { manifest } => {
                 // RejectedNotSmaller is also an acceptable outcome
                 // for the test fixture; what matters is that the
@@ -2863,7 +2780,7 @@ mod openai_responses_tests {
                     attempted,
                     "expected dispatcher to attempt compression on a 2KB+ log fixture: {manifest:?}"
                 );
-            }
+            },
         }
     }
 
@@ -2880,7 +2797,7 @@ mod openai_responses_tests {
         match &out {
             LiveZoneOutcome::NoChange { manifest } => {
                 assert!(manifest.block_outcomes.is_empty());
-            }
+            },
             _ => panic!("expected NoChange"),
         }
     }
@@ -2908,7 +2825,7 @@ mod openai_responses_tests {
         match &out {
             LiveZoneOutcome::NoChange { manifest } => {
                 assert!(manifest.block_outcomes.is_empty());
-            }
+            },
             _ => panic!("expected NoChange"),
         }
     }
@@ -2928,7 +2845,7 @@ mod openai_responses_tests {
         match &out {
             LiveZoneOutcome::NoChange { manifest } => {
                 assert!(manifest.block_outcomes.is_empty());
-            }
+            },
             _ => panic!("expected NoChange"),
         }
     }

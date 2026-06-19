@@ -88,7 +88,7 @@ pub async fn handle_chat_completions(
                 .status(http::StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::from("internal handler error"))
                 .expect("static response");
-        }
+        },
     };
 
     forward_http(state, client_addr, req)

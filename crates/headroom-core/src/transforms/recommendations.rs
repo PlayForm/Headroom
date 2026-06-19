@@ -186,7 +186,7 @@ impl RecommendationStore {
                     "TOIN recommendations loaded",
                 );
                 store
-            }
+            },
             Err(RecommendationsError::Missing(_)) => {
                 tracing::info!(
                     event = "recommendations_missing",
@@ -194,7 +194,7 @@ impl RecommendationStore {
                     "no recommendations.toml present; using static defaults",
                 );
                 Self::empty()
-            }
+            },
             Err(err) => {
                 tracing::warn!(
                     event = "recommendations_load_failed",
@@ -203,7 +203,7 @@ impl RecommendationStore {
                     "TOIN recommendations failed to load — falling back to empty store",
                 );
                 Self::empty()
-            }
+            },
         }
     }
 }

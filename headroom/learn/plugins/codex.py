@@ -91,14 +91,8 @@ class CodexPlugin(LearnPlugin, ConversationScanner):
             )
         ]
 
-    def scan_project(
-        self, project: ProjectInfo, max_workers: int = 1, include_subagents: bool = True
-    ) -> list[SessionData]:
-        """Scan all Codex session JSON files.
-
-        ``include_subagents`` is accepted for a uniform plugin contract but is a
-        no-op: Codex stores sessions flat, with no nested transcript hierarchy.
-        """
+    def scan_project(self, project: ProjectInfo, max_workers: int = 1) -> list[SessionData]:
+        """Scan all Codex session JSON files."""
         session_files = self._iter_session_files(project.data_path)
         if not session_files:
             return []

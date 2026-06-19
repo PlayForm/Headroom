@@ -417,7 +417,7 @@ fn parse_headers(slice: &Bytes) -> Result<HashMap<String, HeaderValue>, ParseErr
                 })?;
                 cursor += value_len;
                 HeaderValue::String(s.to_string())
-            }
+            },
             header_type::BYTE_ARRAY => {
                 if cursor + 2 > total {
                     return Err(ParseError::TruncatedHeader {
@@ -438,7 +438,7 @@ fn parse_headers(slice: &Bytes) -> Result<HashMap<String, HeaderValue>, ParseErr
                 let v = slice.slice(cursor..cursor + value_len);
                 cursor += value_len;
                 HeaderValue::Bytes(v)
-            }
+            },
             // The TRUE/FALSE flags carry no value bytes; we surface
             // them as a single-byte payload `Bytes` for completeness
             // even though Bedrock never emits them. Other types that
@@ -457,7 +457,7 @@ fn parse_headers(slice: &Bytes) -> Result<HashMap<String, HeaderValue>, ParseErr
                 let v = slice.slice(cursor..cursor + 1);
                 cursor += 1;
                 HeaderValue::Bytes(v)
-            }
+            },
             header_type::SHORT => {
                 if cursor + 2 > total {
                     return Err(ParseError::TruncatedHeader {
@@ -468,7 +468,7 @@ fn parse_headers(slice: &Bytes) -> Result<HashMap<String, HeaderValue>, ParseErr
                 let v = slice.slice(cursor..cursor + 2);
                 cursor += 2;
                 HeaderValue::Bytes(v)
-            }
+            },
             header_type::INTEGER => {
                 if cursor + 4 > total {
                     return Err(ParseError::TruncatedHeader {
@@ -479,7 +479,7 @@ fn parse_headers(slice: &Bytes) -> Result<HashMap<String, HeaderValue>, ParseErr
                 let v = slice.slice(cursor..cursor + 4);
                 cursor += 4;
                 HeaderValue::Bytes(v)
-            }
+            },
             header_type::LONG | header_type::TIMESTAMP => {
                 if cursor + 8 > total {
                     return Err(ParseError::TruncatedHeader {
@@ -490,7 +490,7 @@ fn parse_headers(slice: &Bytes) -> Result<HashMap<String, HeaderValue>, ParseErr
                 let v = slice.slice(cursor..cursor + 8);
                 cursor += 8;
                 HeaderValue::Bytes(v)
-            }
+            },
             header_type::UUID => {
                 if cursor + 16 > total {
                     return Err(ParseError::TruncatedHeader {
@@ -501,13 +501,13 @@ fn parse_headers(slice: &Bytes) -> Result<HashMap<String, HeaderValue>, ParseErr
                 let v = slice.slice(cursor..cursor + 16);
                 cursor += 16;
                 HeaderValue::Bytes(v)
-            }
+            },
             other => {
                 return Err(ParseError::UnsupportedHeaderType {
                     value_type: other,
                     offset: cursor.saturating_sub(1),
                 });
-            }
+            },
         };
         out.insert(name, value);
     }
@@ -569,13 +569,13 @@ impl MessageBuilder {
                     let len = s.len() as u16;
                     headers_bytes.extend_from_slice(&len.to_be_bytes());
                     headers_bytes.extend_from_slice(s.as_bytes());
-                }
+                },
                 HeaderValue::Bytes(b) => {
                     headers_bytes.extend_from_slice(&[header_type::BYTE_ARRAY]);
                     let len = b.len() as u16;
                     headers_bytes.extend_from_slice(&len.to_be_bytes());
                     headers_bytes.extend_from_slice(b);
-                }
+                },
             }
         }
         let headers_len = headers_bytes.len() as u32;

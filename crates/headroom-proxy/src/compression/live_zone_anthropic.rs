@@ -188,7 +188,7 @@ pub fn compress_anthropic_request(
             return Outcome::Passthrough {
                 reason: PassthroughReason::NotJson,
             };
-        }
+        },
     };
 
     let frozen_count = resolve_frozen_count(&parsed, cache_control_policy, request_id);
@@ -262,7 +262,7 @@ pub fn compress_anthropic_request(
                         "auto-placement ran but found no tool slot to mark"
                     );
                 }
-            }
+            },
             AutoPlaceOutcome::Skipped {
                 reason: SkipReason::MarkerPresent,
             } => {
@@ -274,7 +274,7 @@ pub fn compress_anthropic_request(
                     reason = SkipReason::MarkerPresent.as_str(),
                     "customer-placed cache_control marker(s) present; auto-placement skipped"
                 );
-            }
+            },
             AutoPlaceOutcome::Skipped {
                 reason: SkipReason::AuthMode,
             } => {
@@ -282,7 +282,7 @@ pub fn compress_anthropic_request(
                 // gate lives in this caller. Defensive arm so the
                 // match is exhaustive across the public enum.
                 e3_skipped = true;
-            }
+            },
         }
     } else {
         e3_skipped = true;
@@ -321,7 +321,7 @@ pub fn compress_anthropic_request(
                      serialize-back failed; forwarding original bytes"
                 );
                 body.clone()
-            }
+            },
         }
     } else {
         body.clone()
@@ -412,7 +412,7 @@ pub fn compress_anthropic_request(
             } else {
                 Outcome::NoCompression
             }
-        }
+        },
         Ok(LiveZoneOutcome::Modified { new_body, manifest }) => {
             // Aggregate manifest into the proxy's `Compressed` payload.
             // PR-B4 reports token counts via the same tokenizer the
@@ -469,13 +469,13 @@ pub fn compress_anthropic_request(
                                 compressed_tokens,
                             });
                         }
-                    }
+                    },
                     BlockAction::RejectedNotSmaller { strategy, .. } => {
                         // C5: surface the tokenizer-validated
                         // rejection in the dedicated counter.
                         crate::observability::record_compression_rejected_by_token_check(strategy);
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
             // Stitch in the PR-E1 / PR-E2 / PR-E3 strategy tags so
@@ -530,7 +530,7 @@ pub fn compress_anthropic_request(
                 markers_inserted: e3_locations,
                 per_strategy_tokens,
             }
-        }
+        },
         Err(LiveZoneError::BodyNotJson(_)) => {
             // We already parsed successfully above; the dispatcher's
             // independent parse can only fail on a state we missed.
@@ -544,7 +544,7 @@ pub fn compress_anthropic_request(
             Outcome::Passthrough {
                 reason: PassthroughReason::NotJson,
             }
-        }
+        },
         Err(LiveZoneError::NoMessagesArray) => {
             tracing::info!(
                 request_id = %request_id,
@@ -559,7 +559,7 @@ pub fn compress_anthropic_request(
             Outcome::Passthrough {
                 reason: PassthroughReason::NoMessages,
             }
-        }
+        },
     }
 }
 
@@ -735,7 +735,7 @@ mod tests {
         match out {
             Outcome::Passthrough {
                 reason: PassthroughReason::ModeOff,
-            } => {}
+            } => {},
             other => panic!("expected Passthrough{{ModeOff}}, got {other:?}"),
         }
     }
@@ -753,7 +753,7 @@ mod tests {
         match out {
             Outcome::Passthrough {
                 reason: PassthroughReason::NoMessages,
-            } => {}
+            } => {},
             other => panic!("expected Passthrough{{NoMessages}}, got {other:?}"),
         }
     }
@@ -771,7 +771,7 @@ mod tests {
         match out {
             Outcome::Passthrough {
                 reason: PassthroughReason::NotJson,
-            } => {}
+            } => {},
             other => panic!("expected Passthrough{{NotJson}}, got {other:?}"),
         }
     }
@@ -795,7 +795,7 @@ mod tests {
             "req-4",
         );
         match out {
-            Outcome::NoCompression => {}
+            Outcome::NoCompression => {},
             other => panic!("expected NoCompression, got {other:?}"),
         }
     }
@@ -813,7 +813,7 @@ mod tests {
         match out {
             Outcome::Passthrough {
                 reason: PassthroughReason::NotJson,
-            } => {}
+            } => {},
             other => panic!("expected Passthrough{{NotJson}}, got {other:?}"),
         }
     }
@@ -848,7 +848,7 @@ mod tests {
             "req-6",
         );
         match out {
-            Outcome::NoCompression => {}
+            Outcome::NoCompression => {},
             other => panic!("expected NoCompression, got {other:?}"),
         }
     }
@@ -897,7 +897,7 @@ mod tests {
                     Some(&serde_json::json!({"type": "ephemeral"})),
                     "marker must be present on last tool",
                 );
-            }
+            },
             other => panic!("expected Compressed{{e3_…}}, got {other:?}"),
         }
     }
@@ -920,7 +920,7 @@ mod tests {
             "req-e3-2",
         );
         match out {
-            Outcome::NoCompression => {}
+            Outcome::NoCompression => {},
             other => panic!("expected NoCompression on OAuth, got {other:?}"),
         }
     }
@@ -940,7 +940,7 @@ mod tests {
             "req-e3-3",
         );
         match out {
-            Outcome::NoCompression => {}
+            Outcome::NoCompression => {},
             other => panic!("expected NoCompression on Subscription, got {other:?}"),
         }
     }
@@ -967,7 +967,7 @@ mod tests {
             "req-e3-4",
         );
         match out {
-            Outcome::NoCompression => {}
+            Outcome::NoCompression => {},
             other => panic!("expected NoCompression on customer-placed marker, got {other:?}"),
         }
     }
@@ -988,7 +988,7 @@ mod tests {
             "req-e3-5",
         );
         match out {
-            Outcome::NoCompression => {}
+            Outcome::NoCompression => {},
             other => panic!("expected NoCompression on no-tools PAYG body, got {other:?}"),
         }
     }
@@ -1040,7 +1040,7 @@ mod tests {
                     .map(|t| t.get("name").and_then(Value::as_str).unwrap())
                     .collect();
                 assert_eq!(names, vec!["apple", "mango", "zebra"]);
-            }
+            },
             other => panic!("expected Compressed with sort, got {other:?}"),
         }
     }
@@ -1070,7 +1070,7 @@ mod tests {
         // Non-PAYG → no normalization → live-zone dispatcher sees
         // no compressible block → NoCompression.
         match out {
-            Outcome::NoCompression => {}
+            Outcome::NoCompression => {},
             other => panic!("expected NoCompression for OAuth, got {other:?}"),
         }
     }
@@ -1097,7 +1097,7 @@ mod tests {
             "req-e1-3",
         );
         match out {
-            Outcome::NoCompression => {}
+            Outcome::NoCompression => {},
             other => panic!("expected NoCompression for Subscription, got {other:?}"),
         }
     }
@@ -1126,7 +1126,7 @@ mod tests {
             "req-e1-4",
         );
         match out {
-            Outcome::NoCompression => {}
+            Outcome::NoCompression => {},
             other => panic!("expected NoCompression when marker present, got {other:?}"),
         }
     }
@@ -1151,7 +1151,7 @@ mod tests {
             "req-e1-5",
         );
         match out {
-            Outcome::NoCompression => {}
+            Outcome::NoCompression => {},
             other => panic!("expected NoCompression with no tools, got {other:?}"),
         }
     }
@@ -1210,7 +1210,7 @@ mod tests {
                     vec!["properties", "required", "type"],
                     "input_schema top-level keys must be alphabetic; got: {keys:?}"
                 );
-            }
+            },
             other => panic!("expected Compressed with schema sort, got {other:?}"),
         }
     }
@@ -1256,7 +1256,7 @@ mod tests {
                     !strategies_applied.contains(&"tool_array_sort"),
                     "E1 must skip when marker is present; got {strategies_applied:?}",
                 );
-            }
+            },
             other => panic!("expected Compressed with schema sort, got {other:?}"),
         }
     }
@@ -1302,10 +1302,10 @@ mod tests {
                     "expected e3_anthropic_cache_control on already-sorted PAYG tools, got: \
                      {strategies_applied:?}",
                 );
-            }
+            },
             other => {
                 panic!("expected Compressed (E3 fires) for already-sorted tools, got {other:?}")
-            }
+            },
         }
     }
 }

@@ -78,7 +78,7 @@ class SummaryCompressor:
         priority_preservation: bool = True,
     ) -> None:
         pass
-    
+
     def compress(
         self,
         content: str,

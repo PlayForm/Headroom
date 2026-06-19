@@ -206,7 +206,7 @@ fn cell_from_value(v: &Value, cfg: &CompactConfig) -> CellValue {
                 }
             }
             CellValue::Scalar(v.clone())
-        }
+        },
         CellClass::StringifiedJson(parsed) => {
             // If the parsed JSON is an array of objects, recurse; else
             // store the parsed value as a Scalar (un-escapes for free).
@@ -216,7 +216,7 @@ fn cell_from_value(v: &Value, cfg: &CompactConfig) -> CellValue {
                 }
             }
             CellValue::Scalar(parsed)
-        }
+        },
         CellClass::Opaque(kind) => {
             let bytes = match v {
                 Value::String(s) => s.as_bytes(),
@@ -227,7 +227,7 @@ fn cell_from_value(v: &Value, cfg: &CompactConfig) -> CellValue {
                 byte_size: bytes.len(),
                 kind,
             }
-        }
+        },
     }
 }
 
@@ -242,7 +242,7 @@ fn flatten_uniform_nested(specs: &mut Vec<FieldSpec>, rows: &mut [Row], cfg: &Co
             _ => {
                 i += 1;
                 continue;
-            }
+            },
         };
 
         let parent_name = specs[i].name.clone();
@@ -312,7 +312,7 @@ fn infer_type_tag_from_cells(rows: &[Row], col: usize, nullable: &mut bool) -> S
                     } else if type_tag_for(v) != tag {
                         tag = "json";
                     }
-                }
+                },
                 _ => tag = "json",
             }
         }
@@ -342,9 +342,9 @@ fn uniform_object_keys(specs: &[FieldSpec], rows: &[Row], col: usize) -> Option<
                         if existing != &keys {
                             return None;
                         }
-                    }
+                    },
                 }
-            }
+            },
             _ => return None,
         }
     }
@@ -367,8 +367,8 @@ fn infer_type_tag(items: &[Value], key: &str) -> String {
                 Some(existing) if existing != t => {
                     tag = Some("json");
                     break;
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
     }
@@ -422,7 +422,7 @@ fn detect_discriminator(
                 _ => {
                     all_strings = false;
                     break;
-                }
+                },
             }
         }
         if !all_strings {
@@ -445,7 +445,7 @@ fn detect_discriminator(
         match &best {
             None => best = Some((k.clone(), score)),
             Some((_, s)) if score > *s => best = Some((k.clone(), score)),
-            _ => {}
+            _ => {},
         }
     }
     best.map(|(k, _)| k)
@@ -489,7 +489,7 @@ fn bucket_by(items: &[Value], discriminator: &str, cfg: &CompactConfig) -> Compa
                             .map(|v| Row::new(vec![CellValue::Scalar(v)]))
                             .collect(),
                     }
-                }
+                },
             }
         })
         .collect();
@@ -546,7 +546,7 @@ mod tests {
                 // Type inference
                 let id_spec = schema.fields.iter().find(|f| f.name == "id").unwrap();
                 assert_eq!(id_spec.type_tag, "int");
-            }
+            },
             other => panic!("expected Table, got {other:?}"),
         }
     }
@@ -565,7 +565,7 @@ mod tests {
                 assert!(names.contains(&"meta.tier"), "got {names:?}");
                 assert!(!names.contains(&"meta"));
                 assert_eq!(rows[0].len(), schema.fields.len());
-            }
+            },
             other => panic!("expected Table, got {other:?}"),
         }
     }
@@ -583,7 +583,7 @@ mod tests {
                 // No flatten — all-different key sets per row
                 assert!(names.contains(&"meta"));
                 assert!(!names.iter().any(|n| n.starts_with("meta.")));
-            }
+            },
             other => panic!("expected Table, got {other:?}"),
         }
     }
@@ -606,7 +606,7 @@ mod tests {
                     .count();
                 let _ = payload_idx;
                 assert_eq!(nested_count, 1, "expected exactly one Nested cell");
-            }
+            },
             other => panic!("expected Table, got {other:?}"),
         }
     }
@@ -634,10 +634,10 @@ mod tests {
                         assert!(!ccr_hash.is_empty());
                         assert_eq!(*byte_size, big.len());
                         assert_eq!(*kind, OpaqueKind::Base64Blob);
-                    }
+                    },
                     other => panic!("expected OpaqueRef, got {other:?}"),
                 }
-            }
+            },
             other => panic!("expected Table, got {other:?}"),
         }
     }
@@ -661,7 +661,7 @@ mod tests {
                 assert_eq!(original_count, 4);
                 let total_rows: usize = buckets.iter().map(|b| b.rows.len()).sum();
                 assert_eq!(total_rows, 4);
-            }
+            },
             other => panic!("expected Buckets, got {other:?}"),
         }
     }
@@ -698,7 +698,7 @@ mod tests {
                 // Two rare fields with same freq: alphabetical
                 assert_eq!(schema.fields[1].name, "a_rare");
                 assert_eq!(schema.fields[2].name, "z_rare");
-            }
+            },
             other => panic!("got {other:?}"),
         }
     }
@@ -716,7 +716,7 @@ mod tests {
                 assert!(tag.nullable);
                 let id = schema.fields.iter().find(|f| f.name == "id").unwrap();
                 assert!(!id.nullable);
-            }
+            },
             other => panic!("got {other:?}"),
         }
     }

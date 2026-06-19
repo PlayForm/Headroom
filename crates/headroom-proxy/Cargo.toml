@@ -17,13 +17,31 @@ path = "src/lib.rs"
 
 [dependencies]
 axum = { workspace = true, features = ["ws", "http2", "macros"] }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "net", "io-util", "time"] }
+tokio = { workspace = true, features = [
+	"macros",
+	"rt-multi-thread",
+	"signal",
+	"net",
+	"io-util",
+	"time",
+] }
 tower = { workspace = true }
 tower-http = { version = "0.6", features = ["trace", "request-id", "util"] }
 tracing = { workspace = true }
-tracing-subscriber = { version = "0.3", features = ["json", "env-filter", "fmt"] }
-reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls", "http2"] }
-tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+tracing-subscriber = { version = "0.3", features = [
+	"json",
+	"env-filter",
+	"fmt",
+] }
+reqwest = { version = "0.12", default-features = false, features = [
+	"stream",
+	"rustls-tls",
+	"http2",
+] }
+tokio-tungstenite = { version = "0.24", default-features = false, features = [
+	"connect",
+	"rustls-tls-webpki-roots",
+] }
 clap = { workspace = true, features = ["derive", "env"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -97,10 +115,27 @@ md-5 = "0.10"
 [dev-dependencies]
 tower = { workspace = true, features = ["util"] }
 wiremock = "0.6"
-reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls", "http2", "json"] }
-tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+reqwest = { version = "0.12", default-features = false, features = [
+	"stream",
+	"rustls-tls",
+	"http2",
+	"json",
+] }
+tokio-tungstenite = { version = "0.24", default-features = false, features = [
+	"connect",
+	"rustls-tls-webpki-roots",
+] }
 futures-util = "0.3"
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "net", "io-util", "time", "test-util", "process"] }
+tokio = { workspace = true, features = [
+	"macros",
+	"rt-multi-thread",
+	"signal",
+	"net",
+	"io-util",
+	"time",
+	"test-util",
+	"process",
+] }
 hyper = { version = "1", features = ["server", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["tokio", "server-auto"] }
 http-body-util = "0.1"

@@ -235,12 +235,12 @@ impl<'a> Segment<'a> {
                 Some(b'+') if !line.starts_with("+++") => {
                     saw_change = true;
                     adds.push(strip_ws(&line[1..]));
-                }
+                },
                 Some(b'-') if !line.starts_with("---") => {
                     saw_change = true;
                     subs.push(strip_ws(&line[1..]));
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
         if !saw_change {
@@ -471,7 +471,7 @@ mod tests {
             .apply(&diff, &CompressionContext::default(), &store)
             .expect_err("nothing droppable");
         match err {
-            TransformError::Skipped { .. } => {}
+            TransformError::Skipped { .. } => {},
             _ => panic!("expected Skipped, got {err:?}"),
         }
         assert_eq!(store.len(), 0);
@@ -517,7 +517,7 @@ mod tests {
             .apply("", &CompressionContext::default(), &store)
             .expect_err("must skip");
         match err {
-            TransformError::Skipped { .. } => {}
+            TransformError::Skipped { .. } => {},
             _ => panic!("expected Skipped"),
         }
     }

@@ -159,7 +159,7 @@ pub async fn handle_responses(
                 .status(http::StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::from("internal handler error"))
                 .expect("static response");
-        }
+        },
     };
 
     forward_http(state, client_addr, req)

@@ -13,7 +13,6 @@ import logging
 import os
 import tempfile
 import threading
-import urllib.parse
 from csv import DictWriter
 from datetime import datetime, timedelta, timezone
 from io import StringIO
@@ -314,12 +313,9 @@ def sanitize_project_name(value: Any) -> str | None:
 
     Strips control characters, trims whitespace, and caps length so a
     misbehaving client cannot bloat the persisted state or the dashboard.
-    Percent-encoded values (from non-ASCII cwd names) are decoded first so
-    the stored project name matches the original directory name.
     """
     if not isinstance(value, str):
         return None
-    value = urllib.parse.unquote(value)
     cleaned = "".join(ch for ch in value if ch.isprintable()).strip()
     if not cleaned:
         return None
@@ -474,18 +470,9 @@ class SavingsTracker:
             lifetime["compression_savings_usd"] = round(
                 lifetime["compression_savings_usd"] + delta_usd, 6
             )
-            lifetime["total_input_tokens"] = max(
-                lifetime["total_input_tokens"],
-                _coerce_int(total_input_tokens, default=lifetime["total_input_tokens"]),
-            )
+            lifetime["total_input_tokens"] += _coerce_int(total_input_tokens, default=0)
             lifetime["total_input_cost_usd"] = round(
-                max(
-                    lifetime["total_input_cost_usd"],
-                    _coerce_float(
-                        total_input_cost_usd,
-                        default=lifetime["total_input_cost_usd"],
-                    ),
-                ),
+                lifetime["total_input_cost_usd"] + _coerce_float(total_input_cost_usd, default=0.0),
                 6,
             )
 
@@ -1007,7 +994,7 @@ class SavingsTracker:
                     pass
                 raise
         except OSError as e:
-            logger.warning("Failed to save savings history to %s: %s", self._path, e)
+            logger.error("Failed to save savings history to %s: %s", self._path, e)
 
     def _display_session_snapshot_locked(
         self,

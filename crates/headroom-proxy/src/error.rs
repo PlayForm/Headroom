@@ -61,7 +61,7 @@ impl IntoResponse for ProxyError {
             // handler path, surface as 500 rather than panic.
             ProxyError::CompressionStartup(_) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
-            }
+            },
         };
         tracing::warn!(error = %msg, "proxy error");
         (status, msg).into_response()

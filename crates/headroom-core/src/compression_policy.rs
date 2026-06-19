@@ -113,22 +113,22 @@ use crate::auth_mode::AuthMode;
 // by editing these constants and shipping a new build, which is the
 // same pattern the F2.1 fields use.
 
-/// PAYG: aggressive — let volatile content noise up to ~128 tokens slip
+/// PAYG: coding-tuned — let volatile content noise up to ~256 tokens slip
 /// before flagging. Higher than Subscription because PAYG users opt in
-/// to aggressive compression.
-pub(crate) const VOLATILE_TOKEN_THRESHOLD_PAYG: u32 = 128;
+/// to compression but still need code semantics intact for preview.
+pub(crate) const VOLATILE_TOKEN_THRESHOLD_PAYG: u32 = 256;
 
-/// Subscription: conservative — flag volatile content earlier (32
-/// tokens) so cache prefixes stay stable.
-pub(crate) const VOLATILE_TOKEN_THRESHOLD_SUBSCRIPTION: u32 = 32;
+/// Subscription: conservative — flag volatile content early (64
+/// tokens) so cache prefixes stay stable. Loosened from 32 for coding.
+pub(crate) const VOLATILE_TOKEN_THRESHOLD_SUBSCRIPTION: u32 = 64;
 
-/// PAYG: cap lossy compression at 45% of original tokens. Aggressive
-/// but bounded — F2.1 had no cap (effectively `1.0`), F2.2 introduces
-/// one.
-pub(crate) const MAX_LOSSY_RATIO_PAYG: f32 = 0.45;
+/// PAYG: cap lossy compression at 30% of original tokens. Coding-tuned:
+/// lower than old 0.45 to preserve semantics and code structure in preview.
+pub(crate) const MAX_LOSSY_RATIO_PAYG: f32 = 0.30;
 
-/// Subscription: conservative cap at 25%. Cache stability over savings.
-pub(crate) const MAX_LOSSY_RATIO_SUBSCRIPTION: f32 = 0.25;
+/// Subscription: conservative cap at 20%. Cache stability over savings,
+/// but loosened from 0.25 for coding/preview semantics.
+pub(crate) const MAX_LOSSY_RATIO_SUBSCRIPTION: f32 = 0.20;
 
 /// Anthropic prompt-cache write multiplier: a `cache_creation` token
 /// costs 1.25× a plain input token (5-minute TTL tier). Input to the

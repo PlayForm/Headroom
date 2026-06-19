@@ -21,18 +21,18 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 if [[ ! -d .git/hooks ]]; then
-    echo "error: .git/hooks/ not found — run from a git checkout root" >&2
-    exit 1
+	echo "error: .git/hooks/ not found — run from a git checkout root" >&2
+	exit 1
 fi
 
 if ! command -v npx &>/dev/null; then
-    echo "error: npx not found — install Node 18+ before installing Headroom's git hooks." >&2
-    exit 1
+	echo "error: npx not found — install Node 18+ before installing Headroom's git hooks." >&2
+	exit 1
 fi
 
 HOOK_PATH=".git/hooks/pre-push"
 
-cat > "$HOOK_PATH" <<'HOOK_EOF'
+cat >"$HOOK_PATH" <<'HOOK_EOF'
 #!/usr/bin/env bash
 # Headroom pre-push hook — runs `make ci-precheck` so CI never finds a
 # bug a local check could have caught.
@@ -86,19 +86,19 @@ echo "   Bypass (use sparingly): git push --no-verify"
 # pinned version. Resolution order: active $VIRTUAL_ENV → .venv → global PATH.
 PRE_COMMIT_BIN=""
 if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/pre-commit" ]]; then
-    PRE_COMMIT_BIN="${VIRTUAL_ENV}/bin/pre-commit"
+	PRE_COMMIT_BIN="${VIRTUAL_ENV}/bin/pre-commit"
 elif [[ -x .venv/bin/pre-commit ]]; then
-    PRE_COMMIT_BIN=".venv/bin/pre-commit"
+	PRE_COMMIT_BIN=".venv/bin/pre-commit"
 elif command -v pre-commit &>/dev/null; then
-    PRE_COMMIT_BIN="pre-commit"
+	PRE_COMMIT_BIN="pre-commit"
 fi
 
 if [[ -n "$PRE_COMMIT_BIN" ]]; then
-    "$PRE_COMMIT_BIN" install
-    "$PRE_COMMIT_BIN" install --hook-type commit-msg
-    echo "✅ installed: .git/hooks/pre-commit (repo pre-commit checks via pre-commit)"
-    echo "✅ installed: .git/hooks/commit-msg (conventional commit enforcement via commitlint)"
+	"$PRE_COMMIT_BIN" install
+	"$PRE_COMMIT_BIN" install --hook-type commit-msg
+	echo "✅ installed: .git/hooks/pre-commit (repo pre-commit checks via pre-commit)"
+	echo "✅ installed: .git/hooks/commit-msg (conventional commit enforcement via commitlint)"
 else
-    echo "error: pre-commit not found — run 'pip install -e .[dev]' first, then re-run this script." >&2
-    exit 1
+	echo "error: pre-commit not found — run 'pip install -e .[dev]' first, then re-run this script." >&2
+	exit 1
 fi

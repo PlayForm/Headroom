@@ -262,7 +262,7 @@ impl SmartAnalyzer {
                         stats.change_points = Vec::new();
                     }
                 }
-            }
+            },
             "string" => {
                 let strs: Vec<&str> = non_null.iter().filter_map(|v| v.as_str()).collect();
                 if !strs.is_empty() {
@@ -270,8 +270,8 @@ impl SmartAnalyzer {
                     stats.avg_length = mean(&lens);
                     stats.top_values = top_n_by_count(&strs, 5);
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         stats
@@ -393,7 +393,7 @@ impl SmartAnalyzer {
                     if (iso_count as f64 / sample.len() as f64) > 0.5 {
                         return true;
                     }
-                }
+                },
                 "numeric" => {
                     if let (Some(mn), Some(_)) = (stats.min_val, stats.max_val) {
                         // Unix epoch range checks. Python uses `if min_val and max_val`
@@ -405,8 +405,8 @@ impl SmartAnalyzer {
                             return true;
                         }
                     }
-                }
-                _ => {}
+                },
+                _ => {},
             }
         }
         false

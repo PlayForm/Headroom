@@ -350,7 +350,7 @@ fn calculate_structural_uniqueness(item: &Value, all_items: &[Value]) -> f64 {
 pub fn compute_item_hash(item: &Value) -> String {
     let content = python_json_dumps_sort_keys(item);
     let digest = Md5::digest(content.as_bytes());
-    let hex = format!("{:x}", digest);
+    let hex: String = digest.iter().map(|b| format!("{:02x}", b)).collect();
     hex[..16].to_string()
 }
 
@@ -447,7 +447,7 @@ fn write_python_json_inner(value: &Value, out: &mut String, fmt: JsonFmt) {
                 write_python_json_inner(v, out, fmt);
             }
             out.push(']');
-        }
+        },
         Value::Object(map) => {
             out.push('{');
             if fmt.sort_keys {
@@ -472,7 +472,7 @@ fn write_python_json_inner(value: &Value, out: &mut String, fmt: JsonFmt) {
                 }
             }
             out.push('}');
-        }
+        },
     }
 }
 
@@ -500,12 +500,12 @@ fn write_python_json_string(s: &str, out: &mut String, ensure_ascii: bool) {
             '\u{0D}' => out.push_str("\\r"),
             c if (c as u32) < 0x20 => {
                 out.push_str(&format!("\\u{:04x}", c as u32));
-            }
+            },
             c if (c as u32) <= 0x7E => out.push(c),
             c if !ensure_ascii => {
                 // ensure_ascii=False: emit raw UTF-8 like Python does.
                 out.push(c);
-            }
+            },
             c => {
                 // ensure_ascii=True: encode as \uXXXX, surrogate pair
                 // for codepoints above 0xFFFF.
@@ -518,7 +518,7 @@ fn write_python_json_string(s: &str, out: &mut String, ensure_ascii: bool) {
                     let lo = 0xDC00 + (cp & 0x3FF);
                     out.push_str(&format!("\\u{:04x}\\u{:04x}", hi, lo));
                 }
-            }
+            },
         }
     }
     out.push('"');

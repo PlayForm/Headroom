@@ -175,7 +175,7 @@ impl AnthropicStreamState {
                 // alongside SSE-level `: ping` comments. Both are
                 // keepalives; we already drop comments at the framer.
                 Ok(())
-            }
+            },
             "message_start" => self.on_message_start(&event),
             "content_block_start" => self.on_content_block_start(&event),
             "content_block_delta" => self.on_content_block_delta(&event),
@@ -184,7 +184,7 @@ impl AnthropicStreamState {
             "message_stop" => {
                 self.status = StreamStatus::MessageStop;
                 Ok(())
-            }
+            },
             "error" => {
                 self.status = StreamStatus::Errored;
                 tracing::warn!(
@@ -193,7 +193,7 @@ impl AnthropicStreamState {
                     "anthropic stream emitted error event"
                 );
                 Ok(())
-            }
+            },
             other => {
                 // Unknown event name — wire-format drift or new
                 // event type Anthropic added that we haven't ported
@@ -206,7 +206,7 @@ impl AnthropicStreamState {
                     "unknown anthropic event; preserving stream but not updating state"
                 );
                 Ok(())
-            }
+            },
         }
     }
 
@@ -285,18 +285,18 @@ impl AnthropicStreamState {
                 if let Some(t) = delta.get("text").and_then(|x| x.as_str()) {
                     block.text_buffer.push_str(t);
                 }
-            }
+            },
             "thinking_delta" => {
                 // Note: thinking_delta uses a `thinking` field, not `text`.
                 if let Some(t) = delta.get("thinking").and_then(|x| x.as_str()) {
                     block.text_buffer.push_str(t);
                 }
-            }
+            },
             "input_json_delta" => {
                 if let Some(p) = delta.get("partial_json").and_then(|x| x.as_str()) {
                     block.partial_json.push_str(p);
                 }
-            }
+            },
             "signature_delta" => {
                 // BYTE-EQUAL preservation: take the wire string verbatim,
                 // even if it's empty (an empty signature is itself a
@@ -310,12 +310,12 @@ impl AnthropicStreamState {
                         None => block.signature = Some(sig.to_string()),
                     }
                 }
-            }
+            },
             "citations_delta" => {
                 if let Some(c) = delta.get("citation") {
                     block.citations.push(c.clone());
                 }
-            }
+            },
             other => {
                 tracing::warn!(
                     event = "sse_unknown_event",
@@ -325,7 +325,7 @@ impl AnthropicStreamState {
                     payload_preview = %payload_preview(&event.data),
                     "unknown anthropic delta.type; preserving stream but not updating state"
                 );
-            }
+            },
         }
         Ok(())
     }

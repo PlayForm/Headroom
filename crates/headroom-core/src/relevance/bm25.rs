@@ -178,7 +178,7 @@ impl RelevanceScorer for BM25Scorer {
                     preview.join(", "),
                     suffix
                 )
-            }
+            },
         };
 
         // Limit matched_terms field for readability (Python: matched[:10]).

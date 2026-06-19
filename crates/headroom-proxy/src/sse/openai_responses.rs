@@ -150,10 +150,10 @@ impl ResponseState {
             "response.output_text.done" | "output_text.done" => self.on_output_text_done(&v),
             "response.function_call_arguments.delta" | "function_call_arguments.delta" => {
                 self.on_function_call_arguments_delta(&v)
-            }
+            },
             "response.function_call_arguments.done" | "function_call_arguments.done" => {
                 self.on_function_call_arguments_done(&v)
-            }
+            },
             "response.reasoning_summary.delta"
             | "response.reasoning_summary_text.delta"
             | "reasoning_summary.delta" => self.on_reasoning_summary_delta(&v),
@@ -169,7 +169,7 @@ impl ResponseState {
                 // can attribute failure rate to tiers.
                 self.capture_envelope_metadata(&v);
                 Ok(())
-            }
+            },
             "response.incomplete" => {
                 self.status = StreamStatus::Incomplete;
                 // Phase G PR-G3: pick up incomplete_details.reason
@@ -188,7 +188,7 @@ impl ResponseState {
                 }
                 self.capture_envelope_metadata(&v);
                 Ok(())
-            }
+            },
             other => {
                 tracing::warn!(
                     event = "sse_unknown_event",
@@ -198,7 +198,7 @@ impl ResponseState {
                     "unknown openai responses event; preserving stream but not updating state"
                 );
                 Ok(())
-            }
+            },
         }
     }
 

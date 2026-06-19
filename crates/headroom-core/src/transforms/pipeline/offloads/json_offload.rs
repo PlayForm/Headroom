@@ -332,7 +332,7 @@ mod tests {
             .apply("not json at all", &CompressionContext::default(), &store)
             .expect_err("must skip non-json");
         match err {
-            TransformError::Skipped { .. } => {}
+            TransformError::Skipped { .. } => {},
             _ => panic!("expected Skipped, got {err:?}"),
         }
     }

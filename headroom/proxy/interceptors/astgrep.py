@@ -20,25 +20,17 @@ from pathlib import Path
 from typing import Any
 
 from headroom import binaries
-from headroom.proxy import runtime_env
 
 from . import base
 
 logger = logging.getLogger(__name__)
 
-
 # Latency floor: below this size, the subprocess cost of running ast-grep
 # isn't worth the tiny win. It is NOT a semantic threshold — the framework
 # rejects any rewrite that doesn't actually shrink tokens, so we don't need
 # a "big enough to matter" check here, only a "big enough to justify the
-# fork()" check. Read live (not as a module constant) so a hot-reload or a
-# reused proxy re-synced by ``headroom wrap`` takes effect without a restart.
-def _min_chars_to_rewrite() -> int:
-    try:
-        return int(runtime_env.getenv("HEADROOM_INTERCEPT_READ_MIN_CHARS", "500"))
-    except (TypeError, ValueError):
-        return 500
-
+# fork()" check.
+MIN_CHARS_TO_REWRITE = int(os.environ.get("HEADROOM_INTERCEPT_READ_MIN_CHARS", "500"))
 
 # Tool_input keys that indicate the model targeted a specific line range;
 # outlining would frustrate that intent and likely cause a re-read.
@@ -101,7 +93,7 @@ class AstGrepReadOutline:
     ) -> bool:
         if tool_name not in ("Read", "read_file", "view", "cat"):
             return False
-        if len(tool_output) < _min_chars_to_rewrite():
+        if len(tool_output) < MIN_CHARS_TO_REWRITE:
             return False
         # Respect explicit line ranges — the model wants those specific lines.
         if any(k in tool_input for k in _RANGE_KEYS):

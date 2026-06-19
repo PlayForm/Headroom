@@ -49,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     profile = ?config.aws_profile,
                     "AWS credentials resolved for Bedrock SigV4 signing"
                 );
-            }
+            },
             Err(e) => {
                 tracing::warn!(
                     event = "bedrock_credentials_unavailable",
@@ -58,7 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     error = %e,
                     "AWS credentials not available at startup; Bedrock invoke will 5xx until creds are configured"
                 );
-            }
+            },
         }
     }
 

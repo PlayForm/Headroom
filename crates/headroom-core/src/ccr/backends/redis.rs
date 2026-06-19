@@ -2,7 +2,7 @@
 //!
 //! Opt-in **multi-worker** backend: every worker hits the same Redis
 //! instance, so no sticky-session is required at the load balancer.
-//! Compiled only when the `redis` feature is enabled — production
+//! Compiled only when the `redis` feature is enabled - production
 //! deployments wanting Redis pull this in via the workspace feature
 //! flag, deployments running single-worker or persistent-disk-only
 //! avoid the Redis client cost.
@@ -11,7 +11,7 @@
 //!
 //! Each entry maps to a Redis key `ccr:{hash}` containing the original
 //! payload bytes, with a `SETEX` TTL applied on every write. Read path
-//! is a single `GET`. Redis handles purging via key expiry — no
+//! is a single `GET`. Redis handles purging via key expiry - no
 //! application-side sweep needed (matching the SQLite backend's
 //! lazy-purge but at the Redis level).
 //!
@@ -77,7 +77,7 @@ impl RedisCcrStore {
 }
 
 impl CcrStore for RedisCcrStore {
-    fn put(&self, hash: &str, payload: &str) {
+    fn put(&self, hash: &str, payload: &str) -> bool {
         let key = self.key_for(hash);
         let mut conn = match self.client.get_connection() {
             Ok(c) => c,
@@ -88,20 +88,24 @@ impl CcrStore for RedisCcrStore {
                     error = %err,
                     "ccr_redis_connect_failed_on_put"
                 );
-                return;
-            }
+                return false;
+            },
         };
         // SETEX is one network round-trip; payload is bytes-faithful via
         // `set_ex` which serializes the slice as a Redis bulk string.
         let res: redis::RedisResult<()> =
             conn.set_ex(&key, payload.as_bytes(), self.default_ttl_seconds);
-        if let Err(err) = res {
-            tracing::warn!(
-                target = "ccr.redis",
-                hash = %hash,
-                error = %err,
-                "ccr_redis_put_failed"
-            );
+        match res {
+            Ok(_) => true,
+            Err(err) => {
+                tracing::warn!(
+                    target = "ccr.redis",
+                    hash = %hash,
+                    error = %err,
+                    "ccr_redis_put_failed"
+                );
+                false
+            },
         }
     }
 
@@ -117,7 +121,7 @@ impl CcrStore for RedisCcrStore {
                     "ccr_redis_connect_failed_on_get"
                 );
                 return None;
-            }
+            },
         };
         let bytes: redis::RedisResult<Option<Vec<u8>>> = conn.get(&key);
         match bytes {
@@ -131,7 +135,7 @@ impl CcrStore for RedisCcrStore {
                     "ccr_redis_get_failed"
                 );
                 None
-            }
+            },
         }
     }
 
@@ -139,8 +143,37 @@ impl CcrStore for RedisCcrStore {
         // Redis has no efficient global count; we'd need to KEYS-scan
         // the prefix which is O(N) and not safe in production. The
         // CcrStore::len() contract is documented as "informational; used
-        // by tests + telemetry" — return 0 here. Tests for the Redis
+        // by tests + telemetry" - return 0 here. Tests for the Redis
         // backend assert get/put behavior, not len().
         0
+    }
+
+    fn del(&self, hash: &str) -> bool {
+        let key = self.key_for(hash);
+        let mut conn = match self.client.get_connection() {
+            Ok(c) => c,
+            Err(err) => {
+                tracing::warn!(
+                    target = "ccr.redis",
+                    hash = %hash,
+                    error = %err,
+                    "ccr_redis_connect_failed_on_del"
+                );
+                return false;
+            },
+        };
+        let res: redis::RedisResult<()> = conn.del(&key);
+        match res {
+            Ok(()) => true,
+            Err(err) => {
+                tracing::warn!(
+                    target = "ccr.redis",
+                    hash = %hash,
+                    error = %err,
+                    "ccr_redis_del_failed"
+                );
+                false
+            },
+        }
     }
 }

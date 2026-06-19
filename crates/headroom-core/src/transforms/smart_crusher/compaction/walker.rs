@@ -231,7 +231,7 @@ mod tests {
             Value::String(s) => {
                 assert!(s.starts_with("[3]{"), "got: {s}");
                 assert!(s.contains("name:string"));
-            }
+            },
             other => panic!("expected String, got {other:?}"),
         }
     }
@@ -362,7 +362,7 @@ mod tests {
                 // The inner-rendered sub-tables show up CSV-quoted in
                 // the payload column.
                 assert!(s.contains("[3]{") || s.contains("\"[3]{"));
-            }
+            },
             other => panic!("expected String, got {other:?}"),
         }
     }

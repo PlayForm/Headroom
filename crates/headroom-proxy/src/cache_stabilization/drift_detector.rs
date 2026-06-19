@@ -126,7 +126,7 @@ fn extract_system(body: &serde_json::Value, kind: ApiKind) -> serde_json::Value 
                 })
                 .cloned()
                 .unwrap_or(serde_json::Value::Null)
-        }
+        },
         ApiKind::OpenAiResponses => body
             .get("instructions")
             .cloned()
@@ -256,7 +256,7 @@ pub fn observe_drift(state: &DriftState, session_key: &str, current: StructuralH
                 "drift detector mutex was poisoned by a panicking task; recovering"
             );
             poisoned.into_inner()
-        }
+        },
     };
     match cache.get(session_key).copied() {
         None => {
@@ -267,11 +267,11 @@ pub fn observe_drift(state: &DriftState, session_key: &str, current: StructuralH
                 "cache_drift detector observed a new session"
             );
             cache.put(session_key.to_string(), current);
-        }
+        },
         Some(previous) if previous == current => {
             // Stable. No event. Update LRU recency by reinserting.
             cache.put(session_key.to_string(), current);
-        }
+        },
         Some(previous) => {
             let dims = drift_dims(&previous, &current);
             tracing::warn!(
@@ -283,7 +283,7 @@ pub fn observe_drift(state: &DriftState, session_key: &str, current: StructuralH
                 "cache_drift detector observed structural change between turns of the same session"
             );
             cache.put(session_key.to_string(), current);
-        }
+        },
     }
 }
 

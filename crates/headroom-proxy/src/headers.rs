@@ -51,11 +51,12 @@ pub fn is_request_drop(name: &HeaderName) -> bool {
 }
 
 /// Returns true when `name` matches the internal `x-headroom-*` prefix
-/// (case-insensitive). Pure function, no regex.
+/// (case-insensitive), EXCEPT `x-headroom-workspace` which carries the
+/// resolved workspace key for CCR cross-project scoping.
+/// Pure function, no regex.
 pub fn is_internal_header(name: &HeaderName) -> bool {
-    name.as_str()
-        .to_ascii_lowercase()
-        .starts_with(INTERNAL_HEADER_PREFIX)
+    let lower = name.as_str().to_ascii_lowercase();
+    lower.starts_with(INTERNAL_HEADER_PREFIX) && lower != "x-headroom-workspace"
 }
 
 /// Headers we drop on the response side. Same hop-by-hop set; we don't touch

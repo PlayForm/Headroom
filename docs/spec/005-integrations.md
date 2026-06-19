@@ -145,11 +145,11 @@ class LiteLLMCallback:
     ) -> None:
         self.headroom_url = headroom_url
         self.api_key = api_key
-    
+
     def on_completion(self, completion_response: dict) -> dict:
         """Called after completion. Can modify response."""
         pass
-    
+
     def on_error(self, error: Exception) -> None:
         """Called on error."""
         pass
@@ -181,7 +181,7 @@ class HeadroomMiddleware:
         self.app = app
         self.headroom_url = headroom_url
         self.mode = mode
-    
+
     async def __call__(
         self,
         scope: Scope,
@@ -222,7 +222,7 @@ class HeadroomMCPCompressor:
         token_counter: Callable[[str], int] | None = None,
     ) -> None:
         ...
-    
+
     def compress(
         self,
         content: str,
@@ -273,10 +273,10 @@ class HeadroomLangChainCallback(BaseCallbackHandler):
     ) -> None:
         self.headroom_url = headroom_url
         self.api_key = api_key
-    
+
     async def on_llm_start(self, serialized, prompts, **kwargs) -> None:
         pass
-    
+
     async def on_llm_end(self, response, **kwargs) -> None:
         pass
 ```

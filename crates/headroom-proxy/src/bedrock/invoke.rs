@@ -65,7 +65,10 @@ use crate::proxy::AppState;
 // would risk drift from the middleware's resolution + WARN log.
 use headroom_core::auth_mode::AuthMode;
 
-use crate::bedrock::vendor::is_anthropic_model_id;
+/// Anthropic vendor prefix as encoded in Bedrock model ids
+/// (`anthropic.claude-3-haiku-...`). Literal-match per project rule
+/// "no regexes for parsing the model ID".
+const ANTHROPIC_VENDOR_PREFIX: &str = "anthropic.";
 
 /// RAII guard that observes the `bedrock_invoke_latency_seconds`
 /// histogram on drop. Created at handler entry; observed when the
@@ -98,27 +101,6 @@ impl Drop for LatencyGuard {
 /// AWS Bedrock Runtime DNS template. The `{}` placeholder is the
 /// region. Only used when `Config::bedrock_endpoint` is `None`.
 const BEDROCK_RUNTIME_HOST_TEMPLATE: &str = "bedrock-runtime.{region}.amazonaws.com";
-
-/// Bedrock non-streaming action path segments. `invoke` is the legacy
-/// InvokeModel surface; `converse` is the unified Converse surface.
-/// Both mount the same handler (see `proxy.rs`), so the action is
-/// resolved from the inbound path — otherwise `/converse` requests
-/// would be forwarded to the upstream `/invoke` endpoint.
-const INVOKE_ACTION: &str = "invoke";
-const CONVERSE_ACTION: &str = "converse";
-
-/// Resolve the Bedrock action from the inbound request path. Mirrors
-/// `invoke_streaming::extract_streaming_action` for the non-streaming
-/// surfaces (`/invoke`, `/converse`).
-fn extract_invoke_action(path: &str) -> Option<&'static str> {
-    if path.ends_with(&format!("/{INVOKE_ACTION}")) {
-        Some(INVOKE_ACTION)
-    } else if path.ends_with(&format!("/{CONVERSE_ACTION}")) {
-        Some(CONVERSE_ACTION)
-    } else {
-        None
-    }
-}
 
 /// Axum POST handler for `/model/{model_id}/invoke`.
 ///
@@ -173,7 +155,7 @@ pub async fn handle_invoke(
         "bedrock invoke route received request"
     );
 
-    let is_anthropic = is_anthropic_model_id(&model_id);
+    let is_anthropic = model_id.starts_with(ANTHROPIC_VENDOR_PREFIX);
     let outbound_body: Bytes = if is_anthropic {
         run_anthropic_compression(&body, &state, auth_mode, &request_id)
     } else {
@@ -187,30 +169,9 @@ pub async fn handle_invoke(
         body.clone()
     };
 
-    // Resolve the Bedrock action from the inbound path so `/converse`
-    // forwards to the upstream Converse endpoint instead of `/invoke`.
-    // Both paths mount this handler (see `proxy.rs`); the streaming
-    // sibling resolves its action the same way.
-    let action = match extract_invoke_action(uri.path()) {
-        Some(a) => a,
-        None => {
-            tracing::error!(
-                event = "bedrock_invoke_action_invalid",
-                request_id = %request_id,
-                path = %uri.path(),
-                "bedrock invoke: unrecognized action path"
-            );
-            return error_response(
-                StatusCode::BAD_REQUEST,
-                "bedrock_invoke_action_invalid",
-                "Unsupported Bedrock action path",
-            );
-        }
-    };
-
     // Build the upstream URL based on configured endpoint or
     // region-derived default.
-    let upstream_url = match build_bedrock_upstream(&state, &model_id, &uri, action) {
+    let upstream_url = match build_bedrock_upstream(&state, &model_id, &uri, "invoke") {
         Ok(u) => u,
         Err(msg) => {
             tracing::error!(
@@ -224,7 +185,7 @@ pub async fn handle_invoke(
                 "bedrock_endpoint_invalid",
                 &msg,
             );
-        }
+        },
     };
 
     // Resolve credentials. No silent fallback: missing creds → 5xx.
@@ -242,7 +203,7 @@ pub async fn handle_invoke(
                 "bedrock_credentials_missing",
                 "AWS credentials not configured; refusing to forward unsigned",
             );
-        }
+        },
     };
 
     // Build the headers we sign + forward. Start from the inbound
@@ -277,7 +238,7 @@ pub async fn handle_invoke(
                 "bedrock_sigv4_failed",
                 &e.to_string(),
             );
-        }
+        },
     };
 
     // Compose the outgoing header map. Start with the headers we'll
@@ -318,7 +279,7 @@ pub async fn handle_invoke(
                 "bedrock_invalid_method",
                 &e.to_string(),
             );
-        }
+        },
     };
 
     let upstream_resp = state
@@ -344,7 +305,7 @@ pub async fn handle_invoke(
                 StatusCode::BAD_GATEWAY
             };
             return error_response(status, "bedrock_upstream_error", &e.to_string());
-        }
+        },
     };
 
     let status =
@@ -402,26 +363,24 @@ fn run_anthropic_compression(
     _auth_mode: AuthMode,
     request_id: &str,
 ) -> Bytes {
-    // Detect envelope shape. A parseable InvokeModel envelope takes the
-    // re-emit path below (anthropic_version pinned first); a non-envelope
-    // body (e.g. a Converse-shaped payload) still runs through the
-    // compressor but skips envelope re-emit. The body is NOT guaranteed
-    // unchanged on parse failure — we log which path we took.
-    let parsed_envelope = BedrockEnvelope::parse(body).is_ok();
-    if parsed_envelope {
-        tracing::info!(
-            event = "bedrock_envelope_parsed",
+    // Validate envelope shape. If the body isn't a valid Bedrock
+    // envelope we still forward verbatim — the compressor would have
+    // refused too — but log loudly.
+    if let Err(e) = BedrockEnvelope::parse(body) {
+        tracing::warn!(
+            event = "bedrock_envelope_parse_error",
             request_id = %request_id,
-            body_bytes = body.len(),
-            "bedrock invoke: envelope validated; dispatching to live-zone compressor"
+            error = %e,
+            "bedrock invoke: envelope parse failed; passing body through unchanged"
         );
-    } else {
-        tracing::info!(
-            event = "bedrock_envelope_parse_skipped",
-            request_id = %request_id,
-            "bedrock invoke: envelope parse skipped; attempting generic anthropic compression"
-        );
+        return body.clone();
     }
+    tracing::info!(
+        event = "bedrock_envelope_parsed",
+        request_id = %request_id,
+        body_bytes = body.len(),
+        "bedrock invoke: envelope validated; dispatching to live-zone compressor"
+    );
 
     // PR-E3: Bedrock uses IAM-signed AWS SigV4 downstream. Inbound
     // requests to the proxy may or may not carry their own auth, but
@@ -449,28 +408,24 @@ fn run_anthropic_compression(
             // unchanged. Forward the original.
             let _ = (PassthroughReason::ModeOff, PassthroughReason::NoMessages); // pin types
             body.clone()
-        }
+        },
         AnthropicOutcome::Compressed { body: new_body, .. } => {
-            if parsed_envelope {
-                // Defence-in-depth: re-emit so anthropic_version is the
-                // first key. With preserve_order this is a no-op on the
-                // happy path.
-                match BedrockEnvelope::ensure_anthropic_version_first(&new_body) {
-                    Ok(b) => b,
-                    Err(e) => {
-                        tracing::error!(
-                            event = "bedrock_envelope_reemit_failed",
-                            request_id = %request_id,
-                            error = %e,
-                            "bedrock invoke: failed to re-emit envelope; falling back to original body"
-                        );
-                        body.clone()
-                    }
-                }
-            } else {
-                new_body
+            // Defence-in-depth: re-emit so anthropic_version is the
+            // first key. With preserve_order this is a no-op on the
+            // happy path.
+            match BedrockEnvelope::ensure_anthropic_version_first(&new_body) {
+                Ok(b) => b,
+                Err(e) => {
+                    tracing::error!(
+                        event = "bedrock_envelope_reemit_failed",
+                        request_id = %request_id,
+                        error = %e,
+                        "bedrock invoke: failed to re-emit envelope; falling back to original body"
+                    );
+                    body.clone()
+                },
             }
-        }
+        },
     }
 }
 
@@ -492,7 +447,7 @@ fn build_bedrock_upstream(
                 BEDROCK_RUNTIME_HOST_TEMPLATE.replace("{region}", &state.config.bedrock_region);
             Url::parse(&format!("https://{host}/"))
                 .map_err(|e| format!("bedrock derived base URL parse error: {e}"))?
-        }
+        },
     };
     // Compose the path. We trust the captured `model_id` (Axum
     // already URL-decoded it) and append `/{action}`.
@@ -583,57 +538,12 @@ fn error_response(status: StatusCode, event: &str, msg: &str) -> Response {
 mod tests {
     use super::*;
 
-    // Vendor/model-id classification is tested in `bedrock::vendor`.
-
     #[test]
-    fn extract_invoke_action_supports_both_bedrock_paths() {
-        assert_eq!(
-            extract_invoke_action("/model/anthropic.claude-3-haiku-20240307-v1:0/invoke"),
-            Some(INVOKE_ACTION)
-        );
-        assert_eq!(
-            extract_invoke_action("/model/anthropic.claude-3-haiku-20240307-v1:0/converse"),
-            Some(CONVERSE_ACTION)
-        );
-        // Streaming actions are handled by `invoke_streaming`, not here.
-        assert_eq!(
-            extract_invoke_action(
-                "/model/anthropic.claude-3-haiku-20240307-v1:0/invoke-with-response-stream"
-            ),
-            None
-        );
-        assert_eq!(extract_invoke_action("/model/foo/unknown"), None);
-    }
-
-    #[test]
-    fn build_upstream_routes_converse_to_converse_endpoint() {
-        use crate::config::Config;
-        let mut config = Config::for_test(Url::parse("http://up:8080").unwrap());
-        config.bedrock_region = "us-west-2".to_string();
-        let state = AppState {
-            config: std::sync::Arc::new(config),
-            client: reqwest::Client::new(),
-            bedrock_credentials: None,
-            drift_state: crate::cache_stabilization::drift_detector::DriftState::new(8),
-            vertex_token_source: std::sync::Arc::new(crate::vertex::StaticTokenSource::new(
-                "test".to_string(),
-            )),
-        };
-        let uri: Uri = "/model/anthropic.claude-3-haiku-20240307-v1:0/converse"
-            .parse()
-            .unwrap();
-        let action = extract_invoke_action(uri.path()).unwrap();
-        let url = build_bedrock_upstream(
-            &state,
-            "anthropic.claude-3-haiku-20240307-v1:0",
-            &uri,
-            action,
-        )
-        .unwrap();
-        assert_eq!(
-            url.as_str(),
-            "https://bedrock-runtime.us-west-2.amazonaws.com/model/anthropic.claude-3-haiku-20240307-v1:0/converse"
-        );
+    fn anthropic_vendor_prefix_match() {
+        assert!("anthropic.claude-3-haiku-20240307-v1:0".starts_with(ANTHROPIC_VENDOR_PREFIX));
+        assert!("anthropic.claude-3-5-sonnet-20241022-v2:0".starts_with(ANTHROPIC_VENDOR_PREFIX));
+        assert!(!"amazon.titan-text-express-v1".starts_with(ANTHROPIC_VENDOR_PREFIX));
+        assert!(!"meta.llama3-70b-instruct-v1:0".starts_with(ANTHROPIC_VENDOR_PREFIX));
     }
 
     #[test]

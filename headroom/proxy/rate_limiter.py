@@ -19,6 +19,10 @@ logger = logging.getLogger("headroom.proxy")
 # Maximum rate limiter buckets (prevents DoS via spoofed API keys)
 MAX_RATE_LIMITER_BUCKETS = 1000
 
+# Path prefixes that bypass rate limiting entirely so health checks and
+# observability endpoints are never throttled.
+RATE_LIMIT_EXEMPT = frozenset({"/health", "/retrieve", "/stats", "/metrics"})
+
 
 class TokenBucketRateLimiter:
     """Token bucket rate limiter for requests and tokens."""
@@ -62,8 +66,18 @@ class TokenBucketRateLimiter:
         state.last_update = now
         return state.tokens
 
-    async def check_request(self, key: str = "default") -> tuple[bool, float]:
-        """Check if request is allowed. Returns (allowed, wait_seconds)."""
+    async def check_request(
+        self, key: str = "default", path: str | None = None
+    ) -> tuple[bool, float]:
+        """Check if request is allowed. Returns (allowed, wait_seconds).
+
+        When *path* is provided and matches an exempt prefix in
+        ``RATE_LIMIT_EXEMPT``, the request is always allowed without
+        consuming a token so health/observability endpoints are never
+        throttled.
+        """
+        if path is not None and any(path.startswith(pfx) for pfx in RATE_LIMIT_EXEMPT):
+            return True, 0
         async with self._lock:
             # Prevent unbounded bucket growth from spoofed keys
             if len(self._request_buckets) > MAX_RATE_LIMITER_BUCKETS:

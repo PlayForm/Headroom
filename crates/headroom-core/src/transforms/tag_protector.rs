@@ -370,11 +370,11 @@ fn parse_tag_at(bytes: &[u8], start: usize) -> TagParse {
                     tag_end: i + 1,
                     is_self_closing: self_closing,
                 };
-            }
+            },
             b'/' => {
                 self_closing = true;
                 i += 1;
-            }
+            },
             b'"' | b'\'' => {
                 let quote = bytes[i];
                 i += 1;
@@ -386,13 +386,13 @@ fn parse_tag_at(bytes: &[u8], start: usize) -> TagParse {
                 }
                 i += 1;
                 self_closing = false;
-            }
+            },
             _ => {
                 if bytes[i].is_ascii_whitespace() {
                     self_closing = false;
                 }
                 i += 1;
-            }
+            },
         }
     }
 
@@ -508,7 +508,7 @@ fn identify_spans(
         match parse_tag_at(bytes, i) {
             TagParse::NotTag => {
                 i += 1;
-            }
+            },
             TagParse::Open {
                 name_end,
                 tag_end,
@@ -547,7 +547,7 @@ fn identify_spans(
                     open_start: i,
                 });
                 i = tag_end;
-            }
+            },
             TagParse::Close { name_end, tag_end } => {
                 stats.tags_seen += 1;
                 let close_name = &text[i + 2..name_end];
@@ -594,13 +594,13 @@ fn identify_spans(
                             stats.custom_blocks_protected += 1;
                         }
                         i = tag_end;
-                    }
+                    },
                     None => {
                         stats.orphan_closes += 1;
                         i = tag_end;
-                    }
+                    },
                 }
-            }
+            },
         }
     }
 

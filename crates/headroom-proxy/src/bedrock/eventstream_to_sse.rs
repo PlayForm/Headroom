@@ -153,7 +153,7 @@ pub fn translate_message(
             Ok(TranslateOutcome::Skip {
                 event_type: event_type.to_string(),
             })
-        }
+        },
         (OutputMode::Sse, "chunk")
         | (OutputMode::Sse, "messageStart")
         | (OutputMode::Sse, "contentBlockStart")
@@ -170,7 +170,7 @@ pub fn translate_message(
             Ok(TranslateOutcome::Emit(payload_to_sse_frame(
                 &message.payload,
             )))
-        }
+        },
         (OutputMode::Sse, other) => {
             // Unknown event type. Bedrock today emits `chunk`
             // exclusively for Anthropic streaming responses; if a new
@@ -185,7 +185,7 @@ pub fn translate_message(
             Ok(TranslateOutcome::Skip {
                 event_type: other.to_string(),
             })
-        }
+        },
     }
 }
 
@@ -255,7 +255,7 @@ pub fn header_value_preview(v: &HeaderValue) -> String {
                 }
                 format!("{}…", &s[..end])
             }
-        }
+        },
         HeaderValue::Bytes(b) => format!("[{} bytes]", b.len()),
     }
 }
@@ -334,7 +334,7 @@ mod tests {
                 );
                 assert!(s.ends_with("\n\n"));
                 assert!(s.contains(json));
-            }
+            },
             other => panic!("expected Emit; got {other:?}"),
         }
     }
@@ -352,7 +352,7 @@ mod tests {
                 let s = std::str::from_utf8(&b).unwrap();
                 assert!(s.starts_with("data: "));
                 assert!(s.ends_with("\n\n"));
-            }
+            },
             other => panic!("expected Emit; got {other:?}"),
         }
     }
@@ -381,7 +381,7 @@ mod tests {
         match outcome {
             TranslateOutcome::Skip { event_type } => {
                 assert_eq!(event_type, "future_unknown_kind");
-            }
+            },
             other => panic!("expected Skip; got {other:?}"),
         }
     }
@@ -403,7 +403,7 @@ mod tests {
                 assert!(s.starts_with("data: "));
                 assert!(s.ends_with("\n\n"));
                 assert!(s.contains("contentBlockIndex"));
-            }
+            },
             other => panic!("expected Emit; got {other:?}"),
         }
     }

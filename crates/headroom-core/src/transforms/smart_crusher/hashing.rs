@@ -28,7 +28,7 @@ pub fn hash_field_name(field_name: &str) -> String {
     let digest = hasher.finalize();
     // Truncate to first 8 hex chars (4 bytes of digest). MUST match
     // Python's `[:8]` — see module-level note above.
-    let hex = format!("{:x}", digest);
+    let hex: String = digest.iter().map(|b| format!("{:02x}", b)).collect();
     hex[..8].to_string()
 }
 

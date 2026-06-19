@@ -134,7 +134,7 @@ pub async fn handle_vertex_predict_dispatch(
                 .status(StatusCode::NOT_FOUND)
                 .body(Body::from("vertex path: bad model_action"))
                 .expect("static");
-        }
+        },
     };
 
     let verb = match VertexVerb::parse(verb_str) {
@@ -150,7 +150,7 @@ pub async fn handle_vertex_predict_dispatch(
                 .status(StatusCode::NOT_FOUND)
                 .body(Body::from("vertex: unknown verb"))
                 .expect("static");
-        }
+        },
     };
 
     let attach_sse_tee = matches!(verb, VertexVerb::StreamRawPredict);

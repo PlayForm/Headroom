@@ -8,6 +8,19 @@
 //! [`super::sqlite::SqliteCcrStore`] or [`super::redis::RedisCcrStore`]
 //! which are persistent across worker restarts and shareable across
 //! workers (see `RUST_DEV.md` "Multi-worker deployment").
+//!
+//! # Queue compaction
+//!
+//! The `order` VecDeque tracks insertion order for capacity-based
+//! eviction. Entries that expire (TTL) or are explicitly deleted are
+//! removed from the DashMap but their keys remain in the order queue.
+//! `compact()` removes stale queue entries when the queue exceeds
+//! `capacity * 2`, preventing unbounded memory growth under sustained
+//! churn.
+//!
+//! # Poison resilience
+//!
+//! All `Mutex::lock()` calls degrade gracefully instead of panicking.
 
 use std::collections::VecDeque;
 use std::sync::Mutex;
@@ -16,6 +29,20 @@ use std::time::{Duration, Instant};
 use dashmap::DashMap;
 
 use crate::ccr::{CcrStore, DEFAULT_CAPACITY, DEFAULT_TTL};
+
+/// Acquire the mutex guard, recovering from poison.
+fn lock_order(mtx: &Mutex<VecDeque<String>>) -> std::sync::MutexGuard<'_, VecDeque<String>> {
+    match mtx.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            tracing::warn!(
+                target = "ccr.in_memory",
+                "ccr_in_memory_order_mutex_poisoned_recovered"
+            );
+            poisoned.into_inner()
+        },
+    }
+}
 
 /// In-memory CCR store backed by [`DashMap`] for sharded concurrent
 /// access.
@@ -28,12 +55,18 @@ use crate::ccr::{CcrStore, DEFAULT_CAPACITY, DEFAULT_TTL};
 ///   The only serialization point is the insertion-order queue used
 ///   for capacity eviction; that mutex is held for an O(1) push or a
 ///   small sweep.
+/// - **Queue compaction**: stale keys in the order queue are pruned
+///   when the queue grows to more than twice the capacity, preventing
+///   unbounded growth under high churn.
 pub struct InMemoryCcrStore {
     map: DashMap<String, Entry>,
     /// FIFO insertion order. Stale entries (already removed from `map`
     /// via TTL expiry) are tolerated — `pop_front` + `map.remove` is a
     /// no-op for missing keys, and capacity-bounded sweeps loop until
     /// they actually evict a real entry.
+    ///
+    /// To prevent unbounded growth, `compact()` is called from `get()`
+    /// when `order.len() > capacity * 2`.
     order: Mutex<VecDeque<String>>,
     ttl: Duration,
     capacity: usize,
@@ -60,19 +93,32 @@ impl InMemoryCcrStore {
         }
     }
 
+    /// Remove stale keys from the order queue whose entries no longer
+    /// exist in the DashMap (already expired or evicted).
+    ///
+    /// Called from `get()` when `order.len() > capacity * 2` to prevent
+    /// unbounded queue growth under sustained churn. Linear scan — safe
+    /// because the queue is only compacted when it's significantly
+    /// larger than the live map.
+    fn compact(&self) {
+        let mut guard = lock_order(&self.order);
+        guard.retain(|key| self.map.contains_key(key));
+    }
+
     /// Sweep the order queue, dropping leading entries that no longer
     /// exist in the map (already expired or evicted), then evict
     /// real entries until `map.len() < capacity`. Called only from
     /// `put` on a fresh-key insert path.
     fn evict_until_under_capacity(&self) {
-        let mut guard = self.order.lock().expect("ccr order mutex poisoned");
-        while self.map.len() >= self.capacity {
+        let mut guard = lock_order(&self.order);
+        let mut attempts = 0;
+        let max_attempts = self.capacity.max(1);
+        while self.map.len() >= self.capacity && attempts < max_attempts {
             let Some(oldest) = guard.pop_front() else {
                 break;
             };
-            // `remove` is a no-op if `oldest` was already lazy-expired.
-            // Loop continues until we actually shrink the map.
             self.map.remove(&oldest);
+            attempts += 1;
         }
     }
 }
@@ -84,14 +130,14 @@ impl Default for InMemoryCcrStore {
 }
 
 impl CcrStore for InMemoryCcrStore {
-    fn put(&self, hash: &str, payload: &str) {
+    fn put(&self, hash: &str, payload: &str) -> bool {
         // Idempotent re-store fast-path: same hash → overwrite payload
         // in place, leave the order queue alone. Common when the same
         // tool output flows through multiple times in a session.
         if let Some(mut existing) = self.map.get_mut(hash) {
             existing.payload = payload.to_string();
             existing.inserted = Instant::now();
-            return;
+            return true;
         }
 
         // New entry. Cap-bound first (may sweep a few stale order
@@ -109,14 +155,22 @@ impl CcrStore for InMemoryCcrStore {
             // it means another thread re-inserted between our get_mut
             // miss and this insert; treat that as a fast-path overwrite
             // and skip the queue append to avoid duplicates.)
-            self.order
-                .lock()
-                .expect("ccr order mutex poisoned")
-                .push_back(hash.to_string());
+            lock_order(&self.order).push_back(hash.to_string());
         }
+        true
     }
 
     fn get(&self, hash: &str) -> Option<String> {
+        // Compact the order queue when it has grown significantly
+        // beyond the live entry count, preventing unbounded memory
+        // growth from stale keys.
+        if {
+            let guard = lock_order(&self.order);
+            guard.len() > self.capacity * 2
+        } {
+            self.compact();
+        }
+
         // Read path: shard read-lock, check TTL, clone payload out.
         // No global lock involvement at all — distinct hashes hash to
         // distinct shards and never contend.
@@ -155,6 +209,10 @@ impl CcrStore for InMemoryCcrStore {
 
     fn len(&self) -> usize {
         self.map.len()
+    }
+
+    fn del(&self, hash: &str) -> bool {
+        self.map.remove(hash).is_some()
     }
 }
 
@@ -313,5 +371,59 @@ mod tests {
             hits > 100,
             "reader should mostly observe live entry, hits={hits}"
         );
+    }
+
+    #[test]
+    fn compact_prevents_unbounded_queue_growth() {
+        // High-churn scenario: entries expire quickly, the DashMap
+        // stays small, but the order queue keeps growing because
+        // expired entries are only removed from the map (via remove_if
+        // in get()) but not from the order queue. Without compaction
+        // the queue would grow unboundedly.
+        //
+        // We simulate this with a tiny capacity and very short TTL,
+        // then exercise get() to trigger compaction.
+        let store = InMemoryCcrStore::with_capacity_and_ttl(4, Duration::from_millis(5));
+
+        // Phase 1: pump many entries that rapidly expire.
+        for i in 0..500 {
+            let key = format!("k{i:04}");
+            store.put(&key, "payload");
+            // Give time for previous entries to expire.
+            if i % 10 == 0 {
+                std::thread::sleep(Duration::from_millis(6));
+            }
+            // Get a key that has very likely expired — this triggers
+            // remove_if (lazy expiry in the map) and, if the queue
+            // is large enough, compaction.
+            if i > 0 {
+                let stale_key = format!("k{:04}", i - 1);
+                store.get(&stale_key); // expire in map
+            }
+        }
+
+        // Phase 2: verify the order queue is not pathologically large.
+        // A queue with 500 entries and only 2-4 live entries should
+        // have been compacted down to near the live count.
+        let queue_len = {
+            let guard = lock_order(&store.order);
+            guard.len()
+        };
+        let map_len = store.map.len();
+
+        // The queue should be bounded — certainly less than the number
+        // of puts we did (500). A reasonable bound is capacity * 3
+        // (compaction triggers at capacity * 2 and may leave a small
+        // slack).
+        assert!(
+            queue_len <= store.capacity * 3,
+            "order queue grew unbounded: queue_len={queue_len}, map_len={map_len}, capacity={}",
+            store.capacity,
+        );
+
+        // Phase 3: verify the map is still functional.
+        // Put one more entry and confirm it survives.
+        store.put("final", "survivor");
+        assert_eq!(store.get("final").as_deref(), Some("survivor"));
     }
 }

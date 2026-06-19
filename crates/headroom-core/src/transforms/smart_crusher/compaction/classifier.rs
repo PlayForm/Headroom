@@ -199,7 +199,7 @@ mod tests {
         match classify_cell(&v, &cfg()) {
             CellClass::StringifiedJson(parsed) => {
                 assert_eq!(parsed, json!({"x": 1, "y": 2}));
-            }
+            },
             other => panic!("expected StringifiedJson, got {other:?}"),
         }
     }
@@ -210,7 +210,7 @@ mod tests {
         match classify_cell(&v, &cfg()) {
             CellClass::StringifiedJson(parsed) => {
                 assert_eq!(parsed, json!([1, 2, 3]));
-            }
+            },
             other => panic!("expected StringifiedJson, got {other:?}"),
         }
     }
@@ -229,7 +229,7 @@ mod tests {
         assert_eq!(classify_cell(&short, &cfg()), CellClass::Scalar);
         let long = "{".to_string() + &"x".repeat(300) + "}";
         match classify_cell(&Value::String(long), &cfg()) {
-            CellClass::Opaque(OpaqueKind::LongString) => {}
+            CellClass::Opaque(OpaqueKind::LongString) => {},
             other => panic!("expected LongString, got {other:?}"),
         }
     }
@@ -238,7 +238,7 @@ mod tests {
     fn base64_blob_detected() {
         let s = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/==".repeat(5);
         match classify_cell(&Value::String(s), &cfg()) {
-            CellClass::Opaque(OpaqueKind::Base64Blob) => {}
+            CellClass::Opaque(OpaqueKind::Base64Blob) => {},
             other => panic!("expected Base64Blob, got {other:?}"),
         }
     }
@@ -247,7 +247,7 @@ mod tests {
     fn html_chunk_detected() {
         let s = "<html><body><p>".to_string() + &"x".repeat(300) + "</p></body></html>";
         match classify_cell(&Value::String(s), &cfg()) {
-            CellClass::Opaque(OpaqueKind::HtmlChunk) => {}
+            CellClass::Opaque(OpaqueKind::HtmlChunk) => {},
             other => panic!("expected HtmlChunk, got {other:?}"),
         }
     }
@@ -256,7 +256,7 @@ mod tests {
     fn long_plain_string_is_long_opaque() {
         let s = "the quick brown fox ".repeat(20);
         match classify_cell(&Value::String(s), &cfg()) {
-            CellClass::Opaque(OpaqueKind::LongString) => {}
+            CellClass::Opaque(OpaqueKind::LongString) => {},
             other => panic!("expected LongString, got {other:?}"),
         }
     }
@@ -265,7 +265,7 @@ mod tests {
     fn math_with_lt_is_not_html() {
         let s = "a < b but not really ".repeat(20);
         match classify_cell(&Value::String(s), &cfg()) {
-            CellClass::Opaque(OpaqueKind::LongString) => {}
+            CellClass::Opaque(OpaqueKind::LongString) => {},
             other => panic!("expected LongString, got {other:?}"),
         }
     }
@@ -276,7 +276,7 @@ mod tests {
         c.opaque_min_bytes = 10;
         let s = json!("hello world this is long");
         match classify_cell(&s, &c) {
-            CellClass::Opaque(_) => {}
+            CellClass::Opaque(_) => {},
             other => panic!("expected Opaque under low threshold, got {other:?}"),
         }
     }

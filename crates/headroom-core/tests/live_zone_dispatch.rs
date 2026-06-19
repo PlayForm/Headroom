@@ -127,7 +127,7 @@ fn json_tool_result_routes_to_smart_crusher() {
                 "tokenizer-validated gate (PR-B4) must accept only token-shrinking output \
                  ({compressed_tokens} < {original_tokens})"
             );
-        }
+        },
         other => panic!("expected BlockAction::Compressed, got {other:?}"),
     }
 }
@@ -175,7 +175,7 @@ fn log_tool_result_routes_to_log_compressor() {
                 "log dispatch declined cleanly: {action:?}"
             );
             return;
-        }
+        },
     };
 
     let action = manifest
@@ -194,7 +194,7 @@ fn log_tool_result_routes_to_log_compressor() {
         } => {
             assert_eq!(strategy, "log_compressor");
             assert!(compressed_bytes < original_bytes);
-        }
+        },
         other => panic!("expected log_compressor Compressed, got {other:?}"),
     }
 }
@@ -244,7 +244,7 @@ fn diff_tool_result_routes_to_diff_compressor() {
                 "diff dispatch declined cleanly: {action:?}"
             );
             return;
-        }
+        },
     };
     let action = manifest
         .block_outcomes
@@ -256,7 +256,7 @@ fn diff_tool_result_routes_to_diff_compressor() {
     match action {
         BlockAction::Compressed { strategy, .. } => {
             assert_eq!(strategy, "diff_compressor");
-        }
+        },
         other => panic!("expected diff_compressor Compressed, got {other:?}"),
     }
 }
@@ -285,7 +285,7 @@ fn main() {
         LiveZoneOutcome::NoChange { manifest } => manifest,
         LiveZoneOutcome::Modified { manifest, .. } => {
             panic!("PR-B3 must NOT compress SourceCode (Rust port pending). manifest: {manifest:?}")
-        }
+        },
     };
     let action = manifest
         .block_outcomes
@@ -304,7 +304,7 @@ fn main() {
                 content_type == "source_code" || content_type == "text",
                 "unexpected content_type tag: {content_type}"
             );
-        }
+        },
         BlockAction::BelowByteThreshold { content_type, .. } => {
             // Detector may classify code-with-prose as PlainText
             // (5 KiB threshold) — for ~2.6 KiB of mixed code/prose
@@ -313,7 +313,7 @@ fn main() {
                 content_type == "text" || content_type == "source_code",
                 "unexpected content_type tag: {content_type}"
             );
-        }
+        },
         other => panic!("expected NoCompressionApplied or BelowByteThreshold, got {other:?}"),
     }
 }

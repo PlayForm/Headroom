@@ -80,13 +80,13 @@ pub fn compute_optimal_k(items: &[&str], bias: f64, min_k: usize, max_k: Option<
             // diversity ~1.0 → keep 100%; ~0.0 → keep 30%.
             let keep_fraction = 0.3 + 0.7 * diversity_ratio;
             Some(min_k.max((n as f64 * keep_fraction) as usize))
-        }
+        },
         Some(k) if diversity_ratio > 0.7 => {
             // Knee found, but high diversity — apply diversity floor so
             // we don't drop below `n * (0.3 + 0.7 * diversity)`.
             let floor = min_k.max((n as f64 * (0.3 + 0.7 * diversity_ratio)) as usize);
             Some(k.max(floor))
-        }
+        },
         some => some,
     };
 

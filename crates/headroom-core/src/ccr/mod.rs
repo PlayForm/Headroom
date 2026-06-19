@@ -9,18 +9,18 @@
 //!
 //! Mirrors the semantics of Python's [`CompressionStore`] (`headroom/
 //! cache/compression_store.py`) but stripped down to the contract that
-//! actually matters for retrieval — no BM25 search, no retrieval-event
+//! actually matters for retrieval - no BM25 search, no retrieval-event
 //! feedback, no per-tool metadata. Those live in the runtime layer; this
 //! crate only needs put/get.
 //!
 //! # Backends
 //!
-//! - [`backends::InMemoryCcrStore`] — process-local, sharded `DashMap`.
+//! - [`backends::InMemoryCcrStore`] - process-local, sharded `DashMap`.
 //!   Test default; lost on restart, fragmented across workers.
-//! - [`backends::SqliteCcrStore`] — production default. Persistent
+//! - [`backends::SqliteCcrStore`] - production default. Persistent
 //!   across worker restarts; shareable across workers via a shared DB
 //!   file. WAL-mode, prepared statements, lazy TTL purge on read.
-//! - [`backends::RedisCcrStore`] — multi-worker opt-in (cfg-gated
+//! - [`backends::RedisCcrStore`] - multi-worker opt-in (cfg-gated
 //!   behind `feature = "redis"`). No sticky-session required at the
 //!   load balancer.
 //!
@@ -39,42 +39,54 @@ pub use backends::{from_config, CcrBackendConfig, CcrBackendInitError, InMemoryC
 /// `Arc` and be shared across threads in the proxy.
 pub trait CcrStore: Send + Sync {
     /// Stash `payload` under `hash`. If the hash already exists, the
-    /// new payload overwrites — same hash should mean same content, so
+    /// new payload overwrites - same hash should mean same content, so
     /// re-storing is idempotent.
-    fn put(&self, hash: &str, payload: &str);
+    /// Returns `true` if the payload was stored, `false` if the backend
+    /// failed (e.g. SQLite/Redis connection error).
+    fn put(&self, hash: &str, payload: &str) -> bool;
 
     /// Look up `hash`. Returns `None` if missing or expired.
     fn get(&self, hash: &str) -> Option<String>;
 
     /// Number of live entries. Informational; used by tests + telemetry.
     /// Some backends (notably Redis) cannot answer this efficiently and
-    /// return 0 — see backend-specific docs.
+    /// return 0 - see backend-specific docs.
     fn len(&self) -> usize;
+
+    /// Remove `hash` from the store. Returns `true` if the entry existed
+    /// and was removed, `false` if it was not found.
+    fn del(&self, hash: &str) -> bool;
+
+    /// Cumulative database-level stats for telemetry.
+    ///
+    /// Returns structured JSON with {total_entries, total_bytes_original,
+    /// total_bytes_compressed, oldest_entry_age_seconds, database_size_bytes}.
+    ///
+    /// Default impl returns `None` - override in backends that can answer
+    /// (e.g. [`SqliteCcrStore`](backends/sqlite/struct.SqliteCcrStore.html)).
+    fn stats_db(&self) -> Option<serde_json::Value> {
+        None
+    }
 
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
 }
 
-/// Default capacity — matches Python's `CompressionStore` default.
+/// Default capacity - matches Python's `CompressionStore` default.
 pub const DEFAULT_CAPACITY: usize = 1000;
 
-/// Default TTL — 30 minutes, matching Python
-/// (`CCRConfig.store_ttl_seconds`). Session-scale: agentic sessions
-/// routinely outlive the old 5-minute default, and an expired entry
-/// silently converts "lossless with retrieval" into "lossy".
-pub const DEFAULT_TTL: Duration = Duration::from_secs(1800);
+/// Default TTL - 5 minutes, matching Python.
+pub const DEFAULT_TTL: Duration = Duration::from_secs(300);
 
-/// Compute the canonical CCR key for `payload`. BLAKE3 → first 24 hex
-/// chars (96 bits — collision-resistant for the bounded LRU population
-/// the proxy will hold). Centralized here so every call site (live-zone
-/// dispatcher, tests, future Python parity) hashes the same way.
+/// Compute the canonical CCR key for `payload`. BLAKE3 → first 40 hex
+/// chars (160 bits — safe for persistent SQLite/Redis backends holding
+/// millions of entries). Centralized here so every call site hashes the
+/// same way.
 pub fn compute_key(payload: &[u8]) -> String {
     let h = blake3::hash(payload);
     let hex = h.to_hex();
-    // Stable 24-char prefix matches the Python tool-injection regex
-    // (`[a-f0-9]{24}`) — see `headroom/ccr/tool_injection.py:211`.
-    hex.as_str()[..24].to_string()
+    hex.as_str()[..40].to_string()
 }
 
 /// Standard `<<ccr:HASH>>` marker injected into compressed block content
@@ -90,9 +102,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn compute_key_is_24_hex_chars() {
+    fn compute_key_is_40_hex_chars() {
         let k = compute_key(b"hello world");
-        assert_eq!(k.len(), 24);
+        assert_eq!(k.len(), 40);
         assert!(k
             .chars()
             .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));

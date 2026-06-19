@@ -33,110 +33,110 @@ USER_UID=$(id -u)
 CUSTOM_PORT=""
 UNATTENDED=false
 while [[ $# -gt 0 ]]; do
-  case $1 in
-    --port)
-      CUSTOM_PORT="$2"
-      shift 2
-      ;;
-    --unattended)
-      UNATTENDED=true
-      shift
-      ;;
-    *)
-      echo "Unknown option: $1"
-      echo "Usage: $0 [--port PORT] [--unattended]"
-      exit 1
-      ;;
-  esac
+	case $1 in
+	--port)
+		CUSTOM_PORT="$2"
+		shift 2
+		;;
+	--unattended)
+		UNATTENDED=true
+		shift
+		;;
+	*)
+		echo "Unknown option: $1"
+		echo "Usage: $0 [--port PORT] [--unattended]"
+		exit 1
+		;;
+	esac
 done
 
 # Helper functions
 info() {
-  echo -e "${BLUE}==>${NC} $*"
+	echo -e "${BLUE}==>${NC} $*"
 }
 
 success() {
-  echo -e "${GREEN}✓${NC} $*"
+	echo -e "${GREEN}✓${NC} $*"
 }
 
 warning() {
-  echo -e "${YELLOW}⚠${NC} $*"
+	echo -e "${YELLOW}⚠${NC} $*"
 }
 
 error() {
-  echo -e "${RED}✗${NC} $*" >&2
+	echo -e "${RED}✗${NC} $*" >&2
 }
 
 fatal() {
-  error "$*"
-  exit 1
+	error "$*"
+	exit 1
 }
 
 # Check if we're on macOS
 OS_NAME=$(uname -s)
 if [[ "${OS_NAME}" != "Darwin" ]]; then
-  fatal "This script is only for macOS. Use systemd on Linux."
+	fatal "This script is only for macOS. Use systemd on Linux."
 fi
 
 # Check if headroom is installed
 info "Checking for headroom installation..."
 HEADROOM_PATH=$(command -v headroom || true)
 if [[ -z "${HEADROOM_PATH}" ]]; then
-  fatal "headroom not found in PATH. Please install it first: pip install headroom-ai[proxy]"
+	fatal "headroom not found in PATH. Please install it first: pip install headroom-ai[proxy]"
 fi
 success "Found headroom at: ${HEADROOM_PATH}"
 
 # Verify proxy support
 info "Verifying proxy support..."
 if ! "${HEADROOM_PATH}" proxy --help >/dev/null 2>&1; then
-  fatal "headroom proxy command not available. Install with: pip install headroom-ai[proxy]"
+	fatal "headroom proxy command not available. Install with: pip install headroom-ai[proxy]"
 fi
 success "Proxy support verified"
 
 # Check if service is already installed
 if [[ -f "${PLIST_DEST}" ]]; then
-  warning "LaunchAgent already installed at: ${PLIST_DEST}"
+	warning "LaunchAgent already installed at: ${PLIST_DEST}"
 
-  # Check if service is running
-  if launchctl print "gui/${USER_UID}/${PLIST_LABEL}" >/dev/null 2>&1; then
-    info "Stopping existing service..."
-    launchctl bootout "gui/${USER_UID}/${PLIST_LABEL}" 2>/dev/null || true
-  fi
+	# Check if service is running
+	if launchctl print "gui/${USER_UID}/${PLIST_LABEL}" >/dev/null 2>&1; then
+		info "Stopping existing service..."
+		launchctl bootout "gui/${USER_UID}/${PLIST_LABEL}" 2>/dev/null || true
+	fi
 
-  if [[ "${UNATTENDED}" == false ]]; then
-    read -rp "Reinstall? [y/N] " response
-    if [[ ! "${response}" =~ ^[Yy]$ ]]; then
-      echo "Installation cancelled."
-      exit 0
-    fi
-  fi
+	if [[ "${UNATTENDED}" == false ]]; then
+		read -rp "Reinstall? [y/N] " response
+		if [[ ! "${response}" =~ ^[Yy]$ ]]; then
+			echo "Installation cancelled."
+			exit 0
+		fi
+	fi
 fi
 
 # Get port configuration
 if [[ -n "${CUSTOM_PORT}" ]]; then
-  PORT="${CUSTOM_PORT}"
+	PORT="${CUSTOM_PORT}"
 elif [[ "${UNATTENDED}" == true ]]; then
-  PORT="${DEFAULT_PORT}"
+	PORT="${DEFAULT_PORT}"
 else
-  read -rp "Port for proxy server (default: ${DEFAULT_PORT}): " PORT
-  PORT="${PORT:-${DEFAULT_PORT}}"
+	read -rp "Port for proxy server (default: ${DEFAULT_PORT}): " PORT
+	PORT="${PORT:-${DEFAULT_PORT}}"
 fi
 
 # Validate port number
 if ! [[ "${PORT}" =~ ^[0-9]+$ ]] || [[ "${PORT}" -lt 1024 ]] || [[ "${PORT}" -gt 65535 ]]; then
-  fatal "Invalid port number: ${PORT} (must be 1024-65535)"
+	fatal "Invalid port number: ${PORT} (must be 1024-65535)"
 fi
 
 # Check if port is in use
 if lsof -iTCP:"${PORT}" -sTCP:LISTEN -t >/dev/null 2>&1; then
-  warning "Port ${PORT} is already in use"
-  if [[ "${UNATTENDED}" == false ]]; then
-    read -rp "Continue anyway? [y/N] " response
-    if [[ ! "${response}" =~ ^[Yy]$ ]]; then
-      echo "Installation cancelled."
-      exit 0
-    fi
-  fi
+	warning "Port ${PORT} is already in use"
+	if [[ "${UNATTENDED}" == false ]]; then
+		read -rp "Continue anyway? [y/N] " response
+		if [[ ! "${response}" =~ ^[Yy]$ ]]; then
+			echo "Installation cancelled."
+			exit 0
+		fi
+	fi
 fi
 
 # Create log directory
@@ -149,15 +149,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE_FILE="${SCRIPT_DIR}/${PLIST_FILENAME}.template"
 
 if [[ ! -f "${TEMPLATE_FILE}" ]]; then
-  fatal "Template file not found: ${TEMPLATE_FILE}"
+	fatal "Template file not found: ${TEMPLATE_FILE}"
 fi
 
 # Generate plist from template
 info "Generating LaunchAgent plist..."
 sed -e "s|__HEADROOM_PATH__|${HEADROOM_PATH}|g" \
-  -e "s|__PORT__|${PORT}|g" \
-  -e "s|__HOME__|${HOME}|g" \
-  "${TEMPLATE_FILE}" >"${PLIST_DEST}"
+	-e "s|__PORT__|${PORT}|g" \
+	-e "s|__HOME__|${HOME}|g" \
+	"${TEMPLATE_FILE}" >"${PLIST_DEST}"
 
 success "Created: ${PLIST_DEST}"
 
@@ -167,15 +167,15 @@ chmod 644 "${PLIST_DEST}"
 # Load the LaunchAgent
 info "Loading LaunchAgent..."
 if launchctl bootstrap "gui/${USER_UID}" "${PLIST_DEST}" 2>/dev/null; then
-  success "LaunchAgent loaded successfully"
+	success "LaunchAgent loaded successfully"
 else
-  # If bootstrap fails, try to bootout first in case it was already loaded
-  launchctl bootout "gui/${USER_UID}/${PLIST_LABEL}" 2>/dev/null || true
-  if launchctl bootstrap "gui/${USER_UID}" "${PLIST_DEST}"; then
-    success "LaunchAgent loaded successfully"
-  else
-    fatal "Failed to load LaunchAgent. Check logs at: ${LOG_DIR}"
-  fi
+	# If bootstrap fails, try to bootout first in case it was already loaded
+	launchctl bootout "gui/${USER_UID}/${PLIST_LABEL}" 2>/dev/null || true
+	if launchctl bootstrap "gui/${USER_UID}" "${PLIST_DEST}"; then
+		success "LaunchAgent loaded successfully"
+	else
+		fatal "Failed to load LaunchAgent. Check logs at: ${LOG_DIR}"
+	fi
 fi
 
 # Wait a moment for service to start
@@ -184,17 +184,17 @@ sleep 2
 # Verify the service is running
 info "Verifying service status..."
 if launchctl print "gui/${USER_UID}/${PLIST_LABEL}" >/dev/null 2>&1; then
-  success "Service is running"
+	success "Service is running"
 
-  # Check if port is listening
-  if lsof -iTCP:"${PORT}" -sTCP:LISTEN -t >/dev/null 2>&1; then
-    success "Port ${PORT} is listening"
-  else
-    warning "Service is running but port ${PORT} is not listening yet"
-    warning "Check logs: tail -f ${LOG_DIR}/proxy-error.log"
-  fi
+	# Check if port is listening
+	if lsof -iTCP:"${PORT}" -sTCP:LISTEN -t >/dev/null 2>&1; then
+		success "Port ${PORT} is listening"
+	else
+		warning "Service is running but port ${PORT} is not listening yet"
+		warning "Check logs: tail -f ${LOG_DIR}/proxy-error.log"
+	fi
 else
-  fatal "Service failed to start. Check logs at: ${LOG_DIR}"
+	fatal "Service failed to start. Check logs at: ${LOG_DIR}"
 fi
 
 # Display success message

@@ -74,7 +74,8 @@ use crate::proxy::AppState;
 // `Extension<AuthMode>` extractor.
 use headroom_core::auth_mode::AuthMode;
 
-use crate::bedrock::vendor::is_anthropic_model_id;
+/// Anthropic vendor prefix as encoded in Bedrock model ids.
+const ANTHROPIC_VENDOR_PREFIX: &str = "anthropic.";
 
 /// AWS Bedrock Runtime DNS template.
 const BEDROCK_RUNTIME_HOST_TEMPLATE: &str = "bedrock-runtime.{region}.amazonaws.com";
@@ -152,7 +153,7 @@ pub async fn handle_invoke_streaming(
     );
 
     // 1. Live-zone compression for Anthropic-shape bodies (same as D1).
-    let is_anthropic = is_anthropic_model_id(&model_id);
+    let is_anthropic = model_id.starts_with(ANTHROPIC_VENDOR_PREFIX);
     let outbound_body: Bytes = if is_anthropic {
         run_anthropic_compression(&body, &state, auth_mode, &request_id)
     } else {
@@ -182,7 +183,7 @@ pub async fn handle_invoke_streaming(
                 "bedrock_streaming_action_invalid",
                 "Unsupported Bedrock streaming action path",
             );
-        }
+        },
     };
 
     let upstream_url = match build_bedrock_streaming_upstream(&state, &model_id, &uri, action) {
@@ -199,7 +200,7 @@ pub async fn handle_invoke_streaming(
                 "bedrock_endpoint_invalid",
                 &msg,
             );
-        }
+        },
     };
 
     // 3. Resolve credentials. No silent fallback.
@@ -217,7 +218,7 @@ pub async fn handle_invoke_streaming(
                 "bedrock_credentials_missing",
                 "AWS credentials not configured; refusing to forward unsigned",
             );
-        }
+        },
     };
 
     // 4. Build the headers we sign + forward.
@@ -251,7 +252,7 @@ pub async fn handle_invoke_streaming(
                 "bedrock_sigv4_failed",
                 &e.to_string(),
             );
-        }
+        },
     };
 
     // Build outbound HeaderMap (same pattern as D1).
@@ -288,7 +289,7 @@ pub async fn handle_invoke_streaming(
                 "bedrock_invalid_method",
                 &e.to_string(),
             );
-        }
+        },
     };
 
     let upstream_resp = state
@@ -314,7 +315,7 @@ pub async fn handle_invoke_streaming(
                 StatusCode::BAD_GATEWAY
             };
             return error_response(status, "bedrock_upstream_error", &e.to_string());
-        }
+        },
     };
 
     let status =
@@ -397,7 +398,7 @@ pub async fn handle_invoke_streaming(
             }
             let body_out = Body::from_stream(upstream_stream);
             finish(status, resp_headers, body_out, &request_id)
-        }
+        },
         OutputMode::Sse => {
             // Translation mode. Override the response content-type to
             // text/event-stream; emit SSE frames; tee them into the
@@ -417,7 +418,7 @@ pub async fn handle_invoke_streaming(
             let translated = tee_to_anthropic_state(translated, request_id.clone());
             let body_out = Body::from_stream(translated);
             finish(status, resp_headers, body_out, &request_id)
-        }
+        },
     }
 }
 
@@ -484,7 +485,7 @@ where
                                     Ok(frame),
                                     (parser, upstream, false, request_id, model_id, region),
                                 ));
-                            }
+                            },
                             Ok(TranslateOutcome::Skip { event_type }) => {
                                 tracing::warn!(
                                     event = "bedrock_eventstream_unknown_event_type",
@@ -494,7 +495,7 @@ where
                                 );
                                 // Loop and try the next message in the buffer.
                                 continue;
-                            }
+                            },
                             Err(TranslateError::UpstreamException { payload_preview }) => {
                                 tracing::warn!(
                                     event = "bedrock_eventstream_upstream_exception",
@@ -520,7 +521,7 @@ where
                                     Ok(Bytes::from(frame)),
                                     (parser, upstream, true, request_id, model_id, region),
                                 ));
-                            }
+                            },
                             Err(TranslateError::MissingEventType) => {
                                 tracing::warn!(
                                     event = "bedrock_eventstream_missing_event_type",
@@ -535,7 +536,7 @@ where
                                     Ok(frame),
                                     (parser, upstream, true, request_id, model_id, region),
                                 ));
-                            }
+                            },
                         },
                         Ok(None) => break,
                         Err(parse_err) => {
@@ -543,7 +544,7 @@ where
                                 ParseError::PreludeCrcMismatch { .. }
                                 | ParseError::MessageCrcMismatch { .. } => {
                                     "bedrock_eventstream_crc_mismatch"
-                                }
+                                },
                                 _ => "bedrock_eventstream_parse_failed",
                             };
                             tracing::warn!(
@@ -557,7 +558,7 @@ where
                                 Ok(frame),
                                 (parser, upstream, true, request_id, model_id, region),
                             ));
-                        }
+                        },
                     }
                 }
                 // Buffer drained; pull the next chunk from upstream.
@@ -591,7 +592,7 @@ where
                                             Ok(frame),
                                             (parser, upstream, false, request_id, model_id, region),
                                         ));
-                                    }
+                                    },
                                     Ok(TranslateOutcome::Skip { event_type }) => {
                                         tracing::warn!(
                                             event = "bedrock_eventstream_unknown_event_type",
@@ -602,7 +603,7 @@ where
                                         // Continue draining the parser /
                                         // pulling more chunks.
                                         continue;
-                                    }
+                                    },
                                     Err(TranslateError::UpstreamException { payload_preview }) => {
                                         let json = serde_json::json!({
                                             "type": "error",
@@ -620,7 +621,7 @@ where
                                             Ok(Bytes::from(frame)),
                                             (parser, upstream, true, request_id, model_id, region),
                                         ));
-                                    }
+                                    },
                                     Err(TranslateError::MissingEventType) => {
                                         let frame = error_sse_frame(
                                             "bedrock_eventstream_missing_event_type",
@@ -630,7 +631,7 @@ where
                                             Ok(frame),
                                             (parser, upstream, true, request_id, model_id, region),
                                         ));
-                                    }
+                                    },
                                 },
                                 Ok(None) => continue,
                                 Err(parse_err) => {
@@ -638,7 +639,7 @@ where
                                         ParseError::PreludeCrcMismatch { .. }
                                         | ParseError::MessageCrcMismatch { .. } => {
                                             "bedrock_eventstream_crc_mismatch"
-                                        }
+                                        },
                                         _ => "bedrock_eventstream_parse_failed",
                                     };
                                     tracing::warn!(
@@ -652,9 +653,9 @@ where
                                         Ok(frame),
                                         (parser, upstream, true, request_id, model_id, region),
                                     ));
-                                }
+                                },
                             }
-                        }
+                        },
                         Some(Err(e)) => {
                             tracing::warn!(
                                 event = "bedrock_eventstream_upstream_io_error",
@@ -666,7 +667,7 @@ where
                                 Err(e),
                                 (parser, upstream, true, request_id, model_id, region),
                             ));
-                        }
+                        },
                         None => {
                             // End of upstream stream. If buffered bytes
                             // remain that did not parse into a message,
@@ -683,7 +684,7 @@ where
                             done = true;
                             let _ = done;
                             return None;
-                        }
+                        },
                     }
                 }
             })
@@ -750,14 +751,14 @@ async fn run_anthropic_state_machine(
                             "bedrock translated stream: anthropic state-machine apply error"
                         );
                     }
-                }
+                },
                 Err(e) => {
                     tracing::warn!(
                         request_id = %request_id,
                         error = %e,
                         "bedrock translated stream: sse framer error"
                     );
-                }
+                },
             }
         }
     }
@@ -854,13 +855,14 @@ fn run_anthropic_compression(
 ) -> Bytes {
     use crate::bedrock::envelope::BedrockEnvelope;
 
-    let parsed_envelope = BedrockEnvelope::parse(body).is_ok();
-    if !parsed_envelope {
-        tracing::info!(
-            event = "bedrock_envelope_parse_skipped",
+    if let Err(e) = BedrockEnvelope::parse(body) {
+        tracing::warn!(
+            event = "bedrock_envelope_parse_error",
             request_id = %request_id,
-            "bedrock invoke-streaming: envelope parse skipped; attempting generic anthropic compression"
+            error = %e,
+            "bedrock invoke-streaming: envelope parse failed; passing body through unchanged"
         );
+        return body.clone();
     }
 
     // PR-E3: Bedrock channel hard-codes OAuth so cache_control
@@ -883,25 +885,21 @@ fn run_anthropic_compression(
             );
             let _ = (PassthroughReason::ModeOff, PassthroughReason::NoMessages);
             body.clone()
-        }
+        },
         AnthropicOutcome::Compressed { body: new_body, .. } => {
-            if parsed_envelope {
-                match BedrockEnvelope::ensure_anthropic_version_first(&new_body) {
-                    Ok(b) => b,
-                    Err(e) => {
-                        tracing::error!(
-                            event = "bedrock_envelope_reemit_failed",
-                            request_id = %request_id,
-                            error = %e,
-                            "bedrock invoke-streaming: failed to re-emit envelope"
-                        );
-                        body.clone()
-                    }
-                }
-            } else {
-                new_body
+            match BedrockEnvelope::ensure_anthropic_version_first(&new_body) {
+                Ok(b) => b,
+                Err(e) => {
+                    tracing::error!(
+                        event = "bedrock_envelope_reemit_failed",
+                        request_id = %request_id,
+                        error = %e,
+                        "bedrock invoke-streaming: failed to re-emit envelope"
+                    );
+                    body.clone()
+                },
             }
-        }
+        },
     }
 }
 
@@ -918,7 +916,7 @@ fn build_bedrock_streaming_upstream(
                 BEDROCK_RUNTIME_HOST_TEMPLATE.replace("{region}", &state.config.bedrock_region);
             Url::parse(&format!("https://{host}/"))
                 .map_err(|e| format!("bedrock derived base URL parse error: {e}"))?
-        }
+        },
     };
     let path = format!(
         "/model/{model_id}/{action}",
