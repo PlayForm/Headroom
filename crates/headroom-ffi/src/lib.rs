@@ -1,24 +1,6 @@
 //! headroom-ffi: Full Aphrodite plugin runtime as a C ABI cdylib.
-//!
-//! Load this dylib from any language (Python ctypes, Node ffi, Go cgo, Rust FFI)
-//! and get the complete Aphrodite compression engine — classify, compress,
-//! retrieve, transform hooks, catalog, stats, config hot-reload, skills.
-//!
-//! ## Architecture
-//!
-//! ```text
-//! Any Agent → aphrodite_init(config_path) → handle (opaque ptr)
-//!                aphrodite_transform(handle, content, tool) → JSON
-//!                aphrodite_terminal(handle, content) → JSON
-//!                aphrodite_catalog(handle, mode) → JSON
-//!                aphrodite_stats(handle) → JSON
-//!                aphrodite_compress(handle, content, hint) → JSON
-//!                aphrodite_retrieve(handle, hash) → content
-//!                aphrodite_reload(handle) → reload config from disk
-//!                aphrodite_destroy(handle)
-//! ```
-//!
-//! State is per-handle — safe for multi-agent use.
+//! 14 functions — init, destroy, classify, compress, retrieve, transform,
+//! terminal, session_start, catalog, stats, reload, config_get/set, search.
 
 mod hooks;
 mod marker;
@@ -27,526 +9,265 @@ mod state;
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
-use std::sync::{LazyLock, Mutex};
+use std::sync::Mutex;
 
 use headroom_core::transforms;
 use state::AphroditeState;
 
-// ── Global handle registry ──────────────────────────────────────────
-static HANDLES: LazyLock<Mutex<HashMap<usize, AphroditeState>>> =
-    LazyLock::new(|| Mutex::new(HashMap::<usize, AphroditeState>::new()));
-static NEXT_ID: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(1usize));
+static HANDLES: Mutex<Option<HashMap<usize, AphroditeState>>> = Mutex::new(None);
+static NEXT_ID: Mutex<usize> = Mutex::new(1);
+
+fn handles() -> std::sync::MutexGuard<'static, Option<HashMap<usize, AphroditeState>>> {
+    let mut g = HANDLES.lock().unwrap();
+    if g.is_none() { *g = Some(HashMap::new()); }
+    g
+}
 
 fn alloc_handle(state: AphroditeState) -> usize {
     let mut id = NEXT_ID.lock().unwrap();
-    let hid = *id;
-    *id += 1;
-    HANDLES.lock().unwrap().insert(hid, state);
+    let hid = *id; *id += 1;
+    handles().as_mut().unwrap().insert(hid, state);
     hid
 }
 
-fn with_handle<F, R>(hid: usize, f: F) -> *mut c_char
-where
-    F: FnOnce(&mut AphroditeState) -> Result<String, String>,
-{
-    let mut handles = HANDLES.lock().unwrap();
-    match handles.get_mut(&hid) {
-        Some(state) => match f(state) {
-            Ok(json) => CString::new(json).unwrap().into_raw(),
-            Err(e) => to_json_error(&e),
-        },
-        None => to_json_error(&format!("invalid handle: {}", hid)),
+fn with_state<T>(hid: usize, f: impl FnOnce(&mut AphroditeState) -> T) -> Result<T, String> {
+    let mut h = handles();
+    match h.as_mut().and_then(|m| m.get_mut(&hid)) {
+        Some(state) => Ok(f(state)),
+        None => Err(format!("invalid handle: {}", hid)),
     }
 }
-
-// ── Public C ABI ─────────────────────────────────────────────────────
-
-/// Create a new Aphrodite runtime instance.
-/// config_path: path to aphrodite.toml (or empty string for defaults).
-/// Returns an opaque handle (usize as string).
-#[no_mangle]
-pub extern "C" fn aphrodite_init(config_path: *const c_char) -> *mut c_char {
-    let path = unsafe { CStr::from_ptr(config_path) }.to_string_lossy();
-    let mut state = AphroditeState::default();
-
-    if !path.is_empty() {
-        if let Ok(toml_str) = std::fs::read_to_string(path.as_ref()) {
-            if let Ok(table) = toml_str.parse::<toml::Table>() {
-                if let Some(compression) = table.get("compression").and_then(|v| v.as_table()) {
-                    if let Some(v) = compression.get("context_engine").and_then(|v| v.as_bool()) {
-                        state.context_engine_enabled = v;
-                    }
-                    if let Some(v) = compression.get("engine_threshold_pct").and_then(|v| v.as_integer()) {
-                        state.engine_threshold_pct = v as u64;
-                    }
-                    if let Some(v) = compression.get("engine_min_msgs").and_then(|v| v.as_integer()) {
-                        state.engine_min_msgs = v as usize;
-                    }
-                    if let Some(v) = compression.get("engine_protect_first").and_then(|v| v.as_integer()) {
-                        state.engine_protect_first = v as usize;
-                    }
-                    if let Some(v) = compression.get("engine_protect_last").and_then(|v| v.as_integer()) {
-                        state.engine_protect_last = v as usize;
-                    }
-                    if let Some(v) = compression.get("tool_threshold").and_then(|v| v.as_integer()) {
-                        state.tool_threshold = v as usize;
-                    }
-                    if let Some(v) = compression.get("terminal_threshold").and_then(|v| v.as_integer()) {
-                        state.terminal_threshold = v as usize;
-                    }
-                }
-                if let Some(defaults) = table.get("defaults").and_then(|v| v.as_table()) {
-                    if let Some(v) = defaults.get("api_url").and_then(|v| v.as_str()) {
-                        state.api_url = v.to_string();
-                    }
-                    if let Some(v) = defaults.get("model").and_then(|v| v.as_str()) {
-                        state.model = v.to_string();
-                    }
-                }
-            }
-        }
-    }
-
-    let hid = alloc_handle(state);
-    CString::new(hid.to_string()).unwrap().into_raw()
-}
-
-/// Destroy a runtime instance.
-#[no_mangle]
-pub extern "C" fn aphrodite_destroy(handle: *const c_char) {
-    let hid: usize = match unsafe { CStr::from_ptr(handle) }
-        .to_string_lossy()
-        .parse()
-    {
-        Ok(id) => id,
-        Err(_) => return,
-    };
-    HANDLES.lock().unwrap().remove(&hid);
-}
-
-/// Classify content type. Returns JSON with type, lines, bytes.
-#[no_mangle]
-pub extern "C" fn aphrodite_classify(content: *const c_char) -> *mut c_char {
-    let content = unsafe { CStr::from_ptr(content) }.to_string_lossy();
-    let ct = transforms::detect(&content);
-    CString::new(
-        serde_json::json!({
-            "type": ct.as_str(),
-            "lines": content.lines().count(),
-            "bytes": content.len(),
-        })
-        .to_string(),
-    )
-    .unwrap()
-    .into_raw()
-}
-
-/// Compress and store in CCR. Returns {hash, type, size, preview, marker}.
-#[no_mangle]
-pub extern "C" fn aphrodite_compress(
-    handle: *const c_char,
-    content: *const c_char,
-    type_hint: *const c_char,
-) -> *mut c_char {
-    let hid: usize = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse() {
-        Ok(id) => id,
-        Err(_) => return to_json_error("invalid handle"),
-    };
-    let content = unsafe { CStr::from_ptr(content) }.to_string_lossy();
-    let hint = unsafe { CStr::from_ptr(type_hint) }.to_string_lossy();
-
-    with_handle(hid, |state| {
-        if content.is_empty() {
-            return Err("empty content".into());
-        }
-        let ct = transforms::detect(&content);
-        let type_str = if hint.is_empty() || hint == "text" {
-            ct.as_str().to_string()
-        } else {
-            hint.to_string()
-        };
-        let hash = headroom_core::ccr::compute_key(content.as_bytes());
-        state.inline_store_put(hash.clone(), content.to_string());
-        let preview = build_preview(&type_str, &content);
-        let marker = marker::ccr_marker(&hash, &type_str, content.len(), &preview, None, None, None);
-
-        state.record_marker(state::MarkerEntry {
-            hash: hash.clone(),
-            ccr_type: type_str.clone(),
-            size: content.len(),
-            preview: preview.clone(),
-            turn: state.turn_counter,
-            center: None, meta: None,
-        });
-
-        Ok(serde_json::json!({
-            "hash": hash, "type": type_str, "size": content.len(),
-            "preview": preview, "marker": marker,
-        }).to_string())
-    })
-}
-
-/// Retrieve original content by hash. First checks inline store, then CCR.
-#[no_mangle]
-pub extern "C" fn aphrodite_retrieve(
-    handle: *const c_char,
-    hash: *const c_char,
-) -> *mut c_char {
-    let hid: usize = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse() {
-        Ok(id) => id,
-        Err(_) => return to_json_error("invalid handle"),
-    };
-    let hash = unsafe { CStr::from_ptr(hash) }.to_string_lossy();
-
-    let mut handles = HANDLES.lock().unwrap();
-    match handles.get_mut(&hid) {
-        Some(state) => {
-            // Check inline store first
-            if let Some(content) = state.inline_store_get(&hash) {
-                return CString::new(content).unwrap().into_raw();
-            }
-            to_json_error(&format!("hash not found: {}", hash))
-        }
-        None => to_json_error(&format!("invalid handle: {}", hid)),
-    }
-}
-
-/// Transform tool output. Full plugin hook equivalent.
-#[no_mangle]
-pub extern "C" fn aphrodite_transform(
-    handle: *const c_char,
-    content: *const c_char,
-    tool_name: *const c_char,
-) -> *mut c_char {
-    let hid: usize = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse() {
-        Ok(id) => id,
-        Err(_) => return to_json_error("invalid handle"),
-    };
-    let content = unsafe { CStr::from_ptr(content) }.to_string_lossy();
-    let tool = unsafe { CStr::from_ptr(tool_name) }.to_string_lossy();
-
-    with_handle(hid, |state| {
-        let result = hooks::transform_tool_result(state, &content, &tool);
-        Ok(result.to_string())
-    })
-}
-
-/// Transform terminal output. Full plugin hook equivalent.
-#[no_mangle]
-pub extern "C" fn aphrodite_terminal(
-    handle: *const c_char,
-    content: *const c_char,
-) -> *mut c_char {
-    let hid: usize = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse() {
-        Ok(id) => id,
-        Err(_) => return to_json_error("invalid handle"),
-    };
-    let content = unsafe { CStr::from_ptr(content) }.to_string_lossy();
-
-    with_handle(hid, |state| {
-        let result = hooks::transform_terminal_output(state, &content);
-        Ok(result.to_string())
-    })
-}
-
-/// Start a new session — reset counters.
-#[no_mangle]
-pub extern "C" fn aphrodite_session_start(handle: *const c_char) -> *mut c_char {
-    let hid: usize = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse() {
-        Ok(id) => id,
-        Err(_) => return to_json_error("invalid handle"),
-    };
-
-    with_handle(hid, |state| {
-        let result = hooks::on_session_start(state);
-        Ok(result.to_string())
-    })
-}
-
-/// Get catalog of recent compressions.
-/// mode: "toc" for compact, "full" for complete.
-#[no_mangle]
-pub extern "C" fn aphrodite_catalog(
-    handle: *const c_char,
-    mode: *const c_char,
-) -> *mut c_char {
-    let hid: usize = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse() {
-        Ok(id) => id,
-        Err(_) => return to_json_error("invalid handle"),
-    };
-    let mode = unsafe { CStr::from_ptr(mode) }.to_string_lossy();
-
-    let handles = HANDLES.lock().unwrap();
-    match handles.get(&hid) {
-        Some(state) => {
-            let items: Vec<serde_json::Value> = state
-                .recent_markers
-                .iter()
-                .map(|m| {
-                    if mode == "toc" {
-                        serde_json::json!({
-                            "hash": &m.hash[..12.min(m.hash.len())],
-                            "type": m.ccr_type,
-                            "size": m.size,
-                            "preview": m.preview,
-                        })
-                    } else {
-                        serde_json::json!({
-                            "hash": m.hash,
-                            "type": m.ccr_type,
-                            "size": m.size,
-                            "preview": m.preview,
-                            "turn": m.turn,
-                        })
-                    }
-                })
-                .collect();
-
-            CString::new(
-                serde_json::json!({
-                    "total": items.len(),
-                    "items": items,
-                    "turn": state.turn_counter,
-                    "engine_enabled": state.context_engine_enabled,
-                })
-                .to_string(),
-            )
-            .unwrap()
-            .into_raw()
-        }
-        None => to_json_error(&format!("invalid handle: {}", hid)),
-    }
-}
-
-/// Get runtime stats.
-#[no_mangle]
-pub extern "C" fn aphrodite_stats(handle: *const c_char) -> *mut c_char {
-    let hid: usize = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse() {
-        Ok(id) => id,
-        Err(_) => return to_json_error("invalid handle"),
-    };
-
-    let handles = HANDLES.lock().unwrap();
-    match handles.get(&hid) {
-        Some(state) => CString::new(
-            serde_json::json!({
-                "version": env!("CARGO_PKG_VERSION"),
-                "inline_entries": state.inline_store.len(),
-                "markers": state.recent_markers.len(),
-                "turn": state.turn_counter,
-                "engine_enabled": state.context_engine_enabled,
-                "threshold_pct": state.engine_threshold_pct,
-                "tool_threshold": state.tool_threshold,
-                "terminal_threshold": state.terminal_threshold,
-                "model": state.model,
-            })
-            .to_string(),
-        )
-        .unwrap()
-        .into_raw(),
-        None => to_json_error(&format!("invalid handle: {}", hid)),
-    }
-}
-
-/// Reload config from disk (re-reads aphrodite.toml).
-#[no_mangle]
-pub extern "C" fn aphrodite_reload(
-    handle: *const c_char,
-    config_path: *const c_char,
-) -> *mut c_char {
-    let hid: usize = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse() {
-        Ok(id) => id,
-        Err(_) => return to_json_error("invalid handle"),
-    };
-    let path = unsafe { CStr::from_ptr(config_path) }.to_string_lossy();
-
-    let mut handles = HANDLES.lock().unwrap();
-    match handles.get_mut(&hid) {
-        Some(state) => {
-            if !path.is_empty() {
-                if let Ok(toml_str) = std::fs::read_to_string(path.as_ref()) {
-                    if let Ok(table) = toml_str.parse::<toml::Table>() {
-                        if let Some(c) = table.get("compression").and_then(|v| v.as_table()) {
-                            if let Some(v) = c.get("context_engine").and_then(|v| v.as_bool()) {
-                                state.context_engine_enabled = v;
-                            }
-                            if let Some(v) = c.get("engine_threshold_pct").and_then(|v| v.as_integer()) {
-                                state.engine_threshold_pct = v as u64;
-                            }
-                            if let Some(v) = c.get("tool_threshold").and_then(|v| v.as_integer()) {
-                                state.tool_threshold = v as usize;
-                            }
-                            if let Some(v) = c.get("terminal_threshold").and_then(|v| v.as_integer()) {
-                                state.terminal_threshold = v as usize;
-                            }
-                        }
-                    }
-                }
-            }
-            CString::new(r#"{"status":"ok","action":"reloaded"}"#).unwrap().into_raw()
-        }
-        None => to_json_error(&format!("invalid handle: {}", hid)),
-    }
-}
-
-/// Get config value.
-#[no_mangle]
-pub extern "C" fn aphrodite_config_get(
-    handle: *const c_char,
-    key: *const c_char,
-) -> *mut c_char {
-    let hid: usize = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse() {
-        Ok(id) => id,
-        Err(_) => return to_json_error("invalid handle"),
-    };
-    let key = unsafe { CStr::from_ptr(key) }.to_string_lossy();
-
-    let handles = HANDLES.lock().unwrap();
-    match handles.get(&hid) {
-        Some(state) => {
-            let val = match key.as_ref() {
-                "api_url" => state.api_url.clone(),
-                "model" => state.model.clone(),
-                "engine_threshold_pct" => state.engine_threshold_pct.to_string(),
-                "tool_threshold" => state.tool_threshold.to_string(),
-                "terminal_threshold" => state.terminal_threshold.to_string(),
-                "context_engine_enabled" => state.context_engine_enabled.to_string(),
-                "catalog_mode" => state.catalog_mode.clone(),
-                _ => return to_json_error(&format!("unknown key: {}", key)),
-            };
-            CString::new(val).unwrap().into_raw()
-        }
-        None => to_json_error(&format!("invalid handle: {}", hid)),
-    }
-}
-
-/// Set config value at runtime.
-#[no_mangle]
-pub extern "C" fn aphrodite_config_set(
-    handle: *const c_char,
-    key: *const c_char,
-    value: *const c_char,
-) -> *mut c_char {
-    let hid: usize = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse() {
-        Ok(id) => id,
-        Err(_) => return to_json_error("invalid handle"),
-    };
-    let key = unsafe { CStr::from_ptr(key) }.to_string_lossy();
-    let value = unsafe { CStr::from_ptr(value) }.to_string_lossy();
-
-    let mut handles = HANDLES.lock().unwrap();
-    match handles.get_mut(&hid) {
-        Some(state) => {
-            match key.as_ref() {
-                "model" => state.model = value.to_string(),
-                "catalog_mode" => state.catalog_mode = value.to_string(),
-                "engine_threshold_pct" => {
-                    if let Ok(v) = value.parse() { state.engine_threshold_pct = v; }
-                }
-                "tool_threshold" => {
-                    if let Ok(v) = value.parse() { state.tool_threshold = v; }
-                }
-                "terminal_threshold" => {
-                    if let Ok(v) = value.parse() { state.terminal_threshold = v; }
-                }
-                "context_engine_enabled" => {
-                    state.context_engine_enabled = value == "true" || value == "1";
-                }
-                _ => return to_json_error(&format!("unknown key: {}", key)),
-            }
-            CString::new(r#"{"status":"ok"}"#).unwrap().into_raw()
-        }
-        None => to_json_error(&format!("invalid handle: {}", hid)),
-    }
-}
-
-/// Search stored content by keyword. Returns matching hashes + previews.
-#[no_mangle]
-pub extern "C" fn aphrodite_search(
-    handle: *const c_char,
-    query: *const c_char,
-) -> *mut c_char {
-    let hid: usize = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse() {
-        Ok(id) => id,
-        Err(_) => return to_json_error("invalid handle"),
-    };
-    let query = unsafe { CStr::from_ptr(query) }.to_string_lossy().to_lowercase();
-
-    let handles = HANDLES.lock().unwrap();
-    match handles.get(&hid) {
-        Some(state) => {
-            let results: Vec<serde_json::Value> = state
-                .recent_markers
-                .iter()
-                .filter(|m| m.preview.to_lowercase().contains(&query) || m.ccr_type.to_lowercase().contains(&query))
-                .take(20)
-                .map(|m| {
-                    serde_json::json!({
-                        "hash": &m.hash[..12.min(m.hash.len())],
-                        "type": m.ccr_type,
-                        "size": m.size,
-                        "preview": m.preview,
-                    })
-                })
-                .collect();
-
-            CString::new(
-                serde_json::json!({"total": results.len(), "results": results}).to_string(),
-            )
-            .unwrap()
-            .into_raw()
-        }
-        None => to_json_error(&format!("invalid handle: {}", hid)),
-    }
-}
-
-/// Dylib version.
-#[no_mangle]
-pub extern "C" fn aphrodite_version() -> *mut c_char {
-    CString::new(env!("CARGO_PKG_VERSION")).unwrap().into_raw()
-}
-
-/// Free a string returned by any aphrodite_* function. Null-safe.
-#[no_mangle]
-pub extern "C" fn aphrodite_free_string(s: *mut c_char) {
-    if s.is_null() { return; }
-    unsafe { let _ = CString::from_raw(s); }
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────
 
 fn to_json_error(msg: &str) -> *mut c_char {
     CString::new(serde_json::json!({"error": msg}).to_string()).unwrap().into_raw()
 }
 
-pub(crate) fn build_preview(type_str: &str, content: &str) -> String {
-    let lines = content.lines().count();
-    let bytes = content.len();
+fn to_json_ok(v: &serde_json::Value) -> *mut c_char {
+    CString::new(v.to_string()).unwrap().into_raw()
+}
 
+// ── C ABI ────────────────────────────────────────────────────────────
+
+#[no_mangle] pub extern "C" fn aphrodite_version() -> *mut c_char {
+    CString::new(env!("CARGO_PKG_VERSION")).unwrap().into_raw()
+}
+
+#[no_mangle] pub extern "C" fn aphrodite_free_string(s: *mut c_char) {
+    if !s.is_null() { unsafe { let _ = CString::from_raw(s); } }
+}
+
+#[no_mangle] pub extern "C" fn aphrodite_hooks() -> *mut c_char {
+    CString::new(serde_json::json!([
+        "session_start","transform_tool_result","transform_terminal_output",
+        "pre_llm_call","post_llm_call"
+    ]).to_string()).unwrap().into_raw()
+}
+
+#[no_mangle] pub extern "C" fn aphrodite_init(config_path: *const c_char) -> *mut c_char {
+    let path = unsafe { CStr::from_ptr(config_path) }.to_string_lossy();
+    let mut state = AphroditeState::default();
+    if !path.is_empty() {
+        if let Ok(s) = std::fs::read_to_string(path.as_ref()) {
+            if let Ok(t) = s.parse::<toml::Table>() {
+                if let Some(c) = t.get("compression").and_then(|v| v.as_table()) {
+                    if let Some(v) = c.get("context_engine").and_then(|v| v.as_bool()) { state.context_engine_enabled = v; }
+                    if let Some(v) = c.get("engine_threshold_pct").and_then(|v| v.as_integer()) { state.engine_threshold_pct = v as u64; }
+                    if let Some(v) = c.get("tool_threshold").and_then(|v| v.as_integer()) { state.tool_threshold = v as usize; }
+                    if let Some(v) = c.get("terminal_threshold").and_then(|v| v.as_integer()) { state.terminal_threshold = v as usize; }
+                }
+            }
+        }
+    }
+    CString::new(alloc_handle(state).to_string()).unwrap().into_raw()
+}
+
+#[no_mangle] pub extern "C" fn aphrodite_destroy(handle: *const c_char) {
+    if let Ok(hid) = unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse::<usize>() {
+        handles().as_mut().map(|m| m.remove(&hid));
+    }
+}
+
+#[no_mangle] pub extern "C" fn aphrodite_classify(content: *const c_char) -> *mut c_char {
+    let c = unsafe { CStr::from_ptr(content) }.to_string_lossy();
+    let ct = transforms::detect(&c);
+    to_json_ok(&serde_json::json!({"type":ct.as_str(),"lines":c.lines().count(),"bytes":c.len()}))
+}
+
+#[no_mangle] pub extern "C" fn aphrodite_call_hook(hook: *const c_char, args: *const c_char) -> *mut c_char {
+    let name = unsafe { CStr::from_ptr(hook) }.to_string_lossy();
+    let args_str = unsafe { CStr::from_ptr(args) }.to_string_lossy();
+    let a: serde_json::Value = match serde_json::from_str(&args_str) { Ok(v) => v, Err(e) => return to_json_error(&format!("invalid args: {}", e)) };
+    let content = a.get("content").and_then(|v| v.as_str()).unwrap_or("");
+    let tool = a.get("tool_name").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let mut s = AphroditeState::default();
+    let r = match name.as_ref() {
+        "session_start" => hooks::on_session_start(&mut s),
+        "transform_tool_result" => hooks::transform_tool_result(&mut s, content, tool),
+        "transform_terminal_output" => hooks::transform_terminal_output(&mut s, content),
+        _ => serde_json::json!({"error": format!("unknown hook: {}", name)}),
+    };
+    to_json_ok(&r)
+}
+
+// ── Stateful operations ──────────────────────────────────────────────
+
+macro_rules! stateful {
+    ($name:ident, |$s:ident, $($arg:ident : $ty:ty),*| $body:expr) => {
+        #[no_mangle] pub extern "C" fn $name(handle: *const c_char, $($arg: *const c_char),*) -> *mut c_char {
+            let hid = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse::<usize>() { Ok(id) => id, Err(_) => return to_json_error("invalid handle") };
+            $(let $arg = unsafe { CStr::from_ptr($arg) }.to_string_lossy();)*
+            match with_state(hid, |$s| $body) {
+                Ok(v) => to_json_ok(&v),
+                Err(e) => to_json_error(&e),
+            }
+        }
+    };
+}
+
+stateful!(aphrodite_compress, |s, content: *const c_char, hint: *const c_char| {
+    if content.is_empty() { return serde_json::json!({"error":"empty"}); }
+    let ct = transforms::detect(&content);
+    let t = if hint.is_empty() || hint == "text" { ct.as_str().to_string() } else { hint.to_string() };
+    let hash = headroom_core::ccr::compute_key(content.as_bytes());
+    s.inline_store_put(hash.clone(), content.to_string());
+    let preview = crate::build_preview(&t, &content);
+    let marker = marker::ccr_marker(&hash, &t, content.len(), &preview, None, None, None);
+    s.record_marker(state::MarkerEntry { hash: hash.clone(), ccr_type: t.clone(), size: content.len(), preview: preview.clone(), turn: s.turn_counter, center: None, meta: None });
+    serde_json::json!({"hash":hash,"type":t,"size":content.len(),"preview":preview,"marker":marker})
+});
+
+stateful!(aphrodite_retrieve, |s, hash: *const c_char| {
+    match s.inline_store_get(&hash) {
+        Some(c) => return serde_json::Value::String(c),
+        None => serde_json::json!({"error": format!("hash not found: {}", hash)}),
+    }
+});
+
+stateful!(aphrodite_transform, |s, content: *const c_char, tool: *const c_char| {
+    hooks::transform_tool_result(s, &content, &tool)
+});
+
+stateful!(aphrodite_terminal, |s, content: *const c_char| {
+    hooks::transform_terminal_output(s, &content)
+});
+
+#[no_mangle] pub extern "C" fn aphrodite_session_start(handle: *const c_char) -> *mut c_char {
+    let hid = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse::<usize>() { Ok(id) => id, Err(_) => return to_json_error("invalid handle") };
+    match with_state(hid, |s| hooks::on_session_start(s)) {
+        Ok(v) => to_json_ok(&v),
+        Err(e) => to_json_error(&e),
+    }
+}
+
+#[no_mangle] pub extern "C" fn aphrodite_catalog(handle: *const c_char, mode: *const c_char) -> *mut c_char {
+    let hid = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse::<usize>() { Ok(id) => id, Err(_) => return to_json_error("invalid handle") };
+    let m = unsafe { CStr::from_ptr(mode) }.to_string_lossy();
+    let h = handles();
+    match h.as_ref().and_then(|map| map.get(&hid)) {
+        Some(s) => {
+            let items: Vec<serde_json::Value> = s.recent_markers.iter().map(|e| {
+                if m == "toc" { serde_json::json!({"hash":&e.hash[..12.min(e.hash.len())],"type":e.ccr_type,"size":e.size,"preview":e.preview}) }
+                else { serde_json::json!({"hash":e.hash,"type":e.ccr_type,"size":e.size,"preview":e.preview,"turn":e.turn}) }
+            }).collect();
+            to_json_ok(&serde_json::json!({"total":items.len(),"items":items,"turn":s.turn_counter}))
+        }
+        None => to_json_error(&format!("invalid handle: {}", hid)),
+    }
+}
+
+#[no_mangle] pub extern "C" fn aphrodite_stats(handle: *const c_char) -> *mut c_char {
+    let hid = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse::<usize>() { Ok(id) => id, Err(_) => return to_json_error("invalid handle") };
+    let h = handles();
+    match h.as_ref().and_then(|map| map.get(&hid)) {
+        Some(s) => to_json_ok(&serde_json::json!({
+            "version":env!("CARGO_PKG_VERSION"),"inline_entries":s.inline_store.len(),
+            "markers":s.recent_markers.len(),"turn":s.turn_counter,
+            "engine_enabled":s.context_engine_enabled,"threshold_pct":s.engine_threshold_pct,
+            "tool_threshold":s.tool_threshold,"terminal_threshold":s.terminal_threshold,
+        })),
+        None => to_json_error(&format!("invalid handle: {}", hid)),
+    }
+}
+
+#[no_mangle] pub extern "C" fn aphrodite_reload(handle: *const c_char, path: *const c_char) -> *mut c_char {
+    let hid = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse::<usize>() { Ok(id) => id, Err(_) => return to_json_error("invalid handle") };
+    let p = unsafe { CStr::from_ptr(path) }.to_string_lossy();
+    match with_state(hid, |s| {
+        if !p.is_empty() { if let Ok(t) = std::fs::read_to_string(p.as_ref()) { if let Ok(tbl) = t.parse::<toml::Table>() { if let Some(c) = tbl.get("compression").and_then(|v|v.as_table()) {
+            if let Some(v) = c.get("context_engine").and_then(|v|v.as_bool()) { s.context_engine_enabled = v; }
+        }}}}
+        serde_json::json!({"status":"ok"})
+    }) { Ok(v) => to_json_ok(&v), Err(e) => to_json_error(&e) }
+}
+
+#[no_mangle] pub extern "C" fn aphrodite_search(handle: *const c_char, query: *const c_char) -> *mut c_char {
+    let hid = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse::<usize>() { Ok(id) => id, Err(_) => return to_json_error("invalid handle") };
+    let q = unsafe { CStr::from_ptr(query) }.to_string_lossy().to_lowercase();
+    let h = handles();
+    match h.as_ref().and_then(|map| map.get(&hid)) {
+        Some(s) => {
+            let results: Vec<serde_json::Value> = s.recent_markers.iter()
+                .filter(|m| m.preview.to_lowercase().contains(&q) || m.ccr_type.to_lowercase().contains(&q))
+                .take(20).map(|m| serde_json::json!({"hash":&m.hash[..12.min(m.hash.len())],"type":m.ccr_type,"size":m.size,"preview":m.preview})).collect();
+            to_json_ok(&serde_json::json!({"total":results.len(),"results":results}))
+        }
+        None => to_json_error(&format!("invalid handle: {}", hid)),
+    }
+}
+
+#[no_mangle] pub extern "C" fn aphrodite_config_get(handle: *const c_char, key: *const c_char) -> *mut c_char {
+    let hid = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse::<usize>() { Ok(id) => id, Err(_) => return to_json_error("invalid handle") };
+    let k = unsafe { CStr::from_ptr(key) }.to_string_lossy();
+    let h = handles();
+    match h.as_ref().and_then(|map| map.get(&hid)) {
+        Some(s) => {
+            let v = match k.as_ref() {
+                "model" => s.model.clone(), "api_url" => s.api_url.clone(),
+                "engine_threshold_pct" => s.engine_threshold_pct.to_string(),
+                "tool_threshold" => s.tool_threshold.to_string(),
+                "context_engine_enabled" => s.context_engine_enabled.to_string(),
+                _ => return to_json_error(&format!("unknown key: {}", k)),
+            };
+            CString::new(v).unwrap().into_raw()
+        }
+        None => to_json_error(&format!("invalid handle: {}", hid)),
+    }
+}
+
+#[no_mangle] pub extern "C" fn aphrodite_config_set(handle: *const c_char, key: *const c_char, value: *const c_char) -> *mut c_char {
+    let hid = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse::<usize>() { Ok(id) => id, Err(_) => return to_json_error("invalid handle") };
+    let k = unsafe { CStr::from_ptr(key) }.to_string_lossy();
+    let v = unsafe { CStr::from_ptr(value) }.to_string_lossy();
+    match with_state(hid, |s| {
+        match k.as_ref() {
+            "model" => s.model = v.to_string(),
+            "engine_threshold_pct" => { if let Ok(n) = v.parse() { s.engine_threshold_pct = n; } }
+            "tool_threshold" => { if let Ok(n) = v.parse() { s.tool_threshold = n; } }
+            "context_engine_enabled" => s.context_engine_enabled = v == "true" || v == "1",
+            _ => {},
+        }
+        serde_json::json!({"status":"ok"})
+    }) { Ok(v) => to_json_ok(&v), Err(e) => to_json_error(&e) }
+}
+
+// ── Preview builder ──────────────────────────────────────────────────
+
+pub(crate) fn build_preview(type_str: &str, content: &str) -> String {
+    let lines = content.lines().count(); let bytes = content.len();
     match type_str {
         "build" | "build_output" | "build_error" => {
-            let errors = content.matches("error").count();
-            let warns = content.matches("warning").count();
-            format!("[{}:{}E {}W {}L]", type_str, errors, warns, lines)
+            let e = content.matches("error").count(); let w = content.matches("warning").count();
+            format!("[{}:{}E {}W {}L]", type_str, e, w, lines)
         }
         "diff" => {
-            let files = content.matches("diff --git").count();
-            let adds = content.lines().filter(|l| l.starts_with('+') && !l.starts_with("+++")).count();
-            let dels = content.lines().filter(|l| l.starts_with('-') && !l.starts_with("---")).count();
-            format!("[diff:{}F +{}/-{} {}L]", files, adds, dels, lines)
+            let f = content.matches("diff --git").count();
+            let a = content.lines().filter(|l| l.starts_with('+') && !l.starts_with("+++")).count();
+            let d = content.lines().filter(|l| l.starts_with('-') && !l.starts_with("---")).count();
+            format!("[diff:{}F +{}/-{} {}L]", f, a, d, lines)
         }
-        "source_code" => {
-            let fns = content.matches("fn ").count() + content.matches("def ").count();
-            format!("[code:{}fns {}L]", fns, lines)
-        }
-        "search" => {
-            let hits = content.lines().filter(|l| l.contains(':')).count();
-            format!("[search:{}hits {}L]", hits, lines)
-        }
-        "json_array" => {
-            let items = content.matches("{\"").count();
-            format!("[json:{}items {}L]", items, lines)
-        }
+        "source_code" => { let f = content.matches("fn ").count() + content.matches("def ").count(); format!("[code:{}fns {}L]", f, lines) }
+        "search" => { let h = content.lines().filter(|l| l.contains(':')).count(); format!("[search:{}hits {}L]", h, lines) }
+        "json_array" => { let i = content.matches("{\"").count(); format!("[json:{}items {}L]", i, lines) }
         _ => format!("[{}:{}L {}B]", type_str, lines, bytes),
     }
 }
