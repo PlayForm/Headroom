@@ -11,6 +11,8 @@ crate-type = ["cdylib"]
 
 [dependencies]
 headroom-core = { path = "../headroom-core" }
-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tracing = { workspace = true }
+regex = "1"
+toml = "1.1"
