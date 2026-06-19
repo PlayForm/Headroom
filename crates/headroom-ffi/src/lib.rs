@@ -136,12 +136,24 @@ stateful!(aphrodite_compress, |s, content: *const c_char, hint: *const c_char| {
     serde_json::json!({"hash":hash,"type":t,"size":content.len(),"preview":preview,"marker":marker})
 });
 
-stateful!(aphrodite_retrieve, |s, hash: *const c_char| {
-    match s.inline_store_get(&hash) {
-        Some(c) => return serde_json::Value::String(c),
-        None => serde_json::json!({"error": format!("hash not found: {}", hash)}),
+// aphrodite_retrieve is a manual override below — returns raw content, not JSON
+
+// Override: retrieve returns raw content, not JSON-wrapped
+#[no_mangle]
+pub extern "C" fn aphrodite_retrieve(handle: *const c_char, hash: *const c_char) -> *mut c_char {
+    let hid = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse::<usize>() {
+        Ok(id) => id, Err(_) => return to_json_error("invalid handle")
+    };
+    let hash = unsafe { CStr::from_ptr(hash) }.to_string_lossy();
+    let mut h = handles();
+    match h.as_mut().and_then(|m| m.get_mut(&hid)) {
+        Some(s) => match s.inline_store_get(&hash) {
+            Some(content) => CString::new(content).unwrap().into_raw(),
+            None => to_json_error(&format!("hash not found: {}", hash)),
+        },
+        None => to_json_error(&format!("invalid handle: {}", hid)),
     }
-});
+}
 
 stateful!(aphrodite_transform, |s, content: *const c_char, tool: *const c_char| {
     hooks::transform_tool_result(s, &content, &tool)
