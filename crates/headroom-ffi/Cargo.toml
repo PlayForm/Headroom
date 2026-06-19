@@ -1,0 +1,16 @@
+[package]
+name = "headroom-ffi"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Stable C ABI for headroom-core — compression, classification, CCR. Language-agnostic dylib."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+headroom-core = { path = "../headroom-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
