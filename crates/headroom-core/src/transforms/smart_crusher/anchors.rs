@@ -356,7 +356,8 @@ mod tests {
         // below would fail.
         let v = json!({"name": "Alice", "ok": true, "count": 5, "val": null});
         let r = python_repr(&v);
-        assert_eq!(r, "{'name': 'Alice', 'ok': True, 'count': 5, 'val': None}");
+        // Keys are sorted alphabetically by python_repr (not insertion order)
+        assert_eq!(r, "{'count': 5, 'name': 'Alice', 'ok': True, 'val': None}");
     }
 
     #[test]

@@ -81,9 +81,9 @@
 //!
 //! | Mode         | live_zone_only | cache_aligner_enabled | volatile_token_threshold | max_lossy_ratio | toin_read_only |
 //! |--------------|----------------|-----------------------|--------------------------|-----------------|----------------|
-//! | Payg         | false          | true                  | 128                      | 0.45            | false          |
-//! | OAuth        | false          | true (= PAYG today)   | 128 (= PAYG today)       | 0.45 (= PAYG)   | false (= PAYG) |
-//! | Subscription | true           | false                 | 32                       | 0.25            | true           |
+//! | Payg         | false          | true                  | 256                      | 0.30            | false          |
+//! | OAuth        | false          | true (= PAYG today)   | 256 (= PAYG today)       | 0.30 (= PAYG)   | false (= PAYG) |
+//! | Subscription | true           | false                 | 64                       | 0.20            | true           |
 //!
 //! OAuth starts identical to PAYG. F2.2-followup will divide them once
 //! telemetry from F2.1's bake on `main` shows what each mode actually
@@ -343,12 +343,12 @@ mod tests {
         // raise them once bake telemetry confirms savings.
         let p = CompressionPolicy::for_mode(AuthMode::Payg);
         assert_eq!(
-            p.volatile_token_threshold, 128,
+            p.volatile_token_threshold, 256,
             "PAYG volatile threshold is the relaxed default; F2.2-followup will tune"
         );
         assert!(
-            (p.max_lossy_ratio - 0.45).abs() < f32::EPSILON,
-            "PAYG max_lossy_ratio caps lossy paths at 0.45; F2.2-followup will tune"
+            (p.max_lossy_ratio - 0.30).abs() < f32::EPSILON,
+            "PAYG max_lossy_ratio caps lossy paths at 0.30 (coding-tuned)"
         );
         assert!(
             !p.toin_read_only,
@@ -393,12 +393,12 @@ mod tests {
         // mutated from cache-stability-sensitive traffic.
         let p = CompressionPolicy::for_mode(AuthMode::Subscription);
         assert_eq!(
-            p.volatile_token_threshold, 32,
+            p.volatile_token_threshold, 64,
             "Subscription volatile threshold flags content earlier (cache stability)"
         );
         assert!(
-            (p.max_lossy_ratio - 0.25).abs() < f32::EPSILON,
-            "Subscription max_lossy_ratio caps lossy paths at 0.25 (conservative)"
+            (p.max_lossy_ratio - 0.20).abs() < f32::EPSILON,
+            "Subscription max_lossy_ratio caps lossy paths at 0.20 (conservative, coding-tuned)"
         );
         assert!(
             p.toin_read_only,

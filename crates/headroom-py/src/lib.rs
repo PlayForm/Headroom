@@ -1611,3 +1611,43 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(compress_openai_responses_live_zone, m)?)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hello_links() {
+        assert_eq!(hello(), "headroom-core");
+    }
+
+    #[test]
+    fn test_type_name_null() {
+        assert_eq!(type_name(&serde_json::Value::Null), "null");
+    }
+
+    #[test]
+    fn test_type_name_bool() {
+        assert_eq!(type_name(&serde_json::Value::Bool(true)), "bool");
+    }
+
+    #[test]
+    fn test_type_name_number() {
+        assert_eq!(type_name(&serde_json::json!(42)), "number");
+    }
+
+    #[test]
+    fn test_type_name_string() {
+        assert_eq!(type_name(&serde_json::json!("hello")), "string");
+    }
+
+    #[test]
+    fn test_type_name_array() {
+        assert_eq!(type_name(&serde_json::json!([1, 2])), "array");
+    }
+
+    #[test]
+    fn test_type_name_object() {
+        assert_eq!(type_name(&serde_json::json!({"k": "v"})), "object");
+    }
+}
