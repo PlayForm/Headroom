@@ -1365,7 +1365,10 @@ class HeadroomProxy(
                 "Opt out: HEADROOM_TELEMETRY=off or --no-telemetry"
             )
         else:
-            logger.info("Anonymous telemetry: DISABLED")
+            logger.info(
+                "Anonymous telemetry: DISABLED (off by default — opt in: "
+                "HEADROOM_TELEMETRY=on or --telemetry)"
+            )
 
         self.pipeline_extensions.emit(
             PipelineStage.POST_START,
@@ -1647,6 +1650,27 @@ def _register_memory_components(proxy: HeadroomProxy, tracker: MemoryTracker) ->
     # registered when the memory system is initialized with specific backends.
 
 
+def _request_is_loopback(request: Request) -> bool:
+    """Return True iff the caller is on loopback by *both* peer IP and Host header.
+
+    Mirrors the two-gate check in :func:`loopback_guard.require_loopback`
+    (loopback client IP + loopback ``Host`` header, the DNS-rebinding defence)
+    but returns a bool instead of raising. Endpoints use it to vary their
+    payload — serving sensitive sub-blocks (upstream URLs, per-request logs)
+    only to loopback callers — rather than 404ing network callers that still
+    have a legitimate use for the non-sensitive aggregate fields.
+    """
+    from headroom.proxy.loopback_guard import is_loopback_host, is_loopback_host_header
+
+    client = getattr(request, "client", None)
+    client_host = getattr(client, "host", None) if client is not None else None
+    try:
+        host_header = request.headers.get("host")
+    except AttributeError:
+        host_header = None
+    return is_loopback_host(client_host) and is_loopback_host_header(host_header)
+
+
 def create_app(config: ProxyConfig | None = None) -> FastAPI:
     """Create FastAPI application."""
     if not FASTAPI_AVAILABLE:
@@ -1749,7 +1773,8 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
             try:
                 # Startup
                 await proxy.startup()
-                asyncio.create_task(_log_toin_stats_periodically())
+                if config.periodic_toin_stats_enabled:
+                    asyncio.create_task(_log_toin_stats_periodically())
                 if proxy.usage_reporter:
                     await proxy.usage_reporter.start(proxy)
                 if proxy.traffic_learner:
@@ -2078,13 +2103,32 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
                 _upstream_check_cache["error"] = str(exc)
             _upstream_check_cache["expires_at"] = time.monotonic() + _UPSTREAM_CHECK_TTL
 
-    # CORS
+    # CORS: scoped to localhost by default. The old wildcard origin combined
+    # with allow_credentials=True let any web page the user had open read the
+    # proxy's content endpoints (e.g. /v1/retrieve returns raw, uncompressed
+    # tool outputs) via a cross-origin fetch to 127.0.0.1 (CWE-346).
+    #
+    # The default matches any loopback origin on any port via a regex, so it
+    # works regardless of the --port the proxy was started on without the app
+    # needing to know its own bound port (the port lives in the CLI/uvicorn
+    # layer, not in ProxyConfig). Set HEADROOM_CORS_ORIGINS (comma-separated)
+    # to pin an explicit allowlist for Docker or remote-dashboard deployments;
+    # "*" restores the old wildcard behaviour if the operator accepts the risk.
+    _default_loopback_origin_regex = r"https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?"
+    _cors_origins_env = os.environ.get("HEADROOM_CORS_ORIGINS", "").strip()
+    if _cors_origins_env:
+        _cors_allow_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
+        _cors_allow_origin_regex: str | None = None
+    else:
+        _cors_allow_origins = []
+        _cors_allow_origin_regex = _default_loopback_origin_regex
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_origins=_cors_allow_origins,
+        allow_origin_regex=_cors_allow_origin_regex,
+        allow_credentials=False,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type", "Authorization"],
     )
 
     # X-Headroom-Stack: SDK adapters (TS openai/anthropic/etc.) tag their
@@ -2218,9 +2262,14 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
         return JSONResponse(status_code=200 if payload["ready"] else 503, content=payload)
 
     @app.get("/health")
-    async def health():
+    async def health(request: Request):
         await _check_upstream()
-        payload = _health_payload(include_config=True)
+        # /health echoes upstream API URLs + backend config (the `config`
+        # block). That is operational detail an external scanner should not
+        # see, so include it only for loopback callers; network callers get the
+        # same body as /readyz (status + checks, no config). /livez and /readyz
+        # remain the unauthenticated probes for orchestration health.
+        payload = _health_payload(include_config=_request_is_loopback(request))
         return JSONResponse(status_code=200, content=payload)
 
     # Loopback-only debug introspection (Unit 5). A remote IP gets 404 —
@@ -2778,7 +2827,7 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
             return payload
 
     @app.get("/stats")
-    async def stats(cached: bool = False):
+    async def stats(request: Request, cached: bool = False):
         """Get comprehensive proxy statistics.
 
         This is the main stats endpoint - it aggregates data from all subsystems:
@@ -2792,14 +2841,27 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
 
         Use ``?cached=1`` for the dashboard fast path. That returns a short-TTL
         snapshot to avoid rebuilding the full payload on every UI poll.
+
+        ``recent_requests`` / ``request_logs`` (per-request ids, providers,
+        models, errors) and ``config`` (backend + savings profile) are embedded
+        only for loopback callers — the local dashboard. Network callers still
+        get the aggregate counters but never the per-request metadata.
         """
+        include_sensitive = _request_is_loopback(request)
         if cached:
             payload = dict(await _get_cached_stats_payload())
-            payload.update(_build_recent_request_payload())
-            payload["config"] = _dashboard_config_payload()
-            return payload
-        payload = await _build_stats_payload()
-        payload["config"] = _dashboard_config_payload()
+            if include_sensitive:
+                # Refresh the per-request tail on top of the cached snapshot.
+                payload.update(_build_recent_request_payload())
+                payload["config"] = _dashboard_config_payload()
+        else:
+            payload = await _build_stats_payload()
+            if include_sensitive:
+                payload["config"] = _dashboard_config_payload()
+        if not include_sensitive:
+            # _build_stats_payload bakes these in; strip for network callers.
+            payload.pop("recent_requests", None)
+            payload.pop("request_logs", None)
         return payload
 
     @app.post("/stats/reset", dependencies=[Depends(_require_loopback)])
@@ -2831,9 +2893,17 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
 
         return proxy.metrics.savings_tracker.history_response(history_mode=history_mode)
 
-    @app.get("/transformations/feed")
+    @app.get("/transformations/feed", dependencies=[Depends(_require_loopback)])
     async def transformations_feed(limit: int = 20):
         """Get recent message transformations for the live feed.
+
+        Loopback-only: when ``log_full_messages`` is enabled this returns the
+        full request/response message bodies (prompt content and completions)
+        via ``request_messages`` / ``compressed_messages`` / ``response_content``.
+        With the default ``--host 0.0.0.0`` Docker bind, leaving it open would
+        expose chat history to anyone able to reach the proxy port. The
+        dashboard runs in the user's browser on loopback, so this gate does not
+        break legitimate use.
 
         Returns empty list if log_full_messages is disabled (messages are not stored).
         """
@@ -2928,9 +2998,16 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
         report = tracker.get_report()
         return report.to_dict()
 
-    @app.post("/cache/clear")
+    @app.post("/cache/clear", dependencies=[Depends(_require_loopback)])
     async def clear_cache():
-        """Clear the response cache."""
+        """Clear the response cache.
+
+        Loopback-only: this mutates server state. With the default
+        ``--host 0.0.0.0`` Docker bind, an unauthenticated POST from any
+        network-reachable client would otherwise let them forcibly evict the
+        proxy's cached completions — a denial-of-service / cost-amplification
+        lever (every cleared entry forces a fresh upstream call).
+        """
         if proxy.cache:
             await proxy.cache.clear()
             return {"status": "cleared"}
@@ -3489,6 +3566,7 @@ def _proxy_config_from_env() -> ProxyConfig:
         max_connections=_get_env_int("HEADROOM_MAX_CONNECTIONS", 500),
         max_keepalive_connections=_get_env_int("HEADROOM_MAX_KEEPALIVE", 100),
         http2=_get_env_bool("HEADROOM_HTTP2", True),
+        periodic_toin_stats_enabled=_get_env_bool("HEADROOM_PERIODIC_TOIN_STATS", True),
         mode=normalize_proxy_mode(_get_env_str("HEADROOM_MODE", PROXY_MODE_TOKEN)),
     )
 
