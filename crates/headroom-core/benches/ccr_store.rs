@@ -104,6 +104,10 @@ impl CcrStore for LegacyMutexStore {
     fn len(&self) -> usize {
         self.inner.lock().unwrap().map.len()
     }
+
+    fn del(&self, hash: &str) -> bool {
+        self.inner.lock().unwrap().map.remove(hash).is_some()
+    }
 }
 
 fn bench_put_single_threaded(c: &mut Criterion) {
