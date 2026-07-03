@@ -1,11 +1,14 @@
 [package]
-name = "headroom-core"
+name = "aphrodite-headroom-core"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Core Headroom types and compression transform traits (Rust)."
+
+[lib]
+name = "headroom_core"
 
 [dependencies]
 serde = { workspace = true }
@@ -19,7 +22,7 @@ tiktoken-rs = "0.12"
 # builds without a system dep on macOS/Linux.
 tokenizers = "0.23"
 # `hf-hub` is the HuggingFace Hub client. We use the blocking `ureq` transport
-# with `rustls` (no system OpenSSL dep — keeps the binary static-linkable for
+# with `rustls` (no system OpenSSL dep - keeps the binary static-linkable for
 # AWS deploys). `from_pretrained` is called once at startup, so blocking is
 # fine; if a tokio caller needs it later we can wrap in `spawn_blocking`.
 hf-hub = { version = "0.5", default-features = false, features = [
@@ -33,7 +36,7 @@ md-5 = "0.11"
 # hex chars). Python uses `hashlib.sha256` so we need byte-exact parity.
 sha2 = "0.11"
 # `dashmap` for the CCR storage backend. Concurrent HashMap with sharded
-# locking — distinct keys hashed to different shards never contend, so
+# locking - distinct keys hashed to different shards never contend, so
 # multi-worker proxy load doesn't queue on a single Mutex. Lock-free
 # reads inside each shard via RwLock semantics.
 dashmap = "6"
@@ -46,7 +49,7 @@ regex = "1"
 # backend (pure Rust) which produces DEFLATE output of similar length to
 # CPython's libz at level=1 for typical inputs. The check only triggers on
 # >15% ratio divergence so small per-byte differences don't change the
-# outcome — but if a parity fixture flakes here, swap to
+# outcome - but if a parity fixture flakes here, swap to
 # `features = ["zlib"]` to link against system libz for byte-equal output.
 flate2 = "1"
 # `fastembed` is the Rust port of the Python fastembed library. Used by
@@ -68,20 +71,20 @@ flate2 = "1"
 # Stage-3d ContentRouter detection arch). Bundled standard-model is
 # loaded once per process via `OnceLock` and shared across calls. The
 # crate depends on `ort`, which is already in our dep tree via
-# `fastembed`, so adding it doesn't pull a new ML runtime — both
+# `fastembed`, so adding it doesn't pull a new ML runtime - both
 # crates share the ONNX Runtime singleton.
 magika = "1"
 # `unidiff` is the Stage-3d Tier-2 diff detector. We use the parser
-# itself as the "is this a diff?" oracle — anything that successfully
+# itself as the "is this a diff?" oracle - anything that successfully
 # parses to ≥1 PatchedFile is a diff. The deterministic parser
 # catches diffs Magika may miss (naked hunks without `diff --git`
 # headers, prose-prefixed diffs, truncated outputs). Default features
-# bring `encoding_rs` for non-UTF8 sniffing — we keep them on for
+# bring `encoding_rs` for non-UTF8 sniffing - we keep them on for
 # compatibility with arbitrary tool outputs.
 unidiff = "0.4"
 # `aho-corasick` powers the Tier-3 KeywordDetector in `signals/`.
 # A single deterministic-finite-automaton scan finds every keyword
-# in a line in O(n + m) — orders of magnitude faster than running N
+# in a line in O(n + m) - orders of magnitude faster than running N
 # regex .search() calls and harder to misuse. Word-boundary checks
 # happen as a post-filter on the byte offsets the automaton returns.
 # Default features (std, perf-literal) keep the build small.
@@ -101,13 +104,13 @@ toml = "1.1"
 # `blake3` powers `ccr::compute_key`. Produces collision-resistant
 # 40-char hex prefixes for the CCR `<<<ccr:HASH>>>` marker. Pure-Rust
 # by default, no system dep, no SIMD-feature-gated flag (the crate
-# auto-detects). Note: Python plugin uses SHA-256 independently —
+# auto-detects). Note: Python plugin uses SHA-256 independently -
 # hashes from the two languages will differ, but both are consistent
 # internally.
 blake3 = "1"
 # `rusqlite` for the SQLite-backed CCR store (the production default).
 # `bundled` builds SQLite from source so deploys do not need a system
-# libsqlite3 — matters for Lambda / container builds where the host
+# libsqlite3 - matters for Lambda / container builds where the host
 # image may lag behind. Sub-1 MB binary cost. WAL is enabled at
 # connection-open time (see `ccr/backends/sqlite.rs`); no extra feature
 # flags required.
@@ -119,7 +122,7 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 # core crate, which we do not want.
 redis = { version = "1.2", optional = true, default-features = false }
 # `http` powers the auth-mode classifier (Phase F PR-F1). The proxy
-# crate already depends on this — pulling it into core lets the
+# crate already depends on this - pulling it into core lets the
 # classifier live with the other Phase B/F policy primitives without
 # cycling through the proxy crate. Tiny crate (no I/O, just types).
 http = "1"
