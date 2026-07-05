@@ -1,5 +1,5 @@
 [package]
-name = "headroom-proxy"
+name = "aphrodite-headroom-proxy"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
@@ -58,7 +58,7 @@ url = "2"
 humantime = "2"
 bytesize = "1"
 tokio-util = { version = "0.7" }
-headroom-core = { path = "../headroom-core" }
+headroom-core = { package = "aphrodite-headroom-core", path = "../headroom-core" }
 # Phase D PR-D1: native Bedrock InvokeModel route. SigV4 + AWS
 # default credential chain.
 aws-sigv4 = { workspace = true }
@@ -69,17 +69,17 @@ aws-smithy-runtime-api = { workspace = true }
 # message with a CRC32 over the prelude and over the entire message;
 # `crc32fast` is the standard IEEE 802.3 implementation already
 # transitively pulled in by `aws-smithy-*` (so this is not an
-# additional cold dep — promoting to a direct one for clarity).
+# additional cold dep - promoting to a direct one for clarity).
 crc32fast = "1"
 # Phase D PR-D3: Prometheus metrics for Bedrock observability. The
 # `prometheus` crate's default-features pull in `protobuf`, which we
 # don't need (we serve text-format scrapes only), so we disable
-# defaults and re-enable nothing — pure registry + counter +
+# defaults and re-enable nothing - pure registry + counter +
 # histogram + text encoder is sufficient.
 #
 # H4 fix: the H3 force-zero contract (in
 # `observability::prometheus::handle_metrics`) relies on this
-# crate's v0.13 `gather()` semantics — empty MetricVec families are
+# crate's v0.13 `gather()` semantics - empty MetricVec families are
 # omitted from the scrape, so we force-touch each counter / gauge
 # with a sentinel label to surface HELP/TYPE on boot. Pinning the
 # exact patch version (no caret, no `~`) so a future minor-version
@@ -94,7 +94,7 @@ prometheus = { version = "=0.13.4", default-features = false }
 # used by PR-E4 for `prompt_cache_key` derivation.
 sha2 = "0.10"
 # PR-E6: bounded session-scoped cache of structural hashes. The
-# detector evicts the oldest session at 1000 entries — we never want
+# detector evicts the oldest session at 1000 entries - we never want
 # unbounded memory growth from a flood of unique session keys. `lru`
 # is the de-facto Rust LRU crate; minimal surface, no dependencies of
 # our own beyond `hashbrown` (which we already pull transitively).
@@ -107,7 +107,7 @@ async-trait = "0.1"
 # Phase E PR-E1: tool array deterministic sort uses MD5 of canonical
 # JSON as a fallback sort key for unnamed tools. MD5 is sufficient
 # because the value is opaque and only used for stable in-process
-# ordering — never persisted, never compared cross-host. Same crate
+# ordering - never persisted, never compared cross-host. Same crate
 # the core uses for the CCR cache_key, so no additional hash backend
 # enters the dep tree.
 md-5 = "0.10"
@@ -150,5 +150,5 @@ sha2 = "0.10"
 # must never panic on arbitrary input bytes (TCP can hand us anything,
 # including malformed UTF-8 split mid-codepoint or fuzz-generated
 # noise). 100K cases is the project default for "no panic" parser
-# invariants — see `feedback_realignment_build_constraints.md`.
+# invariants - see `feedback_realignment_build_constraints.md`.
 proptest = "1"
