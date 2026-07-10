@@ -219,14 +219,12 @@ DEFAULT_EXCLUDE_TOOLS: frozenset[str] = frozenset(
         "Grep",
         "Write",
         "Edit",
-        "Bash",
         # Lowercase variants for case-insensitive matching
         "read",
         "glob",
         "grep",
         "write",
         "edit",
-        "bash",
     }
 )
 
@@ -463,7 +461,7 @@ class SmartCrusherConfig:
     # Lossless compaction only replaces the original when it saves at
     # least this byte fraction vs the (minified) input. Mirrors the
     # Rust default (smart_crusher config.rs).
-    lossless_min_savings_ratio: float = 0.30
+    lossless_min_savings_ratio: float = 0.15
 
     # Strict lossless mode. When True, lossless tabular compaction still
     # applies, but any path that would emit a CCR marker (lossy row-drop

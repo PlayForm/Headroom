@@ -188,7 +188,7 @@ class SmartCrusherConfig:
     # see config.rs) - the two must stay in lockstep. Mainly lowered in
     # tests and KV experiments - KV repeats field names per row, so it
     # clears the gate less often than CSV.
-    lossless_min_savings_ratio: float = 0.30
+    lossless_min_savings_ratio: float = 0.15
     # Strict lossless mode. When True, lossless tabular compaction still
     # applies, but any path that would otherwise emit a CCR marker - the
     # lossy row-drop sentinel AND opaque-blob offload - leaves the content
@@ -399,7 +399,7 @@ class SmartCrusher(Transform):
             # getattr fallbacks: callers may pass the structurally-similar
             # `headroom.config.SmartCrusherConfig` (MCP server, SDK) or a
             # pre-existing config object that predates these fields.
-            "lossless_min_savings_ratio": getattr(cfg, "lossless_min_savings_ratio", 0.30),
+            "lossless_min_savings_ratio": getattr(cfg, "lossless_min_savings_ratio", 0.15),
             "compaction_core_field_fraction": getattr(cfg, "compaction_core_field_fraction", 0.8),
             "compaction_heterogeneous_core_ratio": getattr(
                 cfg, "compaction_heterogeneous_core_ratio", 0.6

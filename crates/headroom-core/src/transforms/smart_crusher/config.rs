@@ -53,7 +53,10 @@ pub struct SmartCrusherConfig {
     /// path to be chosen over lossy. Computed as
     /// `1 - len(rendered) / len(input)`. If lossless saves less than
     /// this fraction, `crush_array` falls through to the lossy path
-    /// (with CCR-Dropped retrieval markers). Default `0.30`.
+    /// (with CCR-Dropped retrieval markers). Default `0.15` - kept in
+    /// lockstep with the Python `SmartCrusherConfig` dataclass default
+    /// (lowered from 0.30 so cleanly tabular input takes the lossless
+    /// path more often; lossless needs no CCR retrieval round-trip).
     ///
     /// **Override semantics.** OSS users can tune this via the config
     /// directly. Enterprise plug-ins replace the entire decision via
@@ -145,7 +148,7 @@ impl Default for SmartCrusherConfig {
             first_fraction: 0.3,
             last_fraction: 0.15,
             relevance_threshold: 0.3,
-            lossless_min_savings_ratio: 0.30,
+            lossless_min_savings_ratio: 0.15,
             enable_ccr_marker: true,
             lossless_only: false,
             compaction_core_field_fraction: 0.8,
@@ -183,7 +186,7 @@ mod tests {
         assert_eq!(c.first_fraction, 0.3);
         assert_eq!(c.last_fraction, 0.15);
         assert_eq!(c.relevance_threshold, 0.3);
-        assert_eq!(c.lossless_min_savings_ratio, 0.30);
+        assert_eq!(c.lossless_min_savings_ratio, 0.15);
         assert!(c.enable_ccr_marker);
         assert!(!c.lossless_only);
         assert_eq!(c.compaction_core_field_fraction, 0.8);

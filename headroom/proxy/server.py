@@ -552,6 +552,7 @@ def _check_rust_core() -> tuple[str, str | None]:
 from headroom.proxy.handlers import (  # noqa: E402
     AnthropicHandlerMixin,
     BatchHandlerMixin,
+    BedrockHandlerMixin,
     GeminiHandlerMixin,
     OpenAIHandlerMixin,
     StreamingMixin,
@@ -620,6 +621,7 @@ class HeadroomProxy(
     OpenAIHandlerMixin,
     GeminiHandlerMixin,
     BatchHandlerMixin,
+    BedrockHandlerMixin,
 ):
     """Production-ready Headroom optimization proxy."""
 

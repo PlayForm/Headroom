@@ -478,7 +478,7 @@ impl PySmartCrusherConfig {
         first_fraction = 0.3,
         last_fraction = 0.15,
         relevance_threshold = 0.3,
-        lossless_min_savings_ratio = 0.30,
+        lossless_min_savings_ratio = 0.15,
         enable_ccr_marker = true,
         lossless_only = false,
         compaction_core_field_fraction = 0.8,
