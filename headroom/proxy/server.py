@@ -2502,6 +2502,10 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
                 ),
                 "force_kompress": bool(profile_kwargs.get("force_kompress", False)),
                 "accuracy_guard": config.accuracy_guard,
+                # Live (per-request) env knobs the proxy reads after startup.
+                # Surfaced so `headroom wrap` can see what a reused proxy is
+                # actually using and hot-sync it via /admin/runtime-env.
+                "runtime_env": runtime_env.effective_runtime_env(),
                 "pid": os.getpid(),
             }
         return payload
