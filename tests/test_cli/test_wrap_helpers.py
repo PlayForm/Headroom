@@ -12,6 +12,7 @@ once with confusing diffs.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import subprocess
@@ -270,10 +271,10 @@ def test_run_proxy_only_watcher_calls_setup_lines_callback(
 
     callback_calls: list[None] = []
 
-    def fake_setup() -> None:
+    def fake_setup(_port: int) -> None:
         callback_calls.append(None)
 
-    monkeypatch.setattr(wrap_mod, "_ensure_proxy", lambda *a, **kw: fake_proc)
+    monkeypatch.setattr(wrap_mod, "_ensure_proxy", lambda *a, **kw: (fake_proc, 8787))
     # Replace time.sleep with a no-op so the loop spins quickly.
     monkeypatch.setattr(wrap_mod.time, "sleep", lambda _s: None)
     # Replace _make_cleanup to avoid side-effects on real ports/files.
@@ -321,7 +322,7 @@ def test_run_proxy_only_watcher_keyboardinterrupt_shuts_down_cleanly(
         if sleep_calls["n"] >= 1:
             raise KeyboardInterrupt
 
-    monkeypatch.setattr(wrap_mod, "_ensure_proxy", lambda *a, **kw: _FakeProc())
+    monkeypatch.setattr(wrap_mod, "_ensure_proxy", lambda *a, **kw: (_FakeProc(), 8787))
     monkeypatch.setattr(wrap_mod.time, "sleep", raising_sleep)
     monkeypatch.setattr(wrap_mod, "_make_cleanup", lambda holder, port: lambda *a, **kw: None)
     monkeypatch.setattr(wrap_mod.signal, "signal", lambda *a, **kw: None)
@@ -337,7 +338,7 @@ def test_run_proxy_only_watcher_keyboardinterrupt_shuts_down_cleanly(
             learn=False,
             memory=False,
             agent_type="cursor",
-            print_setup_lines=lambda: None,
+            print_setup_lines=lambda _port: None,
         )
 
     inv = runner.invoke(_cmd)
@@ -368,7 +369,7 @@ def test_run_proxy_only_watcher_unexpected_exception_returns_exit_1(
             learn=False,
             memory=False,
             agent_type="cline",
-            print_setup_lines=lambda: None,
+            print_setup_lines=lambda _port: None,
         )
 
     inv = runner.invoke(_cmd)
@@ -404,7 +405,7 @@ def test_run_proxy_only_watcher_calls_cleanup_on_finally(
             learn=False,
             memory=False,
             agent_type="cline",
-            print_setup_lines=lambda: None,
+            print_setup_lines=lambda _port: None,
         )
 
     inv = runner.invoke(_cmd)
@@ -707,3 +708,115 @@ class TestProxyClientRefCounting:
 
         # Second unregister is a no-op, not an error.
         wrap_mod._unregister_proxy_client(self.PORT)
+
+
+# ---------------------------------------------------------------------------
+# _ensure_proxy — dashboard URL is surfaced even when the proxy is already up.
+# ---------------------------------------------------------------------------
+
+
+def test_ensure_proxy_already_running_prints_dashboard_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When a healthy proxy is already running, the dashboard URL is printed.
+
+    Regression: the URL was only echoed on the start/restart path, so repeat
+    wraps (the common case) never told the user where the dashboard lives.
+    """
+    port = 1234
+    monkeypatch.setattr(wrap_mod, "_find_persistent_manifest", lambda _p: None)
+    monkeypatch.setattr(wrap_mod, "_check_proxy", lambda _p: True)
+    monkeypatch.setattr(wrap_mod, "_query_proxy_health", lambda _p: {})
+    monkeypatch.setattr(wrap_mod, "_proxy_needs_version_restart", lambda _h: False)
+    monkeypatch.setattr(wrap_mod, "_proxy_health_config", lambda _h: None)
+    monkeypatch.setattr(wrap_mod, "_query_proxy_config", lambda _p: None)
+
+    output = _run_in_click_context(lambda: wrap_mod._ensure_proxy(port, no_proxy=False))
+
+    assert f"http://127.0.0.1:{port}/dashboard" in output
+
+
+# ---------------------------------------------------------------------------
+# _resolve_1m_model — 1M context window suffix logic (#1158).
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_1m_model_appends_suffix_to_user_model() -> None:
+    """A model the user already selected via ANTHROPIC_MODEL is preserved, with
+    only the [1m] suffix appended so Claude Code requests the 1M window."""
+    assert wrap_mod._resolve_1m_model("claude-opus-4-1-20250805") == (
+        "claude-opus-4-1-20250805[1m]"
+    )
+
+
+def test_resolve_1m_model_is_idempotent() -> None:
+    """A model that already carries [1m] is returned unchanged (no double suffix)."""
+    assert wrap_mod._resolve_1m_model("claude-opus-4-8[1m]") == "claude-opus-4-8[1m]"
+
+
+def test_resolve_1m_model_falls_back_to_default_when_unset() -> None:
+    """With no model selected, fall back to the default Opus carrying [1m]."""
+    assert wrap_mod._resolve_1m_model(None) == "claude-opus-4-8[1m]"
+    assert wrap_mod._resolve_1m_model("  ") == "claude-opus-4-8[1m]"
+
+
+class TestFindAvailablePort:
+    """Tests for _find_available_port (Vite-style port fallback)."""
+
+    def test_port_free_returns_same(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When port is free, returns the same port."""
+        monkeypatch.setattr(wrap_mod, "_port_bind_error", lambda port: None)
+        assert wrap_mod._find_available_port(8787) == 8787
+
+    def test_port_busy_finds_next(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When port is busy, returns the next free port."""
+
+        def mock_bind(port: int) -> OSError | None:
+            if port == 8787:
+                return OSError(errno.EADDRINUSE, "Address in use")
+            return None
+
+        monkeypatch.setattr(wrap_mod, "_port_bind_error", mock_bind)
+        assert wrap_mod._find_available_port(8787) == 8788
+
+    def test_multiple_busy_ports(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When multiple consecutive ports are busy, skips all of them."""
+
+        def mock_bind(port: int) -> OSError | None:
+            if port in (8787, 8788, 8789):
+                return OSError(errno.EADDRINUSE, "Address in use")
+            return None
+
+        monkeypatch.setattr(wrap_mod, "_port_bind_error", mock_bind)
+        assert wrap_mod._find_available_port(8787) == 8790
+
+    def test_propagates_unexpected_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Errors other than EADDRINUSE/EACCES (e.g. EADDRNOTAVAIL) propagate."""
+        monkeypatch.setattr(
+            wrap_mod,
+            "_port_bind_error",
+            lambda port: OSError(errno.EADDRNOTAVAIL, "Address not available"),
+        )
+        with pytest.raises(OSError, match="Address not available"):
+            wrap_mod._find_available_port(8787)
+
+    def test_propagates_eaddrinuse_with_eacces(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Both EADDRINUSE and EACCES are skipped (not propagated)."""
+
+        def mock_bind(port: int) -> OSError | None:
+            if port == 8787:
+                return OSError(errno.EACCES, "Permission denied")
+            return None
+
+        monkeypatch.setattr(wrap_mod, "_port_bind_error", mock_bind)
+        assert wrap_mod._find_available_port(8787) == 8788
+
+    def test_exhausts_range(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When all ports in range are busy, raises RuntimeError."""
+        monkeypatch.setattr(
+            wrap_mod,
+            "_port_bind_error",
+            lambda port: OSError(errno.EADDRINUSE, "Address in use"),
+        )
+        with pytest.raises(RuntimeError, match="No available port found"):
+            wrap_mod._find_available_port(8787, max_attempts=3)

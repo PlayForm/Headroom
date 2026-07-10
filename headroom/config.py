@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import fnmatch
+from collections.abc import Iterable
 from dataclasses import InitVar, dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -54,7 +56,7 @@ class CacheAlignerConfig:
     SAFE: Only applied to SYSTEM messages, not user/assistant/tool content.
     """
 
-    enabled: bool = False  # Disabled by default — prefix stability gains are marginal in practice
+    enabled: bool = False  # Disabled by default - prefix stability gains are marginal in practice
 
     # === Phase 1: DynamicContentDetector Integration ===
     # When True, uses the full DynamicContentDetector with 15+ patterns
@@ -206,8 +208,10 @@ class AnchorConfig:
 #   not worth compressing.
 # Tool outputs that are reference data and must NOT be compressed.
 # Read/Glob/Grep contain exact file contents/search results the agent needs for edits.
-# Write/Edit record what changes were made — compressing them causes duplicate/conflicting edits.
-# Bash is NOT excluded — its outputs (build logs, test output) are ideal compression targets.
+# Write/Edit record what changes were made - compressing them causes duplicate/conflicting edits.
+# Bash is NOT excluded - its outputs (build logs, test output) are ideal compression targets.
+# To protect Bash or other non-excluded tools from lossy compression, use
+# HEADROOM_PROTECT_TOOL_RESULTS=Bash or --protect-tool-results Bash.
 DEFAULT_EXCLUDE_TOOLS: frozenset[str] = frozenset(
     {
         "Read",
@@ -225,6 +229,62 @@ DEFAULT_EXCLUDE_TOOLS: frozenset[str] = frozenset(
         "bash",
     }
 )
+
+
+def _tool_name_aliases(name: str) -> tuple[str, ...]:
+    """Return equivalent spellings for tool exclusion matching."""
+    aliases = [name]
+    lname = name.lower()
+
+    if lname.startswith("mcp__"):
+        # OpenAI-style MCP wrappers use mcp__server__tool. Custom agents that
+        # speak Anthropic sometimes emit the same wrapper as mcp_Server_tool.
+        parts = name.split("__", 2)
+        if len(parts) == 3 and parts[1] and parts[2]:
+            aliases.append(f"mcp_{parts[1]}_{parts[2]}")
+            aliases.append(parts[2])
+    elif lname.startswith("mcp_"):
+        parts = name.split("_", 2)
+        if len(parts) == 3 and parts[1] and parts[2]:
+            aliases.append(f"mcp__{parts[1]}__{parts[2]}")
+            aliases.append(parts[2])
+
+    return tuple(dict.fromkeys(aliases))
+
+
+def is_tool_excluded(name: str, exclude_tools: Iterable[str]) -> bool:
+    """Return True if ``name`` matches the tool-exclusion set.
+
+    Plain entries match by exact (case-insensitive) name, so the common case
+    stays a set lookup. Entries containing a glob metacharacter (``*``, ``?`` or
+    ``[``) are matched with :func:`fnmatch.fnmatchcase`, letting a single pattern
+    such as ``mcp__*`` cover every tool an MCP server exposes without listing
+    each name (issue #870).
+
+    MCP tool wrappers are also matched through their common aliases. For example,
+    ``mcp__Headroom__headroom_retrieve`` and
+    ``mcp_Headroom_headroom_retrieve`` both match ``mcp__*`` and the bare
+    ``headroom_retrieve`` entry.
+    """
+    if not exclude_tools:
+        return False
+
+    patterns = tuple(exclude_tools)
+    if not patterns:
+        return False
+    aliases = _tool_name_aliases(name)
+    exact_patterns = set(patterns)
+    lower_exact_patterns = {pat.lower() for pat in exact_patterns}
+    if any(alias in exact_patterns or alias.lower() in lower_exact_patterns for alias in aliases):
+        return True
+
+    return any(
+        fnmatch.fnmatchcase(alias.lower(), pat.lower())
+        for alias in aliases
+        for pat in patterns
+        if "*" in pat or "?" in pat or "[" in pat
+    )
+
 
 # Tool names recognized as Read/Edit/Write for lifecycle tracking
 _READ_TOOL_NAMES: frozenset[str] = frozenset({"Read", "read"})
@@ -245,7 +305,7 @@ class ReadLifecycleConfig:
     is redundant). Both are provably safe to compress.
 
     Operates as a pre-processing pass before ContentRouter, independent of
-    tool exclusion logic. Read remains in DEFAULT_EXCLUDE_TOOLS — fresh Read
+    tool exclusion logic. Read remains in DEFAULT_EXCLUDE_TOOLS - fresh Read
     outputs still bypass ContentRouter compression.
     """
 
@@ -253,6 +313,48 @@ class ReadLifecycleConfig:
     compress_stale: bool = True  # Replace Reads of files that were later edited
     compress_superseded: bool = False  # Disabled: busts Anthropic prompt cache prefix
     min_size_bytes: int = 512  # Skip tiny Read outputs (not worth the overhead)
+
+
+@dataclass
+class ReadMaturationConfig:
+    """Mechanism B: hold-back Read maturation (compress before cache entry).
+
+    Motivation (measured by `headroom audit-reads`): the median Read stays
+    in context for ~118 assistant turns after it appears, billed at the
+    provider's cache-read rate every request - a Read's lifetime cost is
+    roughly 13x its size. The only cache-safe moment to shrink it is
+    BEFORE it is ever cache-written.
+
+    Mechanics: a fresh large Read is held out of the provider prefix
+    cache (the trailing cache breakpoint is relocated to just before it)
+    while its file is ACTIVE, stays verbatim the whole time the model is
+    working with it, and matures into a CCR-backed marker once the file
+    has been quiet for `quiesce_turns`. Only that final compressed form
+    ever enters the cache. No cached byte is ever mutated - there is
+    nothing to bust.
+
+    Activity-based (not a fixed hold window) because the audit-reads
+    simulation showed touch gaps are fat-tailed: next-touch p50 is 4
+    turns but p90 is 81 - no fixed window covers the tail, while a
+    quiesce rule covers the activity cluster and lets the tail self-heal
+    via the model's observed habit of re-reading ranges from disk (95%
+    of re-reads in real traffic are partial-range reads made while the
+    full text was still in context).
+
+    Disabled by default while the mechanism is validated in pilots.
+    """
+
+    enabled: bool = False
+    # Mature a held Read once its FILE has had no activity (reads or
+    # edits) for this many assistant turns. Simulation: next-touch p50
+    # is 4 turns, so 5 covers the median activity cluster.
+    quiesce_turns: int = 5
+    # Safety valve: mature regardless once held this many turns, bounding
+    # the hold-out cost for files that stay active for long stretches.
+    max_hold_turns: int = 25
+    # Only hold/mature Reads at least this large; small Reads are cached
+    # immediately as before (holding them costs more than it saves).
+    min_size_bytes: int = 2048
 
 
 @dataclass
@@ -323,7 +425,7 @@ class SmartCrusherConfig:
     - Set variance_threshold lower (1.5) to catch more change points
     """
 
-    enabled: bool = True  # Enabled by default — sole tool-output compressor
+    enabled: bool = True  # Enabled by default - sole tool-output compressor
     min_items_to_analyze: int = 5  # Don't analyze tiny arrays
     min_tokens_to_crush: int = 200  # Only crush if > N tokens
     variance_threshold: float = 2.0  # Std devs for change point detection
@@ -360,8 +462,25 @@ class SmartCrusherConfig:
 
     # Lossless compaction only replaces the original when it saves at
     # least this byte fraction vs the (minified) input. Mirrors the
-    # Rust default.
+    # Rust default (smart_crusher config.rs).
     lossless_min_savings_ratio: float = 0.30
+
+    # Strict lossless mode. When True, lossless tabular compaction still
+    # applies, but any path that would emit a CCR marker (lossy row-drop
+    # OR opaque-blob offload) leaves the content uncompacted instead, so
+    # the output is always marker-free and byte-recoverable. Mirrors the
+    # Rust default. See also `CCRConfig` - with this on, no `<<ccr:…>>`
+    # markers are produced regardless of CCR settings.
+    lossless_only: bool = False
+
+    # Compaction heuristics (mirror Rust CompactConfig). A field is "core"
+    # if present in at least this fraction of rows; arrays whose key sets
+    # are mostly non-core are bucketed by a discriminator instead.
+    compaction_core_field_fraction: float = 0.8
+    compaction_heterogeneous_core_ratio: float = 0.6
+    compaction_max_flatten_inner_keys: int = 6
+    compaction_min_buckets: int = 2
+    compaction_max_buckets: int = 8
 
 
 @dataclass
@@ -404,7 +523,7 @@ class CCRConfig:
     1. COMPRESS: SmartCrusher compresses array from 1000 to 20 items
     2. CACHE: Original 1000 items stored in CompressionStore
     3. INJECT: Marker added to tell LLM how to retrieve more
-    4. RETRIEVE: If LLM needs more, it calls headroom_retrieve(hash, query)
+    4. RETRIEVE: If LLM needs more, it calls headroom_retrieve(hash) to get the full original back
 
     Benefits:
     - Zero-risk compression: worst case = LLM retrieves what it needs
@@ -538,7 +657,7 @@ class WasteSignals:
     repetition_tokens: int = 0  # Repeated content
     reread_tokens: int = 0  # Tool results re-served after already appearing earlier
     # Subset of reread_tokens whose first serve was compressed away (CCR
-    # marker left in its place) — re-reads attributable to over-compression
+    # marker left in its place) - re-reads attributable to over-compression
     # rather than agent behavior (#899). Excluded from total() because the
     # same tokens are already counted in reread_tokens.
     reread_compressed_tokens: int = 0

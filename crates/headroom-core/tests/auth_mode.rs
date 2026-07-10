@@ -4,7 +4,7 @@
 //! cases cover the cross-precedence rules (Subscription UA wins over
 //! OAuth bearer; vendor API-key headers map to PAYG).
 //!
-//! These are mirrored byte-for-byte by `tests/test_auth_mode.py` —
+//! These are mirrored byte-for-byte by `tests/test_auth_mode.py` -
 //! the Python helper MUST agree on every header set we test here.
 
 use headroom_core::auth_mode::{classify, AuthMode};
@@ -43,10 +43,16 @@ fn oauth_jwt_classified_oauth() {
 
 #[test]
 fn oauth_sk_ant_oat_classified_oauth() {
-    // Claude Pro / Max OAuth: `Bearer sk-ant-oat-...`.
-    // The `sk-ant-oat-` prefix is checked BEFORE the broad `sk-` PAYG
-    // catch-all, so this should classify as OAuth.
-    let h = headers(&[("authorization", "Bearer sk-ant-oat-eyJ...token")]);
+    // Legacy/synthetic Claude Pro / Max OAuth fixture.
+    let h = headers(&[("authorization", "Bearer sk-ant-oat-01-abc123def456")]);
+    assert_eq!(classify(&h), AuthMode::OAuth);
+}
+
+#[test]
+fn oauth_real_sk_ant_oat01_classified_oauth() {
+    // Real Anthropic OAuth access tokens are `sk-ant-oat01-...`:
+    // a version number, no dash after `oat`.
+    let h = headers(&[("authorization", "Bearer sk-ant-oat01-abc123def456")]);
     assert_eq!(classify(&h), AuthMode::OAuth);
 }
 
@@ -119,7 +125,7 @@ fn subscription_takes_precedence_over_oauth_token() {
 //
 // The tests below were added in v0.5.68 / 1.62.13 (2026-06-16)
 // as regression coverage for the CCR auth-mode classifier. None of
-// them modify classification logic — they only assert existing
+// them modify classification logic - they only assert existing
 // behaviour.
 
 #[test]
@@ -141,7 +147,7 @@ fn jwt_with_extra_segments_oauth() {
     // JWT with 5 dot-separated segments (header.payload.signature.extra.tail).
     // The classifier checks `token.split('.').count() >= 3`, so any JWT
     // with 3+ dots is classified as OAuth. Extra segments should not
-    // affect the outcome — the ≥3 rule is a minimum, not an exact match.
+    // affect the outcome - the ≥3 rule is a minimum, not an exact match.
     let h = headers(&[("authorization", "Bearer a.b.c.d.e")]);
     assert_eq!(classify(&h), AuthMode::OAuth);
 }
@@ -210,7 +216,7 @@ fn bearer_token_and_x_api_key_both_present_authorization_wins() {
     // Both `Authorization: Bearer *** and `x-api-key` are present.
     // The classifier checks Authorization BEFORE x-api-key, so the
     // bearer token's classification wins (if it's not a subscription
-    // UA match). For a non-OAuth sk- token, this is Payg — reached
+    // UA match). For a non-OAuth sk- token, this is Payg - reached
     // via the bearer path before the x-api-key path is ever checked.
     let h = headers(&[
         ("authorization", "Bearer sk-ant...beef"),
@@ -221,7 +227,7 @@ fn bearer_token_and_x_api_key_both_present_authorization_wins() {
 
 #[test]
 fn ua_substring_not_a_prefix_does_not_match() {
-    // UA "Claude Code/2.0" — the subscription prefix is "claude-code/"
+    // UA "Claude Code/2.0" - the subscription prefix is "claude-code/"
     // (lowercased). "Claude Code/2.0" (with space, no hyphen) lowercased
     // is "claude code/2.0" which does NOT contain "claude-code/".
     // The classifier uses `str::contains`, not an exact match, but the
@@ -246,7 +252,7 @@ fn anthropic_x_api_key_classified_payg() {
 
 #[test]
 fn copilot_ua_classified_subscription() {
-    // GitHub Copilot UA — covers the `github-copilot/` prefix.
+    // GitHub Copilot UA - covers the `github-copilot/` prefix.
     let h = headers(&[("user-agent", "GitHub-Copilot/1.0 (vscode)")]);
     assert_eq!(classify(&h), AuthMode::Subscription);
 }
@@ -265,7 +271,7 @@ fn antigravity_ua_classified_subscription() {
 
 // ── Performance ──────────────────────────────────────────────────
 
-/// Smoke perf check — a strict bench lives at
+/// Smoke perf check - a strict bench lives at
 /// `crates/headroom-core/benches/auth_mode.rs`. This in-test loop
 /// guards against catastrophic regressions on every `cargo test`
 /// run (e.g., accidental allocator hot-path change).

@@ -1,4 +1,4 @@
-"""Data models for Headroom Learn — tool-agnostic abstractions.
+"""Data models for Headroom Learn - tool-agnostic abstractions.
 
 These models normalize tool call data from ANY agent system (Claude Code, Cursor,
 Codex, custom agents) into a common format that analyzers can work with.
@@ -44,7 +44,7 @@ class ErrorCategory(str, Enum):
 
 @dataclass
 class ToolCall:
-    """A single tool call and its result — normalized from any agent system.
+    """A single tool call and its result - normalized from any agent system.
 
     This is the fundamental unit of analysis. Scanners produce these,
     analyzers consume them.
@@ -78,7 +78,7 @@ class ToolCall:
 
 @dataclass
 class SessionEvent:
-    """Any event in a session — tool calls, user messages, interruptions.
+    """Any event in a session - tool calls, user messages, interruptions.
 
     Provides richer context than ToolCall alone, enabling
     user preference mining and conversation understanding.
@@ -112,6 +112,7 @@ class SessionData:
     timestamp: datetime | None = None
     total_input_tokens: int = 0
     total_output_tokens: int = 0
+    source: str = "main"  # "main" | "subagent" | "workflow" - where this transcript came from
 
     @property
     def failure_count(self) -> int:
@@ -157,11 +158,16 @@ class Recommendation:
     confidence: float = 0.0  # 0-1, based on evidence strength
     evidence_count: int = 0  # Number of failures supporting this
     estimated_tokens_saved: int = 0  # Projected savings if recommendation is followed
+    # Loop weighting (see headroom.learn.loops): set when this recommendation
+    # guards against a detected repeated pattern. Loop guardrails are ranked
+    # above one-off rules because their waste scales with repetition.
+    is_loop_guardrail: bool = False
+    loop_occurrences: int = 0  # Repetitions of the loop this rule guards against
 
 
 @dataclass
 class AnalysisResult:
-    """Output of session analysis — stats + recommendations."""
+    """Output of session analysis - stats + recommendations."""
 
     project: ProjectInfo
     total_sessions: int = 0

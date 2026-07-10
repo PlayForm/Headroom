@@ -1,6 +1,6 @@
 //! PyO3 bindings for headroom-core. Exposed to Python as `headroom._core`.
 //!
-//! # Stage 3b — diff_compressor bridge
+//! # Stage 3b - diff_compressor bridge
 //!
 //! The `DiffCompressor` family is exported here so the Python
 //! `ContentRouter` can route to the Rust implementation in-process via
@@ -18,7 +18,9 @@ use std::collections::BTreeMap;
 use headroom_core::signals::{
     ImportanceCategory, ImportanceContext, KeywordDetector, KeywordRegistry, LineImportanceDetector,
 };
-use headroom_core::transforms::smart_crusher::compaction::DocumentCompactor;
+use headroom_core::transforms::smart_crusher::compaction::{
+    ClassifyConfig, CompactConfig, DocumentCompactor,
+};
 use headroom_core::transforms::smart_crusher::{
     CrushResult as RustCrushResult, SmartCrusher as RustSmartCrusher,
     SmartCrusherConfig as RustSmartCrusherConfig,
@@ -39,6 +41,10 @@ use headroom_core::transforms::{
     LogFormat as RustLogFormat, LogLevel as RustLogLevel,
     SearchCompressionResult as RustSearchResult, SearchCompressor as RustSearchCompressor,
     SearchCompressorConfig as RustSearchConfig, SearchCompressorStats as RustSearchStats,
+};
+use headroom_core::transforms::{
+    TextCrusher as RustTextCrusher, TextCrusherConfig as RustTextCrusherConfig,
+    TextCrusherResult as RustTextCrusherResult,
 };
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict};
@@ -91,7 +97,11 @@ fn build_crush_array_dict<'py>(
 /// Defaults match Python; constructor accepts every field as a kwarg with
 /// the same name and type as the Python dataclass for drop-in
 /// compatibility.
-#[pyclass(name = "DiffCompressorConfig", module = "headroom._core")]
+#[pyclass(
+    name = "DiffCompressorConfig",
+    module = "headroom._core",
+    from_py_object
+)]
 #[derive(Clone)]
 struct PyDiffCompressorConfig {
     inner: DiffCompressorConfig,
@@ -191,7 +201,7 @@ impl PyDiffCompressorConfig {
 /// Mirror of `headroom.transforms.diff_compressor.DiffCompressionResult`.
 /// Read-only on the Python side: ContentRouter consumes fields, doesn't
 /// mutate. `compression_ratio` and `tokens_saved_estimate` are exposed as
-/// methods (not `@property`) — Python callers reach them via `.method()`.
+/// methods (not `@property`) - Python callers reach them via `.method()`.
 /// The Python adapter wraps and re-exposes them as properties for full
 /// dataclass compatibility.
 #[pyclass(name = "DiffCompressionResult", module = "headroom._core")]
@@ -279,7 +289,7 @@ impl PyDiffCompressionResult {
 
 // ─── DiffCompressorStats ───────────────────────────────────────────────────
 
-/// Mirror of Rust `DiffCompressorStats` — sidecar observability not
+/// Mirror of Rust `DiffCompressorStats` - sidecar observability not
 /// present in the Python dataclass. Returned only from `compress_with_stats`,
 /// which the Python adapter exposes as a method on the wrapper. `Vec`s are
 /// returned as Python lists; the `BTreeMap` becomes a `dict`.
@@ -388,7 +398,7 @@ struct PyDiffCompressor {
 
 #[pymethods]
 impl PyDiffCompressor {
-    /// `__init__(config: DiffCompressorConfig | None = None)` — matches the
+    /// `__init__(config: DiffCompressorConfig | None = None)` - matches the
     /// Python constructor signature one-for-one.
     #[new]
     #[pyo3(signature = (config = None))]
@@ -411,12 +421,12 @@ impl PyDiffCompressor {
     fn compress(&self, py: Python<'_>, content: &str, context: &str) -> PyDiffCompressionResult {
         let content = content.to_string();
         let context = context.to_string();
-        let inner = py.allow_threads(|| self.inner.compress(&content, &context));
+        let inner = py.detach(|| self.inner.compress(&content, &context));
         PyDiffCompressionResult { inner }
     }
 
     /// `compress_with_stats(content, context="") -> (result, stats)`.
-    /// Sidecar API not present in Python — exposes the Rust observability
+    /// Sidecar API not present in Python - exposes the Rust observability
     /// struct alongside the parity-equal result. Returned as a 2-tuple to
     /// keep the call site Pythonic.
     #[pyo3(signature = (content, context = ""))]
@@ -428,8 +438,7 @@ impl PyDiffCompressor {
     ) -> (PyDiffCompressionResult, PyDiffCompressorStats) {
         let content = content.to_string();
         let context = context.to_string();
-        let (result, stats) =
-            py.allow_threads(|| self.inner.compress_with_stats(&content, &context));
+        let (result, stats) = py.detach(|| self.inner.compress_with_stats(&content, &context));
         (
             PyDiffCompressionResult { inner: result },
             PyDiffCompressorStats { inner: stats },
@@ -443,7 +452,7 @@ impl PyDiffCompressor {
 /// Defaults match Python's dataclass byte-for-byte. The constructor
 /// accepts every field as a kwarg with the same name and type so the
 /// Python shim can pass `SmartCrusherConfig(**asdict(py_cfg))`.
-#[pyclass(name = "SmartCrusherConfig", module = "headroom._core")]
+#[pyclass(name = "SmartCrusherConfig", module = "headroom._core", from_py_object)]
 #[derive(Clone)]
 struct PySmartCrusherConfig {
     inner: RustSmartCrusherConfig,
@@ -471,6 +480,12 @@ impl PySmartCrusherConfig {
         relevance_threshold = 0.3,
         lossless_min_savings_ratio = 0.30,
         enable_ccr_marker = true,
+        lossless_only = false,
+        compaction_core_field_fraction = 0.8,
+        compaction_heterogeneous_core_ratio = 0.6,
+        compaction_max_flatten_inner_keys = 6,
+        compaction_min_buckets = 2,
+        compaction_max_buckets = 8,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -492,6 +507,12 @@ impl PySmartCrusherConfig {
         relevance_threshold: f64,
         lossless_min_savings_ratio: f64,
         enable_ccr_marker: bool,
+        lossless_only: bool,
+        compaction_core_field_fraction: f64,
+        compaction_heterogeneous_core_ratio: f64,
+        compaction_max_flatten_inner_keys: usize,
+        compaction_min_buckets: usize,
+        compaction_max_buckets: usize,
     ) -> Self {
         Self {
             inner: RustSmartCrusherConfig {
@@ -513,6 +534,12 @@ impl PySmartCrusherConfig {
                 relevance_threshold,
                 lossless_min_savings_ratio,
                 enable_ccr_marker,
+                lossless_only,
+                compaction_core_field_fraction,
+                compaction_heterogeneous_core_ratio,
+                compaction_max_flatten_inner_keys,
+                compaction_min_buckets,
+                compaction_max_buckets,
             },
         }
     }
@@ -585,6 +612,34 @@ impl PySmartCrusherConfig {
     fn enable_ccr_marker(&self) -> bool {
         self.inner.enable_ccr_marker
     }
+    #[getter]
+    fn lossless_only(&self) -> bool {
+        self.inner.lossless_only
+    }
+    #[getter]
+    fn lossless_min_savings_ratio(&self) -> f64 {
+        self.inner.lossless_min_savings_ratio
+    }
+    #[getter]
+    fn compaction_core_field_fraction(&self) -> f64 {
+        self.inner.compaction_core_field_fraction
+    }
+    #[getter]
+    fn compaction_heterogeneous_core_ratio(&self) -> f64 {
+        self.inner.compaction_heterogeneous_core_ratio
+    }
+    #[getter]
+    fn compaction_max_flatten_inner_keys(&self) -> usize {
+        self.inner.compaction_max_flatten_inner_keys
+    }
+    #[getter]
+    fn compaction_min_buckets(&self) -> usize {
+        self.inner.compaction_min_buckets
+    }
+    #[getter]
+    fn compaction_max_buckets(&self) -> usize {
+        self.inner.compaction_max_buckets
+    }
 
     fn __repr__(&self) -> String {
         format!(
@@ -643,7 +698,7 @@ impl PyCrushResult {
 
 /// Mirror of `headroom.transforms.smart_crusher.SmartCrusher`.
 ///
-/// Constructor accepts only `config` — Python's `relevance_config`,
+/// Constructor accepts only `config` - Python's `relevance_config`,
 /// `scorer`, and `ccr_config` parameters are handled in the Python
 /// shim (Stage 3c.1 keeps the optional subsystems disabled in Rust;
 /// the shim drops those args to preserve call-site compatibility).
@@ -666,7 +721,7 @@ impl PySmartCrusher {
     /// Construct WITHOUT the lossless-first compaction stage. The
     /// public `crush()` API runs the lossy path directly (still with
     /// CCR-Dropped retrieval markers populated when rows are dropped).
-    /// Used by the legacy parity fixture harness — those fixtures
+    /// Used by the legacy parity fixture harness - those fixtures
     /// were recorded against the pre-PR4 lossy-only behavior.
     #[staticmethod]
     #[pyo3(signature = (config = None))]
@@ -709,12 +764,12 @@ impl PySmartCrusher {
     fn crush(&self, py: Python<'_>, content: &str, query: &str, bias: f64) -> PyCrushResult {
         let content = content.to_string();
         let query = query.to_string();
-        let inner = py.allow_threads(|| self.inner.crush(&content, &query, bias));
+        let inner = py.detach(|| self.inner.crush(&content, &query, bias));
         PyCrushResult { inner }
     }
 
     /// `smart_crush_content(content, query="", bias=1.0) -> (str, bool, str)`.
-    /// Mirrors Python's `_smart_crush_content` — used by
+    /// Mirrors Python's `_smart_crush_content` - used by
     /// `smart_crush_tool_output` convenience function and direct
     /// callers that want the tuple form. Releases the GIL across the
     /// compute (same rationale as `crush`).
@@ -728,7 +783,7 @@ impl PySmartCrusher {
     ) -> (String, bool, String) {
         let content = content.to_string();
         let query = query.to_string();
-        py.allow_threads(|| self.inner.smart_crush_content(&content, &query, bias))
+        py.detach(|| self.inner.smart_crush_content(&content, &query, bias))
     }
 
     /// Crush a JSON array directly and return the structured result.
@@ -761,7 +816,7 @@ impl PySmartCrusher {
         let items_json = items_json.to_string();
         let query = query.to_string();
         let (kept_json, ccr_hash, dropped_summary, strategy_info, compacted, compaction_kind) = py
-            .allow_threads(|| {
+            .detach(|| {
                 let parsed: serde_json::Value = serde_json::from_str(&items_json)
                     .unwrap_or_else(|e| panic!("items_json must be JSON: {e}"));
                 let items = match parsed {
@@ -801,17 +856,23 @@ impl PySmartCrusher {
     /// resolves them).
     ///
     /// Distinct from `crush_array_json`: this is the lossless walker
-    /// pass without per-array lossy crushing — useful when the caller
+    /// pass without per-array lossy crushing - useful when the caller
     /// wants document-shape compaction (forms, configs, mixed records)
     /// rather than statistical row drop.
     fn compact_document_json(&self, py: Python<'_>, doc_json: &str) -> String {
         // Heavy: JSON parse + recursive walker + tabular compaction +
         // re-serialize. None of it touches Python; release the GIL.
         let doc_json = doc_json.to_string();
-        py.allow_threads(|| {
+        py.detach(|| {
             let parsed: serde_json::Value = serde_json::from_str(&doc_json)
                 .unwrap_or_else(|e| panic!("doc_json must be JSON: {e}"));
-            let mut dc = DocumentCompactor::new();
+            let mut dc = DocumentCompactor::new().with_config(CompactConfig {
+                classify: ClassifyConfig {
+                    emit_opaque_markers: self.inner.config.opaque_markers_enabled(),
+                    ..ClassifyConfig::default()
+                },
+                ..CompactConfig::default()
+            });
             if let Some(store) = self.inner.ccr_store() {
                 dc = dc.with_ccr_store(store.clone());
             }
@@ -855,7 +916,7 @@ impl PySmartCrusher {
 /// `content_type` is exposed as the lowercase string tag (e.g.
 /// `"json_array"`). The Python wrapper translates it back into the
 /// `ContentType` enum so the call-site looks identical.
-#[pyclass(name = "DetectionResult", module = "headroom._core")]
+#[pyclass(name = "DetectionResult", module = "headroom._core", from_py_object)]
 #[derive(Clone)]
 struct PyDetectionResult {
     inner: RustDetectionResult,
@@ -922,21 +983,21 @@ impl PyDetectionResult {
 /// same field surface as Python's dataclass.
 ///
 /// Stage-3d (PR5) wired this through the magika→unidiff→PlainText
-/// detection chain — the regex `content_detector` is no longer on
+/// detection chain - the regex `content_detector` is no longer on
 /// the production path. The chain returns a `ContentType` only;
 /// we synthesize the legacy `DetectionResult` shape here with
 /// `confidence = 1.0` (the chain doesn't surface a probabilistic
 /// score) and an empty metadata bag (no production caller reads
-/// metadata from this binding today — see audit notes in
+/// metadata from this binding today - see audit notes in
 /// `headroom/transforms/content_router.py`).
 ///
-/// Releases the GIL while detecting — magika inference and unidiff
+/// Releases the GIL while detecting - magika inference and unidiff
 /// parsing can be substantial on large bodies, and freeing the GIL
 /// lets other Python threads make progress in the meantime.
 #[pyfunction]
 fn detect_content_type(py: Python<'_>, content: &str) -> PyDetectionResult {
     let owned = content.to_string();
-    let content_type = py.allow_threads(move || rust_detect_chain(&owned));
+    let content_type = py.detach(move || rust_detect_chain(&owned));
     PyDetectionResult {
         inner: RustDetectionResult {
             content_type,
@@ -951,11 +1012,11 @@ fn detect_content_type(py: Python<'_>, content: &str) -> PyDetectionResult {
 #[pyfunction]
 fn is_json_array_of_dicts(py: Python<'_>, content: &str) -> bool {
     let owned = content.to_string();
-    py.allow_threads(move || rust_is_json_array_of_dicts(&owned))
+    py.detach(move || rust_is_json_array_of_dicts(&owned))
 }
 
 // Suppress unused-import warning when ContentType isn't referenced
-// directly — `as_str()` is the public surface.
+// directly - `as_str()` is the public surface.
 const _: fn() = || {
     let _ = RustContentType::PlainText;
 };
@@ -975,7 +1036,7 @@ fn shared_keyword_detector() -> &'static KeywordDetector {
     DETECTOR.get_or_init(KeywordDetector::new)
 }
 
-/// Returns `Some(ctx)` for known names and `None` otherwise — caller
+/// Returns `Some(ctx)` for known names and `None` otherwise - caller
 /// converts to PyValueError. Avoids the pyo3-0.22 + clippy
 /// `useless_conversion` false positive that fires when `?` propagates a
 /// `PyResult<_>` through another `PyResult<_>`.
@@ -1003,7 +1064,7 @@ fn category_to_str(cat: ImportanceCategory) -> &'static str {
 ///
 /// Returns `Some((category | None, priority, confidence))` for known
 /// contexts (`text|search|diff|log`) and `None` for an unknown context
-/// — the Python shim translates `None` into `ValueError` for the
+/// - the Python shim translates `None` into `ValueError` for the
 /// caller. Returning `Option` instead of `PyResult` dodges the
 /// pyo3-0.22 + clippy `useless_conversion` false positive that the
 /// `#[pyfunction]` macro triggers when its inner result-shape carries
@@ -1033,7 +1094,7 @@ fn content_has_error_indicators(text: &str) -> bool {
 /// shim can recompile the legacy `re.Pattern` objects without
 /// re-declaring keyword data on the Python side. Uses `.unwrap()` on
 /// `set_item` because keys are static str literals and values are
-/// `Vec<&'static str>`, which can't fail — and avoids the pyo3-0.22
+/// `Vec<&'static str>`, which can't fail - and avoids the pyo3-0.22
 /// `useless_conversion` clippy false positive.
 #[pyfunction]
 fn keyword_registry_snapshot(py: Python<'_>) -> Py<PyDict> {
@@ -1060,7 +1121,11 @@ fn keyword_registry_snapshot(py: Python<'_>) -> Py<PyDict> {
 // store. This avoids dragging a second CCR backend into Rust before the
 // Phase 3g pipeline formalization owns CCR end-to-end.
 
-#[pyclass(name = "SearchCompressorConfig", module = "headroom._core")]
+#[pyclass(
+    name = "SearchCompressorConfig",
+    module = "headroom._core",
+    from_py_object
+)]
 #[derive(Clone)]
 struct PySearchCompressorConfig {
     inner: RustSearchConfig,
@@ -1080,6 +1145,7 @@ impl PySearchCompressorConfig {
         enable_ccr = true,
         min_matches_for_ccr = 10,
         min_compression_ratio_for_ccr = 0.8,
+        group_by_file = false,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -1093,6 +1159,7 @@ impl PySearchCompressorConfig {
         enable_ccr: bool,
         min_matches_for_ccr: usize,
         min_compression_ratio_for_ccr: f64,
+        group_by_file: bool,
     ) -> Self {
         Self {
             inner: RustSearchConfig {
@@ -1106,6 +1173,7 @@ impl PySearchCompressorConfig {
                 enable_ccr,
                 min_matches_for_ccr,
                 min_compression_ratio_for_ccr,
+                group_by_file,
             },
         }
     }
@@ -1155,7 +1223,7 @@ impl PySearchCompressionResult {
         }
         dict
     }
-    /// Sidecar stats — same shape every Rust transform uses for OTel.
+    /// Sidecar stats - same shape every Rust transform uses for OTel.
     #[getter]
     fn lines_unparsed(&self) -> usize {
         self.stats.lines_unparsed
@@ -1191,7 +1259,7 @@ impl PySearchCompressor {
     }
 
     /// Compress `content`. CCR persistence is the caller's responsibility
-    /// — the Rust side never writes to the store. If the result needs a
+    /// - the Rust side never writes to the store. If the result needs a
     /// CCR marker, `cache_key` will be populated and the Python shim
     /// writes the original to the existing `CompressionStore`. This
     /// matches Python's existing CCR plumbing and avoids dragging a
@@ -1213,7 +1281,7 @@ impl PySearchCompressor {
         // wants persistence beyond the request lifecycle.
         let owned = content.to_string();
         let owned_ctx = context.to_string();
-        let (result, stats) = py.allow_threads(move || {
+        let (result, stats) = py.detach(move || {
             let store = headroom_core::ccr::InMemoryCcrStore::new();
             let (r, s) = self
                 .inner
@@ -1251,7 +1319,11 @@ fn parse_search_lines(content: &str) -> Vec<(String, u64, String)> {
 // pattern as search_compressor: Rust emits a `cache_key`, Python shim
 // writes the original to the production `CompressionStore`.
 
-#[pyclass(name = "LogCompressorConfig", module = "headroom._core")]
+#[pyclass(
+    name = "LogCompressorConfig",
+    module = "headroom._core",
+    from_py_object
+)]
 #[derive(Clone)]
 struct PyLogCompressorConfig {
     inner: RustLogConfig,
@@ -1400,7 +1472,7 @@ impl PyLogCompressor {
     #[pyo3(signature = (content, bias = 1.0))]
     fn compress(&self, py: Python<'_>, content: &str, bias: f64) -> PyLogCompressionResult {
         let owned = content.to_string();
-        let (result, stats) = py.allow_threads(move || {
+        let (result, stats) = py.detach(move || {
             let store = headroom_core::ccr::InMemoryCcrStore::new();
             let (r, s) = self.inner.compress_with_store(&owned, bias, Some(&store));
             (r, s)
@@ -1449,7 +1521,7 @@ fn protect_tags(
     compress_tagged_content: bool,
 ) -> (String, Vec<(String, String)>) {
     let owned = text.to_string();
-    py.allow_threads(move || {
+    py.detach(move || {
         let (cleaned, blocks, _stats) = rust_protect_tags(&owned, compress_tagged_content);
         (cleaned, blocks)
     })
@@ -1460,7 +1532,7 @@ fn protect_tags(
 #[pyfunction]
 fn restore_tags(py: Python<'_>, text: &str, blocks: Vec<(String, String)>) -> String {
     let owned = text.to_string();
-    py.allow_threads(move || rust_restore_tags(&owned, &blocks))
+    py.detach(move || rust_restore_tags(&owned, &blocks))
 }
 
 /// Case-insensitive HTML5 tag check. The Python shim uses this to
@@ -1493,23 +1565,23 @@ fn known_html_tag_names() -> Vec<&'static str> {
 /// is compressed end-to-end.
 ///
 /// # Arguments
-/// * `body` — raw request body bytes (post memory-injection).
-/// * `auth_mode` — one of `"payg"`, `"oauth"`, `"subscription"`,
+/// * `body` - raw request body bytes (post memory-injection).
+/// * `auth_mode` - one of `"payg"`, `"oauth"`, `"subscription"`,
 ///   `"unknown"`. Currently unused by the dispatcher (the policy
 ///   gating is upstream); accepted for forward-compat.
-/// * `model` — model name from the request body. Empty string defaults
+/// * `model` - model name from the request body. Empty string defaults
 ///   to `headroom_core::transforms::live_zone::DEFAULT_MODEL`.
 ///
 /// # Returns
 /// `(body, modified)`:
-/// * Modified: `(new_body_bytes, True)` — caller forwards the new bytes.
-/// * Unchanged / passthrough: `(input_bytes, False)` — caller forwards
+/// * Modified: `(new_body_bytes, True)` - caller forwards the new bytes.
+/// * Unchanged / passthrough: `(input_bytes, False)` - caller forwards
 ///   the original.
 ///
 /// # Failure mode
 /// Never raises. The dispatcher's `LiveZoneError` outcomes (body not
 /// JSON, no `messages`/`input` array) are passthrough conditions, not
-/// failures — matching the Rust proxy's
+/// failures - matching the Rust proxy's
 /// `compress_openai_responses_request` contract.
 #[pyfunction]
 #[pyo3(signature = (body, auth_mode = "payg", model = ""))]
@@ -1580,8 +1652,158 @@ fn compress_openai_responses_live_zone(
     }
 }
 
+// --- TextCrusher (Phase 2, #1171): fast extractive prose compressor ---
+
+#[pyclass(name = "TextCrusherConfig", module = "headroom._core", from_py_object)]
+#[derive(Clone)]
+struct PyTextCrusherConfig {
+    inner: RustTextCrusherConfig,
+}
+
+#[pymethods]
+impl PyTextCrusherConfig {
+    #[new]
+    #[pyo3(signature = (
+        target_ratio = 0.5,
+        w_recency = 1.0,
+        w_relevance = 2.0,
+        w_salience = 1.5,
+        min_segment_chars = 12,
+        near_dup_threshold = 0.85,
+        min_segments_for_crush = 6,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        target_ratio: f64,
+        w_recency: f64,
+        w_relevance: f64,
+        w_salience: f64,
+        min_segment_chars: usize,
+        near_dup_threshold: f64,
+        min_segments_for_crush: usize,
+    ) -> Self {
+        Self {
+            inner: RustTextCrusherConfig {
+                target_ratio,
+                w_recency,
+                w_relevance,
+                w_salience,
+                min_segment_chars,
+                near_dup_threshold,
+                min_segments_for_crush,
+            },
+        }
+    }
+
+    #[getter]
+    fn target_ratio(&self) -> f64 {
+        self.inner.target_ratio
+    }
+    #[getter]
+    fn near_dup_threshold(&self) -> f64 {
+        self.inner.near_dup_threshold
+    }
+    #[getter]
+    fn min_segments_for_crush(&self) -> usize {
+        self.inner.min_segments_for_crush
+    }
+    #[getter]
+    fn w_recency(&self) -> f64 {
+        self.inner.w_recency
+    }
+    #[getter]
+    fn w_relevance(&self) -> f64 {
+        self.inner.w_relevance
+    }
+    #[getter]
+    fn w_salience(&self) -> f64 {
+        self.inner.w_salience
+    }
+    #[getter]
+    fn min_segment_chars(&self) -> usize {
+        self.inner.min_segment_chars
+    }
+}
+
+#[pyclass(name = "TextCrusherResult", module = "headroom._core")]
+struct PyTextCrusherResult {
+    inner: RustTextCrusherResult,
+}
+
+#[pymethods]
+impl PyTextCrusherResult {
+    #[getter]
+    fn compressed(&self) -> String {
+        self.inner.compressed.clone()
+    }
+    #[getter]
+    fn original_tokens(&self) -> usize {
+        self.inner.original_tokens
+    }
+    #[getter]
+    fn compressed_tokens(&self) -> usize {
+        self.inner.compressed_tokens
+    }
+    #[getter]
+    fn compression_ratio(&self) -> f64 {
+        self.inner.compression_ratio
+    }
+    #[getter]
+    fn kept_segments(&self) -> usize {
+        self.inner.kept_segments
+    }
+    #[getter]
+    fn total_segments(&self) -> usize {
+        self.inner.total_segments
+    }
+}
+
+#[pyclass(name = "TextCrusher", module = "headroom._core")]
+struct PyTextCrusher {
+    inner: RustTextCrusher,
+}
+
+#[pymethods]
+impl PyTextCrusher {
+    #[new]
+    #[pyo3(signature = (config = None))]
+    fn new(config: Option<&PyTextCrusherConfig>) -> Self {
+        let cfg = config.map(|c| c.inner.clone()).unwrap_or_default();
+        Self {
+            inner: RustTextCrusher::new(cfg),
+        }
+    }
+
+    /// `compress(content, context="", target_ratio=None) -> TextCrusherResult`.
+    /// Releases the GIL across the Rust compress call.
+    #[pyo3(signature = (content, context = "", target_ratio = None))]
+    fn compress(
+        &self,
+        py: Python<'_>,
+        content: &str,
+        context: &str,
+        target_ratio: Option<f64>,
+    ) -> PyTextCrusherResult {
+        let content = content.to_string();
+        let context = context.to_string();
+        let inner = py.detach(|| self.inner.compress(&content, &context, target_ratio));
+        PyTextCrusherResult { inner }
+    }
+}
+
 #[pymodule]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Bridge Rust diagnostics into Python's `logging`. headroom-core emits
+    // `tracing` events (e.g. magika init timeout warnings), but a cdylib has
+    // no tracing subscriber, so they were silently dropped. The workspace
+    // `tracing` dep now enables the `log` compat feature - events become
+    // `log` records when no subscriber is active - and pyo3-log forwards
+    // those to Python loggers (named like
+    // `headroom_core.transforms.magika_detector`), which is what lands in
+    // the proxy's log file. `try_init` because the global logger may
+    // legitimately already be set (re-import, embedders).
+    let _ = pyo3_log::try_init();
+
     m.add_function(wrap_pyfunction!(hello, m)?)?;
     m.add_class::<PyDiffCompressorConfig>()?;
     m.add_class::<PyDiffCompressionResult>()?;
@@ -1594,6 +1816,9 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySmartCrusherConfig>()?;
     m.add_class::<PyCrushResult>()?;
     m.add_class::<PySmartCrusher>()?;
+    m.add_class::<PyTextCrusherConfig>()?;
+    m.add_class::<PyTextCrusherResult>()?;
+    m.add_class::<PyTextCrusher>()?;
     m.add_class::<PyDetectionResult>()?;
     m.add_class::<PyLogCompressorConfig>()?;
     m.add_class::<PyLogCompressionResult>()?;

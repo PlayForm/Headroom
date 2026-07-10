@@ -47,7 +47,7 @@ pub trait TransformComparator {
 /// Compare a single fixture against a comparator and return an outcome.
 ///
 /// f64 normalization: `serde_json` (without the `arbitrary_precision`
-/// feature) has an asymmetry — values constructed via `json!(f64)` keep
+/// feature) has an asymmetry - values constructed via `json!(f64)` keep
 /// full precision (e.g. `0.9500000000000001`), but values parsed from
 /// fixture JSON sometimes round to a neighboring f64 (e.g. `0.95`,
 /// differing by 1 ULP). To make comparisons robust we round-trip the
@@ -126,7 +126,7 @@ impl Report {
 }
 
 /// Run a comparator over every fixture under `dir/<transform>/` and return a
-/// report. Propagates IO/parse errors but never panics on comparator errors —
+/// report. Propagates IO/parse errors but never panics on comparator errors -
 /// those become `Skipped` entries.
 pub fn run_comparator(dir: &Path, comparator: &dyn TransformComparator) -> Result<Report> {
     let mut report = Report::default();
@@ -175,7 +175,7 @@ stub_comparator!(CcrComparator, "ccr");
 
 /// Real comparator for the `diff_compressor` transform. Drives the Rust port
 /// over the recorded fixture inputs and emits the Python-shaped JSON output
-/// (subset: only fields the Python recorder serializes — i.e. fields, not
+/// (subset: only fields the Python recorder serializes - i.e. fields, not
 /// `@property` derivatives like `compression_ratio`).
 pub struct DiffCompressorComparator;
 
@@ -389,7 +389,7 @@ impl TransformComparator for SmartCrusherComparator {
                 .get("relevance_threshold")
                 .and_then(|v| v.as_f64())
                 .unwrap_or(defaults.relevance_threshold),
-            // Rust-only PR4 knob — fixtures don't carry this; use
+            // Rust-only PR4 knob - fixtures don't carry this; use
             // default. The parity harness exercises the legacy
             // lossy-only path via `without_compaction`, so this
             // threshold is moot.
@@ -397,13 +397,21 @@ impl TransformComparator for SmartCrusherComparator {
                 .get("lossless_min_savings_ratio")
                 .and_then(|v| v.as_f64())
                 .unwrap_or(defaults.lossless_min_savings_ratio),
-            // Rust-only audit-fix knob — fixtures don't carry this; use
+            // Rust-only audit-fix knob - fixtures don't carry this; use
             // default (true). Recorded fixtures predate the gate and
             // their expected outputs assume markers fire as before.
             enable_ccr_marker: config
                 .get("enable_ccr_marker")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(defaults.enable_ccr_marker),
+            // Compaction-stage knobs - fixtures don't carry these; use
+            // defaults, matching the other Rust-only knobs above.
+            lossless_only: defaults.lossless_only,
+            compaction_core_field_fraction: defaults.compaction_core_field_fraction,
+            compaction_heterogeneous_core_ratio: defaults.compaction_heterogeneous_core_ratio,
+            compaction_max_flatten_inner_keys: defaults.compaction_max_flatten_inner_keys,
+            compaction_min_buckets: defaults.compaction_min_buckets,
+            compaction_max_buckets: defaults.compaction_max_buckets,
         };
 
         // Use without_compaction so the legacy fixtures (recorded

@@ -20,25 +20,33 @@ from pathlib import Path
 from typing import Any
 
 from headroom import binaries
+from headroom._subprocess import run
+from headroom.proxy import runtime_env
 
 from . import base
 
 logger = logging.getLogger(__name__)
 
+
 # Latency floor: below this size, the subprocess cost of running ast-grep
-# isn't worth the tiny win. It is NOT a semantic threshold — the framework
+# isn't worth the tiny win. It is NOT a semantic threshold - the framework
 # rejects any rewrite that doesn't actually shrink tokens, so we don't need
 # a "big enough to matter" check here, only a "big enough to justify the
-# fork()" check.
-MIN_CHARS_TO_REWRITE = int(os.environ.get("HEADROOM_INTERCEPT_READ_MIN_CHARS", "500"))
+# fork()" check. Read live (not as a module constant) so a hot-reload or a
+# reused proxy re-synced by ``headroom wrap`` takes effect without a restart.
+def _min_chars_to_rewrite() -> int:
+    try:
+        return int(runtime_env.getenv("HEADROOM_INTERCEPT_READ_MIN_CHARS", "500"))
+    except (TypeError, ValueError):
+        return 500
 
 # Tool_input keys that indicate the model targeted a specific line range;
 # outlining would frustrate that intent and likely cause a re-read.
 # Provenance of the keys we recognize:
-#   offset / limit        — Claude Code's Read tool (pagination by line).
-#   line_range            — Cursor / VS Code Copilot read_file with explicit range.
-#   start_line / end_line — Aider, Continue, some MCP filesystem servers.
-#   ranges                — OpenAI Codex file tools (list of [start,end] pairs).
+#   offset / limit        - Claude Code's Read tool (pagination by line).
+#   line_range            - Cursor / VS Code Copilot read_file with explicit range.
+#   start_line / end_line - Aider, Continue, some MCP filesystem servers.
+#   ranges                - OpenAI Codex file tools (list of [start,end] pairs).
 _RANGE_KEYS = ("offset", "limit", "line_range", "start_line", "end_line", "ranges")
 
 # ast-grep --lang is passed these values; only extensions with a stable
@@ -93,9 +101,9 @@ class AstGrepReadOutline:
     ) -> bool:
         if tool_name not in ("Read", "read_file", "view", "cat"):
             return False
-        if len(tool_output) < MIN_CHARS_TO_REWRITE:
+        if len(tool_output) < _min_chars_to_rewrite():
             return False
-        # Respect explicit line ranges — the model wants those specific lines.
+        # Respect explicit line ranges - the model wants those specific lines.
         if any(k in tool_input for k in _RANGE_KEYS):
             return False
         return _detect_lang_from_input(tool_input) is not None
@@ -133,7 +141,7 @@ class AstGrepReadOutline:
         """Key by file_path so a second Read of the same file passes through."""
         path = _path_from_input(tool_input)
         if path is None:
-            # matches() returned True but no recognized path key — the tool
+            # matches() returned True but no recognized path key - the tool
             # may use an unknown key (e.g. some MCP servers use `file`).
             # Without a key, progressive disclosure can't protect against
             # re-outlining; log once for observability.
@@ -175,7 +183,7 @@ def _run_ast_grep(
         return []
 
     # Use the canonical extension so ast-grep can pick the right grammar.
-    # Write into a private mode-0700 temp dir — /tmp is shared on multi-tenant
+    # Write into a private mode-0700 temp dir - /tmp is shared on multi-tenant
     # systems and tool_output is untrusted content.
     ext = next((e for e, L in _EXT_TO_LANG.items() if L == lang), ".txt")
     tmp_dir = Path(tempfile.mkdtemp(prefix="headroom-sg-"))
@@ -192,7 +200,7 @@ def _run_ast_grep(
     try:
         for pattern in patterns:
             try:
-                completed = subprocess.run(
+                completed = run(
                     [
                         str(exe),
                         "run",
@@ -212,7 +220,7 @@ def _run_ast_grep(
                 logger.debug("ast-grep timed out or failed: %s", e)
                 continue
             # rc=0: matches. rc=1: no matches (expected). rc>=2: real error
-            # (bad syntax, grammar missing, corrupt binary) — log it so
+            # (bad syntax, grammar missing, corrupt binary) - log it so
             # users can diagnose.
             if completed.returncode == 1:
                 continue
@@ -235,7 +243,7 @@ def _run_ast_grep(
             if lines and parse_failures == len(lines):
                 logger.warning(
                     "ast-grep produced output but every line failed to parse as JSON "
-                    "(rc=0, lang=%s, pattern=%r) — likely version mismatch or corrupt binary",
+                    "(rc=0, lang=%s, pattern=%r) - likely version mismatch or corrupt binary",
                     lang,
                     pattern,
                 )
@@ -280,7 +288,7 @@ def _build_outline(matches: list[dict[str, Any]], source: str) -> str | None:
     if not outline_chunks:
         return None
     header = (
-        "[headroom: outlined by ast-grep — "
+        "[headroom: outlined by ast-grep - "
         f"{len(seen_starts)} definition(s); "
         "bodies elided. Re-read the file with a line range to see a specific body.]\n"
     )

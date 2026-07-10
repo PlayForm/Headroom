@@ -210,7 +210,7 @@ class TestTOINBackendWiring:
         assert "patterns" in store
         assert len(store["patterns"]) == 1
 
-        # Create a new TOIN instance with same backend — should load patterns
+        # Create a new TOIN instance with same backend - should load patterns
         toin2 = ToolIntelligenceNetwork(config, backend=MemBackend())
         stats = toin2.get_stats()
         assert stats["patterns_tracked"] == 1
@@ -324,7 +324,7 @@ class TestCCRContextVarScoping:
         assert get_compression_store() is global_store
 
     def test_request_store_isolated_per_thread(self):
-        """ContextVars are per-thread — each thread sees its own store."""
+        """ContextVars are per-thread - each thread sees its own store."""
         global_store = get_compression_store()
         results: dict[str, CompressionStore | None] = {}
 
@@ -385,12 +385,15 @@ class TestCCRContextVarScoping:
 class TestCCREntryPointLoading:
     """Verify _create_default_ccr_backend() env-based loading."""
 
-    def test_no_env_returns_none(self, monkeypatch):
-        """No HEADROOM_CCR_BACKEND → returns None (use InMemoryBackend)."""
-        monkeypatch.delenv("HEADROOM_CCR_BACKEND", raising=False)
+    def test_no_env_returns_sqlite_backend(self, monkeypatch, tmp_path):
+        """No HEADROOM_CCR_BACKEND → defaults to SQLiteBackend (restart-safe)."""
+        from headroom.cache.backends.sqlite import SQLiteBackend
         from headroom.cache.compression_store import _create_default_ccr_backend
 
-        assert _create_default_ccr_backend() is None
+        monkeypatch.delenv("HEADROOM_CCR_BACKEND", raising=False)
+        monkeypatch.setenv("HEADROOM_CCR_SQLITE_PATH", str(tmp_path / "d.db"))
+
+        assert isinstance(_create_default_ccr_backend(), SQLiteBackend)
 
     def test_memory_env_returns_none(self, monkeypatch):
         """HEADROOM_CCR_BACKEND=memory → returns None (use default)."""
@@ -525,7 +528,7 @@ class TestAdapterLifecycle:
 
         PR-B5 retired the request-time `get_recommendation()` API
         (it now returns None with a deprecation warning). Stats and
-        on-disk patterns must still survive save/load — that's the
+        on-disk patterns must still survive save/load - that's the
         observation API B5 preserves.
         """
         config = TOINConfig(storage_path=tmp_toin_path)

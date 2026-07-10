@@ -1,12 +1,12 @@
 name: CI
 
 # Intelligent + parallel pipeline (cutover from the old 4-version matrix):
-#   changes      — paths-filter; skips heavy work for docs-only changes
-#   build-wheel  — compile the Rust ext ONCE (fast `ci` cargo profile), share via artifact
-#   lint         — ruff + mypy, once
-#   prefetch-model — download the embedding model ONCE (authenticated), warm shared cache
-#   test         — 4 parallel shards (pytest-split), each a fresh runner VM; run offline
-#   test-extras / test-agno / build / commitlint / workflow-validation / *-e2e — preserved
+#   changes      - paths-filter; skips heavy work for docs-only changes
+#   build-wheel  - compile the Rust ext ONCE (fast `ci` cargo profile), share via artifact
+#   lint         - ruff + mypy, once
+#   prefetch-model - download the embedding model ONCE (authenticated), warm shared cache
+#   test         - 4 parallel shards (pytest-split), each a fresh runner VM; run offline
+#   test-extras / test-agno / build / commitlint / workflow-validation / *-e2e - preserved
 #
 # Notes: CPU-only torch everywhere (no CUDA stack); test shards run HF_HUB_OFFLINE.
 # Multi-version (3.10/3.11/3.13) coverage on main is a planned follow-up.
@@ -28,7 +28,7 @@ concurrency:
 
 env:
   PY_VERSION: "3.12"
-  # CPU-only torch — runners have no GPU; the default CUDA wheels pull ~2.5 GB.
+  # CPU-only torch - runners have no GPU; the default CUDA wheels pull ~2.5 GB.
   PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
 
 jobs:
@@ -40,7 +40,7 @@ jobs:
       e2e: ${{ steps.filter.outputs.e2e }}
       workflows: ${{ steps.filter.outputs.workflows }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
         id: filter
         with:
@@ -54,7 +54,7 @@ jobs:
               - 'Cargo.lock'
               - 'tests/**'
               - 'scripts/**'
-              - '.github/workflows/ci.yml'
+              - '.github/workflows/**'
             e2e:
               - 'headroom/**'
               - 'crates/**'
@@ -72,17 +72,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PY_VERSION }}
       - name: Cache pip
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-lint-${{ hashFiles('pyproject.toml') }}
           restore-keys: ${{ runner.os }}-pip-lint-
-      - run: python -m pip install --upgrade pip ruff mypy
+      - run: python -m pip install --upgrade pip "ruff==0.15.17" "mypy==1.20.2"
       - name: ruff check
         run: ruff check .
       - name: ruff format --check
@@ -96,7 +96,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PY_VERSION }}
@@ -125,7 +125,7 @@ jobs:
           python-version: ${{ env.PY_VERSION }}
       - name: Cache HuggingFace model
         id: hfcache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/huggingface
           key: ${{ runner.os }}-models-allMiniLM-v2
@@ -152,26 +152,41 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     env:
-      HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PY_VERSION }}
 
       - name: Cache pip
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ env.PY_VERSION }}-${{ hashFiles('pyproject.toml') }}
           restore-keys: ${{ runner.os }}-pip-${{ env.PY_VERSION }}-
 
       - name: Restore HuggingFace model cache (warmed by prefetch-model)
-        uses: actions/cache@v5
+        id: restore-hfcache
+        uses: actions/cache@v6
         with:
           path: ~/.cache/huggingface
           key: ${{ runner.os }}-models-allMiniLM-v2
+
+      - name: Fallback model download if cache missed
+        if: steps.restore-hfcache.outputs.cache-hit != 'true'
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_HUB_DISABLE_TELEMETRY: "1"
+          TRANSFORMERS_OFFLINE: "0"
+          HF_HUB_OFFLINE: "0"
+        run: |
+          python -m pip install --upgrade pip huggingface_hub
+          for i in 1 2 3 4 5 6; do
+            if python -c "from huggingface_hub import snapshot_download; snapshot_download('sentence-transformers/all-MiniLM-L6-v2')"; then exit 0; fi
+            if [ "$i" -lt 6 ]; then echo "::warning::fallback model fetch attempt $i failed; backing off"; sleep $((i * 30)); fi
+          done
+          echo "::error::could not fetch all-MiniLM-L6-v2 from HuggingFace (fallback)"; exit 1
 
       - name: Download prebuilt wheel
         uses: actions/download-artifact@v8
@@ -182,7 +197,7 @@ jobs:
       - name: Install (CPU torch + prebuilt wheel + dev deps, no cargo rebuild)
         run: |
           python -m pip install --upgrade pip
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install torch --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
           WHEEL="$(ls dist/*.whl)"
           pip install "${WHEEL}[dev]" pytest-split
           # cwd's ./headroom source tree shadows the installed wheel; copy the
@@ -191,6 +206,18 @@ jobs:
           cp "${SITE}/headroom/"_core*.so headroom/
           python -c "from headroom._core import DiffCompressor; print('headroom._core OK')"
 
+      - name: Verify offline HuggingFace model cache
+        env:
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
+          HF_HUB_DISABLE_TELEMETRY: "1"
+        run: python scripts/ci/verify_hf_model_cache.py
+
+      # Coverage upload: without this, codecov only receives reports from
+      # the two native-e2e workflows (3 CLI test files total), so head
+      # coverage reads ~6% and codecov/patch fails for ANY diff not
+      # exercised by those files - a false negative on every PR. The main
+      # suite runs here; its coverage must be what codecov sees.
       - name: Run test shard ${{ matrix.shard }}/4
         run: |
           pytest tests scripts/tests \
@@ -209,7 +236,7 @@ jobs:
           # Token is sent so uploads authenticate once the repo is activated on
           # Codecov. Until then Codecov may 404 ("Repository not found"); either
           # way, coverage upload is reporting-only and must never fail a build
-          # whose tests pass — so this stays non-blocking.
+          # whose tests pass - so this stays non-blocking.
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
@@ -221,18 +248,18 @@ jobs:
     env:
       FASTEMBED_CACHE_PATH: ${{ github.workspace }}/.fastembed-cache
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PY_VERSION }}
       - name: Cache pip
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-extras-${{ hashFiles('pyproject.toml') }}
           restore-keys: ${{ runner.os }}-pip-extras-
       - name: Cache fastembed model
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/.fastembed-cache
           key: ${{ runner.os }}-fastembed-bge-small-v1
@@ -244,7 +271,7 @@ jobs:
       - name: Install (CPU torch + wheel[dev,relevance])
         run: |
           python -m pip install --upgrade pip
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install torch --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
           WHEEL="$(ls dist/*.whl)"
           pip install "${WHEEL}[dev,relevance]"
           SITE="$(python -c 'import sysconfig; print(sysconfig.get_path("platlib"))')"
@@ -274,7 +301,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PY_VERSION }}
@@ -286,7 +313,7 @@ jobs:
       - name: Install (CPU torch + wheel[dev,agno])
         run: |
           python -m pip install --upgrade pip
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install torch --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
           WHEEL="$(ls dist/*.whl)"
           pip install "${WHEEL}[dev,agno]"
           SITE="$(python -c 'import sysconfig; print(sysconfig.get_path("platlib"))')"
@@ -300,7 +327,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PY_VERSION }}
@@ -312,7 +339,7 @@ jobs:
       - name: Install (CPU torch + wheel[dev] + playwright)
         run: |
           python -m pip install --upgrade pip
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install torch --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
           WHEEL="$(ls dist/*.whl)"
           pip install "${WHEEL}[dev]" playwright
           SITE="$(python -c 'import sysconfig; print(sysconfig.get_path("platlib"))')"
@@ -341,7 +368,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: wagoid/commitlint-github-action@v6
@@ -354,12 +381,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - name: Cache pip
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-build-${{ hashFiles('pyproject.toml') }}
@@ -387,10 +414,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Cache actionlint + act
         id: tools-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             /usr/local/bin/actionlint
@@ -420,7 +447,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
@@ -464,7 +491,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -481,7 +508,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"

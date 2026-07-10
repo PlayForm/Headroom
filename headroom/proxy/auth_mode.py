@@ -1,4 +1,4 @@
-"""Auth-mode classifier — Phase F PR-F1 (Python port).
+"""Auth-mode classifier - Phase F PR-F1 (Python port).
 
 Direct port of ``crates/headroom-core/src/auth_mode.rs``. The two
 implementations MUST agree on the classification of every header set
@@ -10,7 +10,7 @@ port is the live classifier on the Python proxy paths until Phase H
 deletes the Python proxy entirely.
 
 The classifier is **pure** (no I/O, no logging of header values), runs
-well under 10us per call, and NEVER raises on malformed headers —
+well under 10us per call, and NEVER raises on malformed headers -
 non-UTF-8 / unparseable values fall through to the safe default
 :data:`AuthMode.PAYG` after a ``logger.warning`` so operators can
 spot bad clients without taking the proxy down.
@@ -55,7 +55,7 @@ class AuthMode(str, enum.Enum):
 #    follow-up) without touching the function body.
 # 2. Adding a new client = one-line edit here, no logic change.
 #
-# Match is ``str.__contains__`` against a lowercased copy of the UA —
+# Match is ``str.__contains__`` against a lowercased copy of the UA -
 # so the prefix can appear anywhere in the value.
 SUBSCRIPTION_UA_PREFIXES: tuple[str, ...] = (
     "claude-cli/",
@@ -74,7 +74,7 @@ def _header_get(headers: Mapping[str, Any] | Any, name: str) -> str:
 
     Accepts either a plain ``Mapping[str, str]`` (test fixtures) or a
     Starlette/FastAPI ``Headers`` object (production). Handles bytes
-    values defensively — non-UTF-8 returns ``""`` after a warning,
+    values defensively - non-UTF-8 returns ``""`` after a warning,
     matching the Rust path's behaviour.
     """
     # Starlette `Headers` is case-insensitive natively; plain dicts
@@ -115,11 +115,11 @@ def classify_auth_mode(headers: Mapping[str, Any] | Any) -> AuthMode:
 
     1. **Subscription UA prefix** → :data:`AuthMode.SUBSCRIPTION`.
        The CLI's own auth-mode wins over the bearer token shape it
-       happens to be carrying — a Claude Code session uses a
-       ``sk-ant-oat-*`` token but is a subscription client, not OAuth.
-    2. **``Authorization: Bearer sk-ant-oat-*``** → :data:`AuthMode.OAUTH`
+       happens to be carrying - a Claude Code session uses a
+       ``sk-ant-oat*`` token but is a subscription client, not OAuth.
+    2. **``Authorization: Bearer sk-ant-oat*``** → :data:`AuthMode.OAUTH`
        (Claude Pro / Max OAuth). Checked before the broader ``sk-``
-       PAYG rule because ``sk-ant-oat-`` shares the ``sk-`` prefix.
+       PAYG rule because ``sk-ant-oat`` shares the ``sk-`` prefix.
     3. **``Authorization: Bearer sk-ant-api*`` or ``Bearer sk-*``** →
        :data:`AuthMode.PAYG` (Anthropic / OpenAI API key).
     4. **``Authorization: Bearer <jwt>``** (3 dot-separated segments)
@@ -151,20 +151,24 @@ def classify_auth_mode(headers: Mapping[str, Any] | Any) -> AuthMode:
 
     if auth.startswith("Bearer "):
         token = auth[len("Bearer ") :]
-        # Order matters: `sk-ant-oat-*` shares a prefix with
+        # Order matters: `sk-ant-oat*` shares a prefix with
         # `sk-ant-api*` only at `sk-ant-`, so check OAuth first.
-        if token.startswith("sk-ant-oat-"):
+        # Real Anthropic OAuth access tokens are `sk-ant-oat01-...`
+        # (a version number, no dash after `oat`), so match on the
+        # dash-less `sk-ant-oat` prefix - matching on `sk-ant-oat-`
+        # missed every real token and let it fall through to PAYG.
+        if token.startswith("sk-ant-oat"):
             return AuthMode.OAUTH
         if token.startswith("sk-ant-api") or token.startswith("sk-"):
             return AuthMode.PAYG
         # JWT: classic three-segment `header.payload.signature`.
-        # We don't validate the JWT — just count dot-separated
+        # We don't validate the JWT - just count dot-separated
         # segments. Catches Codex / Cursor / Copilot OAuth.
         if len(token.split(".")) >= 3:
             return AuthMode.OAUTH
-        # Unknown bearer shape — fall through.
+        # Unknown bearer shape - fall through.
     elif auth:
-        # Authorization is present but NOT `Bearer ...` — most
+        # Authorization is present but NOT `Bearer ...` - most
         # commonly AWS SigV4 (`AWS4-HMAC-SHA256 ...`) on a Bedrock
         # request, or a `Basic ...` from a custom proxy chain. We
         # treat all such non-Bearer schemes as passthrough-prefer.
@@ -180,7 +184,7 @@ def classify_auth_mode(headers: Mapping[str, Any] | Any) -> AuthMode:
     return AuthMode.PAYG
 
 
-# Client (harness) identification — maps a User-Agent substring to a
+# Client (harness) identification - maps a User-Agent substring to a
 # short normalized client name. The dashboard / `headroom perf` use
 # this to slice traffic by harness ("aider is 30% of cache writes",
 # "codex p99 latency vs claude-code", etc).
@@ -222,11 +226,11 @@ def classify_client(headers: Mapping[str, Any] | Any, *, default: str | None = N
 
     Decision order:
 
-    1. **``X-Client`` header** (explicit override) — clients that
+    1. **``X-Client`` header** (explicit override) - clients that
        know they're talking to Headroom can self-identify with a
        short name. Trimmed, lowercased. Wins over UA matching.
     2. **User-Agent substring match** against :data:`CLIENT_UA_MAP`
-       — covers the unmodified-client case. Substring, not prefix,
+       - covers the unmodified-client case. Substring, not prefix,
        because some clients prepend a corporate-wrapper UA before
        their own.
     3. **None** when neither produces a hit. ``None`` is the loud
@@ -253,10 +257,37 @@ def classify_client(headers: Mapping[str, Any] | Any, *, default: str | None = N
     return default
 
 
+# OpenAI's Responses API endpoint. In practice this is Codex's endpoint, but a
+# proxy can't assume every caller here is Codex - hence
+# :func:`should_stamp_codex_client` only stamps callers that don't already
+# classify.
+CODEX_RESPONSES_PATH = "/v1/responses"
+
+
+def should_stamp_codex_client(path: str, headers: Mapping[str, Any] | Any) -> bool:
+    """Whether to stamp ``X-Client: codex`` on a request to the proxy.
+
+    Stamping ``X-Client: codex`` on the Responses endpoint makes the backend
+    take the codex fail-open branch on a compression timeout - Codex treats the
+    proxy's 413/1009 refusal as a hard connection failure. This is needed
+    because Codex Desktop's User-Agent (``Codex Desktop/...``) isn't in
+    :data:`CLIENT_UA_MAP` and would otherwise be refused.
+
+    Returns ``True`` only for an unidentified caller (no ``X-Client`` and no
+    recognized User-Agent) on the Responses endpoint. A caller that already
+    classifies is left untouched.
+    """
+    if path != CODEX_RESPONSES_PATH and not path.startswith(CODEX_RESPONSES_PATH + "/"):
+        return False
+    return classify_client(headers) is None
+
+
 __all__ = [
     "AuthMode",
     "CLIENT_UA_MAP",
+    "CODEX_RESPONSES_PATH",
     "SUBSCRIPTION_UA_PREFIXES",
     "classify_auth_mode",
     "classify_client",
+    "should_stamp_codex_client",
 ]

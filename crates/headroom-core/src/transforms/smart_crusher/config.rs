@@ -1,7 +1,7 @@
 //! SmartCrusher configuration.
 //!
 //! Direct port of `SmartCrusherConfig` at `smart_crusher.py:927-957`. The
-//! defaults must match Python exactly — they're consulted everywhere
+//! defaults must match Python exactly - they're consulted everywhere
 //! during compression and any drift breaks parity fixtures.
 
 /// Configuration for SmartCrusher.
@@ -29,10 +29,10 @@ pub struct SmartCrusherConfig {
     /// Whether to preserve detected change points. Default true.
     pub preserve_change_points: bool,
     /// Factor out fields with constant values across all items. Default
-    /// false (disabled — preserves original schema).
+    /// false (disabled - preserves original schema).
     pub factor_out_constants: bool,
     /// Include generated text summaries in output. Default false (disabled
-    /// — no generated text).
+    /// - no generated text).
     pub include_summaries: bool,
     /// Use feedback hints to adjust compression aggressiveness. Default true.
     pub use_feedback_hints: bool,
@@ -47,7 +47,7 @@ pub struct SmartCrusherConfig {
     pub last_fraction: f64,
     /// Items with `RelevanceScore.score >= this` are pinned by the
     /// planning methods. Mirrors Python's `RelevanceConfig.relevance_threshold`.
-    /// Default 0.3 — matches the Python default.
+    /// Default 0.3 - matches the Python default.
     pub relevance_threshold: f64,
     /// Minimum byte-savings ratio (0.0..1.0) for the lossless compaction
     /// path to be chosen over lossy. Computed as
@@ -70,20 +70,64 @@ pub struct SmartCrusherConfig {
     /// The Python shim flips this from
     /// `ccr_config.enabled and ccr_config.inject_retrieval_marker`,
     /// so either off-switch on the Python side disables the gate.
-    /// Default `true` — preserves prior behavior.
+    /// Default `true` - preserves prior behavior.
     ///
     /// Scope: gates only the `crush_array` row-drop path. Stage-3c.2
     /// opaque-string CCR substitutions (in `walker::process_value`)
     /// still emit always; they have no Python equivalent and no
     /// production caller has asked for them to be suppressed.
     pub enable_ccr_marker: bool,
+    /// Strict lossless mode. When `true`, lossless tabular compaction
+    /// still applies, but any path that would otherwise need a CCR
+    /// marker - the lossy row-drop sentinel AND opaque-blob offload -
+    /// leaves the content uncompacted instead. The result is always
+    /// marker-free and byte-recoverable: rows are never dropped and
+    /// opaque cells render inline. Default `false` (markers allowed).
+    pub lossless_only: bool,
+    /// Compaction heuristic: a field is "core" if it appears in at
+    /// least this fraction of rows. Mirrors
+    /// `CompactConfig::core_field_fraction`. Default 0.8.
+    pub compaction_core_field_fraction: f64,
+    /// Compaction heuristic: when fewer than this fraction of all
+    /// observed keys are core, treat the array as heterogeneous and
+    /// look for a discriminator. Mirrors
+    /// `CompactConfig::heterogeneous_core_ratio`. Default 0.6.
+    pub compaction_heterogeneous_core_ratio: f64,
+    /// Compaction heuristic: cap on inner-key count for
+    /// nested-uniform flattening. Mirrors
+    /// `CompactConfig::max_flatten_inner_keys`. Default 6.
+    pub compaction_max_flatten_inner_keys: usize,
+    /// Compaction heuristic: minimum bucket count before a candidate
+    /// discriminator is "useful". Mirrors `CompactConfig::min_buckets`.
+    /// Default 2.
+    pub compaction_min_buckets: usize,
+    /// Compaction heuristic: maximum bucket count - too many buckets
+    /// means the discriminator is too granular (e.g. an ID column).
+    /// Mirrors `CompactConfig::max_buckets`. Default 8.
+    pub compaction_max_buckets: usize,
+}
+
+impl SmartCrusherConfig {
+    /// Whether opaque blobs should be offloaded to a `<<ccr:…>>` marker.
+    ///
+    /// Single source of truth for the opaque-marker gate. Markers are
+    /// emitted only when CCR markers are enabled AND strict lossless
+    /// mode is off - `lossless_only` forbids any offload because the
+    /// marker would break the marker-free / byte-recoverable guarantee.
+    /// Both compaction-stage construction (`new` /
+    /// `with_compaction_format`) and the top-level `process_string` path
+    /// derive `ClassifyConfig::emit_opaque_markers` from this method so
+    /// the three call sites can never drift apart.
+    pub fn opaque_markers_enabled(&self) -> bool {
+        self.enable_ccr_marker && !self.lossless_only
+    }
 }
 
 impl Default for SmartCrusherConfig {
     fn default() -> Self {
         // These defaults must match smart_crusher.py:934-957 byte-for-byte.
         // The PR4 additions (`lossless_min_savings_ratio`) have no
-        // Python counterpart — they govern Rust-side dispatch only.
+        // Python counterpart - they govern Rust-side dispatch only.
         SmartCrusherConfig {
             enabled: true,
             min_items_to_analyze: 5,
@@ -103,6 +147,12 @@ impl Default for SmartCrusherConfig {
             relevance_threshold: 0.3,
             lossless_min_savings_ratio: 0.30,
             enable_ccr_marker: true,
+            lossless_only: false,
+            compaction_core_field_fraction: 0.8,
+            compaction_heterogeneous_core_ratio: 0.6,
+            compaction_max_flatten_inner_keys: 6,
+            compaction_min_buckets: 2,
+            compaction_max_buckets: 8,
         }
     }
 }
@@ -135,5 +185,11 @@ mod tests {
         assert_eq!(c.relevance_threshold, 0.3);
         assert_eq!(c.lossless_min_savings_ratio, 0.30);
         assert!(c.enable_ccr_marker);
+        assert!(!c.lossless_only);
+        assert_eq!(c.compaction_core_field_fraction, 0.8);
+        assert_eq!(c.compaction_heterogeneous_core_ratio, 0.6);
+        assert_eq!(c.compaction_max_flatten_inner_keys, 6);
+        assert_eq!(c.compaction_min_buckets, 2);
+        assert_eq!(c.compaction_max_buckets, 8);
     }
 }

@@ -21,7 +21,7 @@ use std::collections::HashSet;
 use std::sync::LazyLock;
 
 // ---------------------------------------------------------------
-// Pattern definitions — direct ports of the module-level Python regexes
+// Pattern definitions - direct ports of the module-level Python regexes
 // at `smart_crusher.py:85-93`. `std::sync::LazyLock` (stable since Rust
 // 1.80) is the modern equivalent of `once_cell::sync::Lazy`, mirroring
 // Python's `re.compile` at module import time.
@@ -51,19 +51,19 @@ static QUOTED_STRING_PATTERN: LazyLock<Regex> =
 
 /// Email addresses. Python: `r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"`.
 /// (Note Python's `[A-Z|a-z]` includes a literal `|` in the character
-/// class — almost certainly a typo, but we faithfully port it for
+/// class - almost certainly a typo, but we faithfully port it for
 /// parity. Real-world impact is nil since `|` doesn't appear in TLDs.)
 static EMAIL_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b").expect("EMAIL_PATTERN")
 });
 
 /// Hostname false-positive blocklist. Python uses a set literal at
-/// `smart_crusher.py:137`. We mirror exactly — these strings get
+/// `smart_crusher.py:137`. We mirror exactly - these strings get
 /// dropped from anchor results.
 const HOSTNAME_FALSE_POSITIVES: &[&str] = &["e.g", "i.e", "etc."];
 
 /// Extract query anchors from user text. **DEPRECATED** in Python in
-/// favor of `RelevanceScorer`, but still called by the live path —
+/// favor of `RelevanceScorer`, but still called by the live path -
 /// ported as-is.
 ///
 /// Output is a set of lowercased anchor strings. Order is not
@@ -75,17 +75,17 @@ pub fn extract_query_anchors(text: &str) -> HashSet<String> {
         return anchors;
     }
 
-    // UUIDs — lowercase the match.
+    // UUIDs - lowercase the match.
     for m in UUID_PATTERN.find_iter(text) {
         anchors.insert(m.as_str().to_lowercase());
     }
 
-    // Numeric IDs — Python keeps original case (digits, no transform needed).
+    // Numeric IDs - Python keeps original case (digits, no transform needed).
     for m in NUMERIC_ID_PATTERN.find_iter(text) {
         anchors.insert(m.as_str().to_string());
     }
 
-    // Hostnames — lowercase, filter false positives.
+    // Hostnames - lowercase, filter false positives.
     for m in HOSTNAME_PATTERN.find_iter(text) {
         let lc = m.as_str().to_lowercase();
         if !HOSTNAME_FALSE_POSITIVES.contains(&lc.as_str()) {
@@ -93,7 +93,7 @@ pub fn extract_query_anchors(text: &str) -> HashSet<String> {
         }
     }
 
-    // Quoted strings — capture group 1 (the content between quotes),
+    // Quoted strings - capture group 1 (the content between quotes),
     // require trim().len() >= 2 (Python's `if len(match.strip()) >= 2`).
     for caps in QUOTED_STRING_PATTERN.captures_iter(text) {
         if let Some(inner) = caps.get(1) {
@@ -103,7 +103,7 @@ pub fn extract_query_anchors(text: &str) -> HashSet<String> {
         }
     }
 
-    // Emails — lowercase.
+    // Emails - lowercase.
     for m in EMAIL_PATTERN.find_iter(text) {
         anchors.insert(m.as_str().to_lowercase());
     }
@@ -151,7 +151,7 @@ fn write_python_repr(out: &mut String, value: &Value) {
             // Python `str(int)` and `str(float)` produce minimal forms.
             // `serde_json::Number`'s `Display` matches Python for ints
             // (`5`) but for floats it can write `1.0` while Python may
-            // write `1.0` too — close enough for substring matching
+            // write `1.0` too - close enough for substring matching
             // since anchor strings rarely contain numeric literals
             // beyond the digit prefix.
             out.push_str(&n.to_string());
@@ -161,7 +161,7 @@ fn write_python_repr(out: &mut String, value: &Value) {
             // depending on content. Default preference is single
             // quotes; switches to double if the string contains a
             // single quote and no double. We emit single quotes
-            // always — this matches the dominant case (no quotes in
+            // always - this matches the dominant case (no quotes in
             // the string) and is what Python does for `str(dict)` of
             // most realistic data. The rare case where Python would
             // switch to double quotes is documented as a known parity
@@ -185,7 +185,7 @@ fn write_python_repr(out: &mut String, value: &Value) {
             // Python preserves insertion order in `dict.__str__` (since
             // Python 3.7). We require the workspace `serde_json` to be
             // built with `preserve_order` so `serde_json::Map` uses
-            // `IndexMap` instead of the default `BTreeMap` — see the
+            // `IndexMap` instead of the default `BTreeMap` - see the
             // comment on `serde_json` in the workspace `Cargo.toml`.
             // Without that feature, this iteration is sorted-by-key
             // and silently diverges from Python on every multi-key
@@ -262,7 +262,7 @@ mod tests {
 
     #[test]
     fn hostname_false_positive_filtered() {
-        // "e.g" is in the blocklist — must NOT appear as an anchor even
+        // "e.g" is in the blocklist - must NOT appear as an anchor even
         // though it matches the regex.
         let anchors = extract_query_anchors("test e.g.com endpoint");
         // "e.g" is filtered, but "e.g.com" or other longer matches may
@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn very_short_quoted_skipped() {
-        // Less than 2 chars after trim — skipped.
+        // Less than 2 chars after trim - skipped.
         let anchors = extract_query_anchors(r#"the "x" thing"#);
         assert!(!anchors.contains("x"));
     }
@@ -335,7 +335,7 @@ mod tests {
     #[test]
     fn email_typo_pattern_still_matches_real_emails() {
         // S4 in code review: the Python `[A-Z|a-z]` typo doesn't break
-        // real email matching — pin that explicitly.
+        // real email matching - pin that explicitly.
         let anchors = extract_query_anchors("contact alice@example.com today");
         assert!(anchors.contains("alice@example.com"));
         let anchors = extract_query_anchors("ping bob@SUB.EXAMPLE.IO");
@@ -348,7 +348,7 @@ mod tests {
     fn python_repr_matches_python_str_for_dict() {
         // Python: `str({'name': 'Alice', 'ok': True, 'count': 5, 'val': None})`
         // = `"{'name': 'Alice', 'ok': True, 'count': 5, 'val': None}"`
-        // (insertion order — Python's dict preserves it since 3.7).
+        // (insertion order - Python's dict preserves it since 3.7).
         //
         // Workspace `Cargo.toml` enables serde_json's `preserve_order`
         // feature, so `json!` macro and `serde_json::from_str` both
@@ -356,8 +356,7 @@ mod tests {
         // below would fail.
         let v = json!({"name": "Alice", "ok": true, "count": 5, "val": null});
         let r = python_repr(&v);
-        // Keys are sorted alphabetically by python_repr (not insertion order)
-        assert_eq!(r, "{'count': 5, 'name': 'Alice', 'ok': True, 'val': None}");
+        assert_eq!(r, "{'name': 'Alice', 'ok': True, 'count': 5, 'val': None}");
     }
 
     #[test]
@@ -399,7 +398,7 @@ mod tests {
         // quotes if the string contains a single quote. We always use
         // single quotes. Pin the gap so future changes are intentional.
         let v = json!({"k": "it's fine"});
-        // Our output: `{'k': 'it's fine'}` (broken Python repr — Python
+        // Our output: `{'k': 'it's fine'}` (broken Python repr - Python
         // would emit `{'k': "it's fine"}`).
         assert_eq!(python_repr(&v), "{'k': 'it's fine'}");
         // Substring matching for typical anchors still works because

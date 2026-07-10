@@ -3,7 +3,7 @@ one completed proxy request."
 
 Per the P0 audit (``docs/superpowers/specs/P0-proxy-pipeline-audit.md``),
 18 ``metrics.record_request`` call sites across four handler files
-disagreed on argument shape — 9 of 18 omitted ``cached=``, 7 of 18
+disagreed on argument shape - 9 of 18 omitted ``cached=``, 7 of 18
 omitted ``attempted_input_tokens=``, only 4 sites emitted a structured
 PERF log at all. This module is the structural fix: every handler
 converges on building a :class:`RequestOutcome` at end-of-request and
@@ -14,7 +14,7 @@ log).
 
 Note: this is **output unification, not input unification**. Provider
 APIs (Anthropic ``/v1/messages``, OpenAI Responses WS, Gemini
-``generateContent``, Bedrock, Vertex) stay wildly different — the proxy
+``generateContent``, Bedrock, Vertex) stay wildly different - the proxy
 talks each upstream in its native dialect. This dataclass standardises
 only the *observation* about a completed request. Provider-specific
 concepts (Anthropic's 5m/1h cache TTL splits, OpenAI's
@@ -40,7 +40,7 @@ class RequestOutcome:
     Construction policy: every field that downstream consumers read MUST
     be either required (no default) or have a neutral default that makes
     the consumer's behaviour identical to "field not present". This keeps
-    the contract honest — a handler that forgets a field doesn't silently
+    the contract honest - a handler that forgets a field doesn't silently
     produce wrong metrics; it produces zeros, which the dashboard can
     surface as a missing-data condition (P3 follow-up).
     """
@@ -50,14 +50,14 @@ class RequestOutcome:
     provider: str
     model: str
 
-    # ── Tokens (required — every site has these) ──────────────────────
+    # ── Tokens (required - every site has these) ──────────────────────
     # original_tokens: pre-compression request size, for `tok_before`
     # optimized_tokens: post-compression bytes actually forwarded, for
     #     ``input_tokens`` and ``tok_after``
     # output_tokens: response tokens from upstream
     # tokens_saved: original - optimized (or 0 if compression bypassed)
     # attempted_input_tokens: denominator for active-savings-percent.
-    #     The compressible portion only — excludes user messages, system
+    #     The compressible portion only - excludes user messages, system
     #     prompts, prior assistant turns, frozen prefix bytes. This is the
     #     field 7 of 18 audit sites forgot to pass, collapsing
     #     ``active_savings_percent`` to 0 (#454 / #455).
@@ -81,17 +81,23 @@ class RequestOutcome:
     uncached_input_tokens: int = 0
     cache_inferred: bool = False
     # Response-cache hit (Headroom's own semantic cache served the
-    # response from a prior call — completely distinct from
+    # response from a prior call - completely distinct from
     # upstream-prompt-cache `cache_read_tokens`). True means the proxy
     # never reached the provider at all. Used to drive the
     # Prometheus ``cached`` counter and dashboard "response cache" row.
     from_response_cache: bool = False
 
+    # Upstream HTTP status for this request (200 on success or response-cache
+    # hit). When >= 500 (e.g. a 529 Overloaded returned after retry
+    # exhaustion) the funnel records a failed request instead of feeding the
+    # savings/cost stats, so an upstream failure can't inflate save-rate.
+    status_code: int = 200
+
     # ── Timing ────────────────────────────────────────────────────────
     # total_latency_ms: wall-clock end-to-end for this request
     # overhead_ms: time spent in compression dispatch only (subset of total)
     # ttfb_ms: time to first upstream byte for streaming paths; 0 for
-    #     non-streaming or when unmeasured (no None — convention is 0)
+    #     non-streaming or when unmeasured (no None - convention is 0)
     # pipeline_timing: optional per-stage breakdown surfaced on dashboards
     total_latency_ms: float = 0.0
     overhead_ms: float = 0.0
@@ -109,7 +115,7 @@ class RequestOutcome:
     # turn_id: stable hash of the conversation prefix; used by
     #     dashboards to group multi-turn sessions.
     # request_messages: only populated when ``config.log_full_messages``
-    #     is enabled (off by default — message bodies are sensitive).
+    #     is enabled (off by default - message bodies are sensitive).
     # tags: client-provided routing/identification tags.
     # client: identified harness driving the request (codex /
     #     claude-code / aider / cursor / opencode / zed / ...).
@@ -137,7 +143,7 @@ class RequestOutcome:
     client: str | None = None
     project: str | None = None
 
-    # ── Derived (computed once, no caching needed — properties are cheap) ─
+    # ── Derived (computed once, no caching needed - properties are cheap) ─
 
     @property
     def cache_hit(self) -> bool:
@@ -149,7 +155,7 @@ class RequestOutcome:
         ``cache_hit`` flag). The dataclass tracks them separately so
         dashboards can split them; the derived property unifies them.
 
-        Pre-refactor 9 of 18 sites hardcoded this to False — this property
+        Pre-refactor 9 of 18 sites hardcoded this to False - this property
         makes "I forgot to compute it" structurally impossible.
         """
         return self.cache_read_tokens > 0 or self.from_response_cache
@@ -173,7 +179,7 @@ class RequestOutcome:
 
         This is the proxy-side ratio: ``tokens_saved / original_tokens``.
         The dashboard headline "active savings percent" uses a different
-        ratio (``tokens_saved / attempted_input_tokens``) — see the
+        ratio (``tokens_saved / attempted_input_tokens``) - see the
         Prometheus metric for the active calculation.
         """
         if self.original_tokens <= 0:
@@ -221,7 +227,7 @@ class RequestOutcome:
           * ``attempted_input_tokens = optimized_tokens + tokens_saved``
           * ``num_messages = len(body["messages"])``
           * ``request_messages`` conditional on ``log_full_messages``
-          * ``turn_id`` via ``compute_turn_id`` — pre-refactor only the
+          * ``turn_id`` via ``compute_turn_id`` - pre-refactor only the
             Bedrock site computed this; sites 1 and 3 silently dropped it,
             breaking multi-turn-session grouping on Anthropic-SSE and
             OpenAI-via-backend traffic
@@ -254,7 +260,7 @@ class RequestOutcome:
             system = body.get("systemInstruction")
 
         # ``request_items`` is ``body["messages"]`` (or ``body["contents"]``
-        # for Gemini, falling back to ``[]``) — the post-compression list the
+        # for Gemini, falling back to ``[]``) - the post-compression list the
         # caller already mutated in place before finalize. When a
         # caller threads in ``original_messages`` (the pre-compression
         # snapshot), log it as ``request_messages`` and the sent body as
@@ -310,12 +316,16 @@ async def emit_request_outcome(handler: Any, outcome: RequestOutcome) -> None:
 
     Owns the four downstream effects in canonical order:
 
-      1. ``handler.metrics.record_request(...)`` — Prometheus / SavingsTracker
-      2. ``handler.cost_tracker.record_tokens(...)`` — cost dashboard
+      1. ``handler.metrics.record_request(...)`` - Prometheus / SavingsTracker
+      2. ``handler.cost_tracker.record_tokens(...)`` - cost dashboard
          (skipped when cost_tracker is None, i.e. ``--no-cost``)
-      3. ``handler.logger.log(RequestLog(...))`` — per-request log feed
+      3. ``handler.logger.log(RequestLog(...))`` - per-request log feed
          (skipped when logger is None, i.e. ``--no-request-logging``)
-      4. structured PERF log line — consumed by ``headroom perf``
+      4. structured PERF log line - consumed by ``headroom perf``
+
+    A failure outcome (``status_code >= 500``, e.g. a 529 surfaced after retry
+    exhaustion) short-circuits before these four effects: it records a failed
+    request and returns, so an upstream failure cannot feed the success stats.
 
     Takes the handler as a free argument rather than ``self`` so this
     function is callable from:
@@ -325,13 +335,35 @@ async def emit_request_outcome(handler: Any, outcome: RequestOutcome) -> None:
     * any provider handler mixin
 
     The handler argument is structurally typed (duck-typed); no formal
-    Protocol — the requirement is simply that ``handler.metrics`` exists
+    Protocol - the requirement is simply that ``handler.metrics`` exists
     and is awaitable-compatible. We could lift this to a typing.Protocol
     if/when another contract surface emerges, but YAGNI.
     """
     from headroom.proxy.cost import _summarize_transforms
     from headroom.proxy.models import RequestLog
     from headroom.proxy.project_context import get_current_project
+
+    # Upstream failure (>= 500, e.g. a 529 Overloaded surfaced after retry
+    # exhaustion) must not feed the savings/cost/log success stats; that would
+    # let a failed request inflate the save-rate. Record it as failed and stop,
+    # mirroring the pre-passthrough behaviour where an exhausted 5xx raised and
+    # was counted via record_failed. 4xx stay on the normal funnel: they are
+    # client errors the proxy still served.
+    if outcome.status_code >= 500:
+        await handler.metrics.record_failed(provider=outcome.provider)
+        return
+
+    # Output-shaping savings ledger (counterfactual estimator). The shaper
+    # tags each request's (arm, stratum) onto ``transforms_applied``; feed the
+    # observed output tokens to the recorder so it can produce an honest
+    # reduction estimate. Best-effort: never let bookkeeping break a response.
+    if any(str(t).startswith("output_shaper:") for t in outcome.transforms_applied):
+        try:
+            from headroom.proxy.output_savings import get_recorder
+
+            get_recorder().record_from_labels(outcome.transforms_applied, outcome.output_tokens)
+        except Exception:  # pragma: no cover - defensive
+            pass
 
     # Project attribution: explicit outcome field wins, else the value the
     # HTTP middleware / WS accept captured from ``X-Headroom-Project``.
@@ -357,6 +389,7 @@ async def emit_request_outcome(handler: Any, outcome: RequestOutcome) -> None:
         uncached_input_tokens=outcome.uncached_input_tokens,
         attempted_input_tokens=outcome.attempted_input_tokens,
         project=project,
+        client=outcome.client,
     )
 
     # 2. Cost tracker (optional).
@@ -375,7 +408,7 @@ async def emit_request_outcome(handler: Any, outcome: RequestOutcome) -> None:
 
     # 3. Per-request log (optional). The ``client`` outcome field is
     #    copied into ``tags["client"]`` so the dashboard's existing
-    #    tag-based filtering surfaces per-harness slicing for free —
+    #    tag-based filtering surfaces per-harness slicing for free -
     #    no new RequestLog column needed. The original ``outcome.tags``
     #    dict is not mutated (frozen dataclass + defensive copy).
     request_logger = getattr(handler, "logger", None)
@@ -409,7 +442,7 @@ async def emit_request_outcome(handler: Any, outcome: RequestOutcome) -> None:
         )
 
     # 4. Structured PERF log line. ``client=X`` is appended only when
-    #    a harness was identified — keeps the unidentified-traffic
+    #    a harness was identified - keeps the unidentified-traffic
     #    line unchanged, and gives ``headroom perf --client X``
     #    parsers a clean key to filter on.
     client_part = f" client={outcome.client}" if outcome.client else ""

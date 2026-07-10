@@ -27,11 +27,13 @@ SUPPORTED_TARGETS = [
     ToolTarget.AIDER,
     ToolTarget.CURSOR,
     ToolTarget.OPENCLAW,
+    ToolTarget.OPENCODE,
 ]
 PROVIDER_SCOPE_TARGETS = [
     ToolTarget.CLAUDE,
     ToolTarget.CODEX,
     ToolTarget.OPENCLAW,
+    ToolTarget.OPENCODE,
 ]
 
 
@@ -72,7 +74,7 @@ def resolve_targets(
         if unsupported:
             unsupported_list = ", ".join(sorted(set(unsupported)))
             raise click.ClickException(
-                "Provider scope supports only claude, codex, and openclaw; "
+                "Provider scope supports only claude, codex, openclaw, and opencode; "
                 f"unsupported targets: {unsupported_list}"
             )
 
@@ -117,6 +119,7 @@ def build_manifest(
     memory_enabled: bool,
     telemetry_enabled: bool,
     image: str,
+    no_http2: bool = False,
 ) -> DeploymentManifest:
     """Create a normalized deployment manifest."""
 
@@ -164,6 +167,8 @@ def build_manifest(
         proxy_args.extend(["--anyllm-provider", anyllm_provider])
     if region:
         proxy_args.extend(["--region", region])
+    if no_http2:
+        proxy_args.append("--no-http2")
 
     container_name = f"headroom-{normalized_profile}"
     return DeploymentManifest(
