@@ -39,7 +39,7 @@ def test_compression_cache_handles_hits_skips_evictions_and_clear(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     times = iter([100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 112.0, 112.0])
-    monkeypatch.setattr(content_router_module.time, "time", lambda: next(times))
+    monkeypatch.setattr(content_router_module.time, "monotonic", lambda: next(times))
     monkeypatch.setattr(content_router_module.time, "perf_counter_ns", lambda: 50)
 
     cache = CompressionCache(ttl_seconds=10)
@@ -133,6 +133,11 @@ def test_content_signature_and_detection_helpers(monkeypatch: pytest.MonkeyPatch
     # result; verify _detect_content propagates the content_type
     # tag back as the Python ContentType enum.
     import headroom._core as _core
+
+    # Pin the Rust backend so this test exercises the native delegation
+    # path on every platform (Windows now defaults to the pure-Python
+    # detector — see content_router._resolve_detect_backend).
+    monkeypatch.setenv("HEADROOM_DETECT_BACKEND", "rust")
 
     fake_rust_result = SimpleNamespace(
         content_type="source_code",
@@ -582,7 +587,7 @@ def test_log_strategy_does_not_fallback_to_kompress_when_log_is_noop(
 # Cache-safety tests for _process_content_blocks. These pin down the
 # block-level invariants that protect upstream prefix caches:
 #
-#   * cache_control on a block is the client's explicit cache breakpoint -
+#   * cache_control on a block is the client's explicit cache breakpoint —
 #     never modified, regardless of role/type.
 #   * assistant text blocks are part of the cache prefix in subsequent
 #     turns; default-skipped, opt-in via compress_assistant_text_blocks.
@@ -755,7 +760,7 @@ def test_tool_role_text_blocks_compressed_by_default(
         [],
         set(),
     )
-    # tool role ≈ tool output - compress freely
+    # tool role ≈ tool output — compress freely
     assert "[compressed]" in result["content"][0]["text"]
 
 
@@ -823,7 +828,7 @@ def test_detect_backend_env_python_forces_python_path(
 
     monkeypatch.setattr(_core, "detect_content_type", _record)
 
-    # Should not raise - native detector must be bypassed entirely.
+    # Should not raise — native detector must be bypassed entirely.
     result = _detect_content('[{"id": 1}]')
     assert result.content_type is ContentType.JSON_ARRAY
     assert called == [], "native detect_content_type was called despite python backend"
@@ -998,7 +1003,7 @@ def test_strip_detection_envelope_isolates_tool_output_payload() -> None:
     # Non-envelope content is returned verbatim (no "<" fast-path + no match).
     prose = "see the <output> tag docs for details"
     assert _strip_detection_envelope(prose) == prose
-    # Empty body never yields an empty probe - falls back to the original.
+    # Empty body never yields an empty probe — falls back to the original.
     empty = "<output>\n\n</output>"
     assert _strip_detection_envelope(empty) == empty
 
