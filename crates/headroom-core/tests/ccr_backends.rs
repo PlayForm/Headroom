@@ -37,6 +37,15 @@ fn sqlite_ttl_purge() {
     // resolution on unix-seconds).
     std::thread::sleep(Duration::from_millis(1_100));
     assert_eq!(store.get(&hash), None, "expired entry must be purged");
+    // `put` now also runs the debounced lazy-purge sweep (report 06
+    // F10/T12) - on THIS store, that very first `put()` call already
+    // consumed the "first-ever-call is always due" debounce freebie
+    // against an empty table, so the real sweep 1.1s later is correctly
+    // skipped (still well under `PURGE_DEBOUNCE_SECS`). `get`'s WHERE
+    // clause already hides the logically-expired row unconditionally
+    // (asserted above) - `force_purge_now` bypasses the debounce to check
+    // physical deletion without a 60s sleep.
+    store.force_purge_now();
     assert_eq!(store.len(), 0, "expired entry must be physically deleted");
 }
 
@@ -56,7 +65,7 @@ fn sqlite_persists_across_proxy_restart() {
         // `store` drops here, simulating worker shutdown.
     }
 
-    // Reconstruct from the same path — simulates `--workers 1` restart.
+    // Reconstruct from the same path - simulates `--workers 1` restart.
     let store = SqliteCcrStore::open(&path, 300).expect("re-open sqlite store (turn 2)");
     let fetched = store.get(&hash);
     assert_eq!(
@@ -115,7 +124,7 @@ fn backend_swap_byte_equal_keys() {
     // payload, and assert the keys are byte-equal. This is the
     // load-bearing invariant: operators may migrate between backends
     // (e.g. SQLite → Redis when scaling out) and the in-flight CCR
-    // markers must keep working — the marker bytes are the hash, and
+    // markers must keep working - the marker bytes are the hash, and
     // the hash function is fixed in `ccr::compute_key`.
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("ccr.sqlite");
@@ -127,7 +136,7 @@ fn backend_swap_byte_equal_keys() {
         "alpha",
         r#"[{"id":1}]"#,
         "the quick brown fox jumps over the lazy dog",
-        "<<<<>>>>", // marker-adjacent characters — sanity check on the BLAKE3 trim
+        "<<<<>>>>", // marker-adjacent characters - sanity check on the BLAKE3 trim
     ];
 
     for payload in &payloads {
@@ -137,7 +146,7 @@ fn backend_swap_byte_equal_keys() {
         assert_eq!(key_a, key_b, "compute_key must be deterministic");
 
         // Step 2: store in sqlite, mirror to in-memory under the same
-        // key — both backends recover byte-equal values.
+        // key - both backends recover byte-equal values.
         sqlite.put(&key_a, payload);
         in_memory.put(&key_b, payload);
 
@@ -159,7 +168,7 @@ mod redis_tests {
     use super::*;
     use headroom_core::ccr::backends::RedisCcrStore;
 
-    /// Reads `HEADROOM_TEST_REDIS_URL` from the environment — when the
+    /// Reads `HEADROOM_TEST_REDIS_URL` from the environment - when the
     /// feature is on but no URL is configured we silently no-op. CI
     /// runs the redis test in a docker-compose'd matrix.
     fn redis_url() -> Option<String> {

@@ -13,7 +13,7 @@
 //! ```
 //!
 //! On every `get` we lazy-purge stale rows
-//! (`WHERE created_at + ttl_seconds <= now`) — no background reaper
+//! (`WHERE created_at + ttl_seconds <= now`) - no background reaper
 //! thread, no cron. The purge is debounced to once every 60 seconds
 //! so high read-concurrency does not re-execute the same DELETE.
 //!
@@ -28,7 +28,7 @@
 //! reads/writes are short and rare relative to the proxy hot path, so
 //! a single mutex on the connection is fine. Operators who measure
 //! contention can shard by spinning up N stores backed by N DB files
-//! (e.g. one per worker) — multi-worker safety is provided by SQLite's
+//! (e.g. one per worker) - multi-worker safety is provided by SQLite's
 //! own file locking.
 //!
 //! # WAL mode
@@ -82,7 +82,7 @@ pub struct SqliteCcrStore {
     /// Default TTL applied on every `put`. Mirrors Python's
     /// `compression_store` 5-minute window.
     default_ttl_seconds: u64,
-    /// Path the connection was opened against — kept for diagnostics
+    /// Path the connection was opened against - kept for diagnostics
     /// and for the proxy-restart simulation test.
     path: PathBuf,
     /// Tracks the last time we ran a lazy-purge sweep. Debounced to
@@ -101,10 +101,19 @@ impl SqliteCcrStore {
 
         // WAL gives us readers-don't-block-writers. `synchronous=NORMAL`
         // is the WAL-recommended setting (FULL is overkill for a CCR
-        // cache — a power-loss-truncated row only costs us a single
+        // cache - a power-loss-truncated row only costs us a single
         // retrieval miss).
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
+        // Default busy timeout is 0 (fail-fast) - with multiple aphrodite
+        // processes sharing one ccr.db (e.g. two token proxies both
+        // defaulting to the same path), a write colliding with another
+        // process's write/checkpoint returned SQLITE_BUSY immediately,
+        // `put` logged a warning and returned `false`, and the caller
+        // proceeded to destroy the original content anyway (see F3/T2's
+        // fix in the aphrodite proxy layer). Block briefly instead of
+        // failing immediately under normal cross-process contention.
+        conn.busy_timeout(Duration::from_secs(5))?;
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS ccr_entries (
@@ -115,10 +124,26 @@ impl SqliteCcrStore {
              )",
             [],
         )?;
-        // No secondary index — the schema is one-row-per-PK and the only
+        // No secondary index - the schema is one-row-per-PK and the only
         // non-PK lookup (the lazy-purge sweep) is a `WHERE` predicate on
         // a small table; an index on `created_at + ttl_seconds` would
         // cost more than it saves.
+
+        // Schema migration hook (report 06 F10/T12): `CREATE TABLE IF NOT
+        // EXISTS` alone silently keeps whatever schema an older binary
+        // already created on disk - a future column addition would need
+        // this to detect "old file, new code" instead of just running the
+        // `CREATE` (a no-op against the existing table) and then failing on
+        // every query that references the new column. `user_version` starts
+        // at 0 on a fresh SQLite file; this schema is version 1. Bump this
+        // and add a migration branch (not just the `CREATE TABLE`) when the
+        // schema next changes.
+        const SCHEMA_VERSION: i64 = 1;
+        let on_disk_version: i64 =
+            conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+        if on_disk_version < SCHEMA_VERSION {
+            conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+        }
 
         Ok(Self {
             conn: Mutex::new(conn),
@@ -138,7 +163,22 @@ impl SqliteCcrStore {
         self.default_ttl_seconds
     }
 
-    /// Drop all expired rows. Lazy — invoked from `get`. Returns the
+    /// Run a purge sweep immediately, bypassing the `PURGE_DEBOUNCE_SECS`
+    /// window. Not on any hot path - for tests that need to observe
+    /// physical deletion without waiting out the debounce, and as a manual
+    /// "vacuum now" hook a future ops command could wire up.
+    pub fn force_purge_now(&self) {
+        let now = Self::now_unix_seconds();
+        let conn = lock_conn(&self.conn);
+        if let Err(err) = Self::purge_expired(&conn, now) {
+            tracing::warn!(target = "ccr.sqlite", error = %err, "ccr_sqlite_purge_failed");
+        }
+        if let Ok(mut last) = self.last_purge.lock() {
+            *last = Some(Instant::now());
+        }
+    }
+
+    /// Drop all expired rows. Lazy - invoked from `get`. Returns the
     /// number of rows purged.
     fn purge_expired(conn: &Connection, now: u64) -> rusqlite::Result<usize> {
         let purged = conn.execute(
@@ -193,6 +233,11 @@ impl CcrStore for SqliteCcrStore {
     fn put(&self, hash: &str, payload: &str) -> bool {
         let now = Self::now_unix_seconds();
         let conn = lock_conn(&self.conn);
+        // Debounced lazy purge sweep (report 06 F10/T12) - previously only
+        // `get` ever purged, so a compress-heavy, retrieve-light workload
+        // (the common case: most markers are never expanded) accumulated
+        // every expired row forever and `ccr.db` only ever grew.
+        self.maybe_purge(&conn, now);
         // Upsert by PK. ON CONFLICT REPLACE matches the in-memory
         // backend's idempotent re-store semantics.
         let res = conn.execute(
@@ -212,7 +257,7 @@ impl CcrStore for SqliteCcrStore {
         // Loud-failure rule: surface as a structured warning. Caller
         // (the live-zone dispatcher) does not need a Result for the put
         // path because the marker has already been embedded in the
-        // compressed block — a missed put degrades gracefully to "model
+        // compressed block - a missed put degrades gracefully to "model
         // can't retrieve original bytes for this hash". We log, we
         // don't panic, so the proxy keeps serving traffic.
         match res {
@@ -311,7 +356,7 @@ impl CcrStore for SqliteCcrStore {
 
         // `total_bytes_compressed` is estimated (24 bytes per entry,
         // matching the 24-char BLAKE3 hex prefix used as the CCR key).
-        // This is a heuristic — actual original payloads are stored
+        // This is a heuristic - actual original payloads are stored
         // uncompressed in `total_bytes_original`.
         Some(serde_json::json!({
             "total_entries": total_entries,
