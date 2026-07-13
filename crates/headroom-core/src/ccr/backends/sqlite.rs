@@ -361,7 +361,7 @@ impl CcrStore for SqliteCcrStore {
         Some(serde_json::json!({
             "total_entries": total_entries,
             "total_bytes_original": total_original,
-            "total_bytes_compressed": (total_entries as i64).saturating_mul(24),
+            "total_bytes_compressed": total_entries.saturating_mul(24),
             "oldest_entry_age_seconds": oldest_age_seconds,
             "database_size_bytes": db_size,
         }))

@@ -1,4 +1,4 @@
-//! Numeric statistics helpers — port of Python's `statistics` module
+//! Numeric statistics helpers - port of Python's `statistics` module
 //! semantics used by `SmartAnalyzer`.
 //!
 //! Python's `statistics` module uses **sample** variance/stdev (n-1
@@ -7,7 +7,7 @@
 //! points, anomaly thresholds, crushability cases). These helpers
 //! mirror Python's defaults.
 
-/// Arithmetic mean. Returns `None` on empty input — Python's
+/// Arithmetic mean. Returns `None` on empty input - Python's
 /// `statistics.mean([])` raises `StatisticsError`; we model that as
 /// "no value to return", and callers must handle it.
 ///
@@ -31,7 +31,7 @@ pub fn mean(values: &[f64]) -> Option<f64> {
 /// Sample variance with `n-1` denominator (Python `statistics.variance`).
 /// Requires at least 2 values; returns `None` for fewer (mirrors
 /// Python which raises `StatisticsError` for n < 2). Also returns `None`
-/// on non-finite results — see `mean` for rationale.
+/// on non-finite results - see `mean` for rationale.
 pub fn sample_variance(values: &[f64]) -> Option<f64> {
     if values.len() < 2 {
         return None;
@@ -46,7 +46,7 @@ pub fn sample_variance(values: &[f64]) -> Option<f64> {
     }
 }
 
-/// Sample standard deviation — sqrt of `sample_variance`. Same n>=2
+/// Sample standard deviation - sqrt of `sample_variance`. Same n>=2
 /// requirement as the variance helper. `None` propagates from
 /// `sample_variance`, including on non-finite inputs.
 pub fn sample_stdev(values: &[f64]) -> Option<f64> {
@@ -55,7 +55,7 @@ pub fn sample_stdev(values: &[f64]) -> Option<f64> {
 
 /// Median (Python `statistics.median`). Returns the middle element for
 /// odd-count input, mean of two middles for even-count. Returns `None`
-/// on empty input — Python raises `StatisticsError`.
+/// on empty input - Python raises `StatisticsError`.
 ///
 /// Caller must pre-filter NaN/Inf if undesired (Python's median with
 /// NaN gives indeterminate ordering; we sort with `total_cmp` to keep
@@ -67,7 +67,7 @@ pub fn median(values: &[f64]) -> Option<f64> {
     let mut sorted: Vec<f64> = values.to_vec();
     sorted.sort_by(f64::total_cmp);
     let n = sorted.len();
-    if n % 2 == 0 {
+    if n.is_multiple_of(2) {
         // Mean of the two middle elements.
         let lo = sorted[n / 2 - 1];
         let hi = sorted[n / 2];
@@ -208,7 +208,7 @@ mod tests {
         // treats as "no stats". We mirror by returning None.
         let huge = f64::MAX / 2.0;
         let nums = vec![huge, huge, huge, huge];
-        // Sum overflows to +Inf, mean = Inf — non-finite, must be None.
+        // Sum overflows to +Inf, mean = Inf - non-finite, must be None.
         assert_eq!(mean(&nums), None);
     }
 

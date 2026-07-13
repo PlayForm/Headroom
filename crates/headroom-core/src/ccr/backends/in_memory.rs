@@ -48,7 +48,7 @@ fn lock_order(mtx: &Mutex<VecDeque<String>>) -> std::sync::MutexGuard<'_, VecDeq
 /// access.
 ///
 /// - **TTL**: 5 minutes by default. Entries past their TTL are dropped
-///   on the next `get` (lazy expiry — no background reaper thread).
+///   on the next `get` (lazy expiry - no background reaper thread).
 /// - **Capacity**: 1000 entries by default. When `put` would push us
 ///   past capacity, the oldest entry (per insertion order) is evicted.
 /// - **Concurrency**: gets and puts on distinct keys do not contend.
@@ -61,7 +61,7 @@ fn lock_order(mtx: &Mutex<VecDeque<String>>) -> std::sync::MutexGuard<'_, VecDeq
 pub struct InMemoryCcrStore {
     map: DashMap<String, Entry>,
     /// FIFO insertion order. Stale entries (already removed from `map`
-    /// via TTL expiry) are tolerated — `pop_front` + `map.remove` is a
+    /// via TTL expiry) are tolerated - `pop_front` + `map.remove` is a
     /// no-op for missing keys, and capacity-bounded sweeps loop until
     /// they actually evict a real entry.
     ///
@@ -97,7 +97,7 @@ impl InMemoryCcrStore {
     /// exist in the DashMap (already expired or evicted).
     ///
     /// Called from `get()` when `order.len() > capacity * 2` to prevent
-    /// unbounded queue growth under sustained churn. Linear scan — safe
+    /// unbounded queue growth under sustained churn. Linear scan - safe
     /// because the queue is only compacted when it's significantly
     /// larger than the live map.
     fn compact(&self) {
@@ -151,7 +151,7 @@ impl CcrStore for InMemoryCcrStore {
         };
         let prev = self.map.insert(hash.to_string(), entry);
         if prev.is_none() {
-            // Truly new key — record in FIFO order. (If `prev.is_some()`
+            // Truly new key - record in FIFO order. (If `prev.is_some()`
             // it means another thread re-inserted between our get_mut
             // miss and this insert; treat that as a fast-path overwrite
             // and skip the queue append to avoid duplicates.)
@@ -164,22 +164,23 @@ impl CcrStore for InMemoryCcrStore {
         // Compact the order queue when it has grown significantly
         // beyond the live entry count, preventing unbounded memory
         // growth from stale keys.
-        if {
+        let should_compact = {
             let guard = lock_order(&self.order);
             guard.len() > self.capacity * 2
-        } {
+        };
+        if should_compact {
             self.compact();
         }
 
         // Read path: shard read-lock, check TTL, clone payload out.
-        // No global lock involvement at all — distinct hashes hash to
+        // No global lock involvement at all - distinct hashes hash to
         // distinct shards and never contend.
         //
         // Lazy expiry uses DashMap's `remove_if` so the check-and-remove
         // is atomic on the shard. An earlier 2-step (drop read lock,
         // then `remove`) had a TOCTOU race: between dropping the read
         // lock and calling `remove`, a concurrent `put()` of the same
-        // hash with a fresh timestamp could land — and our `remove`
+        // hash with a fresh timestamp could land - and our `remove`
         // would then wipe that fresh entry. Under multi-worker proxy
         // load this manifested as "I just stored it; why is it gone?"
         // `remove_if` closes the window because the shard write lock
@@ -202,7 +203,7 @@ impl CcrStore for InMemoryCcrStore {
         if was_removed {
             None
         } else {
-            // Concurrent refresh — return the fresh payload.
+            // Concurrent refresh - return the fresh payload.
             self.map.get(hash).map(|e| e.payload.clone())
         }
     }
@@ -279,7 +280,7 @@ mod tests {
 
     #[test]
     fn concurrent_puts_and_gets_do_not_corrupt() {
-        // Smoke test for the concurrent design — N threads each do
+        // Smoke test for the concurrent design - N threads each do
         // P puts and P gets against distinct keys. Every key written
         // must be readable afterwards.
         use std::sync::Arc;
@@ -393,7 +394,7 @@ mod tests {
             if i % 10 == 0 {
                 std::thread::sleep(Duration::from_millis(6));
             }
-            // Get a key that has very likely expired — this triggers
+            // Get a key that has very likely expired - this triggers
             // remove_if (lazy expiry in the map) and, if the queue
             // is large enough, compaction.
             if i > 0 {
@@ -411,7 +412,7 @@ mod tests {
         };
         let map_len = store.map.len();
 
-        // The queue should be bounded — certainly less than the number
+        // The queue should be bounded - certainly less than the number
         // of puts we did (500). A reasonable bound is capacity * 3
         // (compaction triggers at capacity * 2 and may leave a small
         // slack).
