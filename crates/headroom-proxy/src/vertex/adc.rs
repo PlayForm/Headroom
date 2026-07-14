@@ -64,14 +64,14 @@ pub const DEFAULT_VERTEX_SCOPE: &str = "https://www.googleapis.com/auth/cloud-pl
 /// response.
 #[derive(Debug, Error)]
 pub enum TokenSourceError {
-    /// `gcp_auth` failed to resolve any provider in the ADC chain.
-    /// Common cause: developer never ran `gcloud auth application-default
-    /// login` and no service-account JSON is in scope.
-    #[error("gcp ADC provider initialization failed: {0}")]
-    ProviderInit(String),
-    /// The provider was resolved but `.token(scopes)` failed.
-    #[error("gcp ADC token fetch failed: {0}")]
-    Fetch(String),
+	/// `gcp_auth` failed to resolve any provider in the ADC chain.
+	/// Common cause: developer never ran `gcloud auth application-default
+	/// login` and no service-account JSON is in scope.
+	#[error("gcp ADC provider initialization failed: {0}")]
+	ProviderInit(String),
+	/// The provider was resolved but `.token(scopes)` failed.
+	#[error("gcp ADC token fetch failed: {0}")]
+	Fetch(String),
 }
 
 /// A source of bearer tokens for Vertex calls. Production uses
@@ -80,29 +80,29 @@ pub enum TokenSourceError {
 /// fallback to a "default token").
 #[async_trait]
 pub trait TokenSource: Send + Sync + std::fmt::Debug {
-    /// Return a non-empty bearer token suitable for the
-    /// `Authorization: Bearer <token>` header. The token is cached
-    /// internally; concurrent calls de-dup to a single fetch.
-    async fn bearer(&self) -> Result<String, TokenSourceError>;
+	/// Return a non-empty bearer token suitable for the
+	/// `Authorization: Bearer <token>` header. The token is cached
+	/// internally; concurrent calls de-dup to a single fetch.
+	async fn bearer(&self) -> Result<String, TokenSourceError>;
 }
 
 /// Token + expiry pair held in the cache.
 #[derive(Debug, Clone)]
 struct CachedToken {
-    token: String,
-    expires_at: SystemTime,
+	token: String,
+	expires_at: SystemTime,
 }
 
 impl CachedToken {
-    /// `true` when the token has more than `REFRESH_AHEAD_SECS` of
-    /// life left.
-    fn fresh(&self) -> bool {
-        match self.expires_at.duration_since(SystemTime::now()) {
-            Ok(remaining) => remaining > Duration::from_secs(REFRESH_AHEAD_SECS),
-            // `expires_at` already past now → not fresh.
-            Err(_) => false,
-        }
-    }
+	/// `true` when the token has more than `REFRESH_AHEAD_SECS` of
+	/// life left.
+	fn fresh(&self) -> bool {
+		match self.expires_at.duration_since(SystemTime::now()) {
+			Ok(remaining) => remaining > Duration::from_secs(REFRESH_AHEAD_SECS),
+			// `expires_at` already past now → not fresh.
+			Err(_) => false,
+		}
+	}
 }
 
 /// Production token source backed by `gcp_auth`'s default ADC chain.
@@ -112,146 +112,130 @@ impl CachedToken {
 /// calls re-use the provider and the cached token until its expiry
 /// approaches.
 pub struct GcpAdcTokenSource {
-    /// Configured OAuth scope. Defaults to `cloud-platform`.
-    scope: String,
-    /// Lazily-initialized provider. We wrap in a `Mutex<Option<...>>`
-    /// (rather than `OnceCell`) because the provider initialization
-    /// is fallible and we want the next call after a transient
-    /// failure to retry — not lock the cell to a permanent error.
-    provider: Mutex<Option<Arc<dyn ::gcp_auth::TokenProvider>>>,
-    /// Cached token + expiry. `Mutex` is fine here: the critical
-    /// section (compare expiry, optionally refresh) is sub-microsecond
-    /// in the cache-hit case and the refresh-miss path is rate-limited
-    /// by the upstream metadata server anyway.
-    cached: Mutex<Option<CachedToken>>,
+	/// Configured OAuth scope. Defaults to `cloud-platform`.
+	scope: String,
+	/// Lazily-initialized provider. We wrap in a `Mutex<Option<...>>`
+	/// (rather than `OnceCell`) because the provider initialization
+	/// is fallible and we want the next call after a transient
+	/// failure to retry — not lock the cell to a permanent error.
+	provider: Mutex<Option<Arc<dyn ::gcp_auth::TokenProvider>>>,
+	/// Cached token + expiry. `Mutex` is fine here: the critical
+	/// section (compare expiry, optionally refresh) is sub-microsecond
+	/// in the cache-hit case and the refresh-miss path is rate-limited
+	/// by the upstream metadata server anyway.
+	cached: Mutex<Option<CachedToken>>,
 }
 
 impl std::fmt::Debug for GcpAdcTokenSource {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("GcpAdcTokenSource")
-            .field("scope", &self.scope)
-            .field(
-                "provider_initialized",
-                &self
-                    .provider
-                    .try_lock()
-                    .map(|g| g.is_some())
-                    .unwrap_or(false),
-            )
-            .finish()
-    }
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("GcpAdcTokenSource")
+			.field("scope", &self.scope)
+			.field(
+				"provider_initialized",
+				&self.provider.try_lock().map(|g| g.is_some()).unwrap_or(false),
+			)
+			.finish()
+	}
 }
 
 impl GcpAdcTokenSource {
-    /// Construct with the default `cloud-platform` scope. The
-    /// provider is NOT resolved here — we defer until the first
-    /// `.bearer()` call. That keeps proxy startup cheap when the
-    /// operator hasn't actually wired a Vertex route yet.
-    pub fn new() -> Self {
-        Self::with_scope(DEFAULT_VERTEX_SCOPE)
-    }
+	/// Construct with the default `cloud-platform` scope. The
+	/// provider is NOT resolved here — we defer until the first
+	/// `.bearer()` call. That keeps proxy startup cheap when the
+	/// operator hasn't actually wired a Vertex route yet.
+	pub fn new() -> Self {
+		Self::with_scope(DEFAULT_VERTEX_SCOPE)
+	}
 
-    /// Construct with an explicit scope. Used by tests / by operators
-    /// who want a narrower scope than `cloud-platform`.
-    pub fn with_scope(scope: impl Into<String>) -> Self {
-        Self {
-            scope: scope.into(),
-            provider: Mutex::new(None),
-            cached: Mutex::new(None),
-        }
-    }
+	/// Construct with an explicit scope. Used by tests / by operators
+	/// who want a narrower scope than `cloud-platform`.
+	pub fn with_scope(scope: impl Into<String>) -> Self {
+		Self { scope: scope.into(), provider: Mutex::new(None), cached: Mutex::new(None) }
+	}
 
-    /// Resolve the provider lazily. On success, stores it for re-use
-    /// and returns a clone of the `Arc`. On failure, returns the
-    /// error verbatim — the next call retries (no permanent lock).
-    async fn ensure_provider(
-        &self,
-    ) -> Result<Arc<dyn ::gcp_auth::TokenProvider>, TokenSourceError> {
-        let mut guard = self.provider.lock().await;
-        if let Some(p) = guard.as_ref() {
-            return Ok(p.clone());
-        }
-        let provider = ::gcp_auth::provider()
-            .await
-            .map_err(|e| TokenSourceError::ProviderInit(e.to_string()))?;
-        *guard = Some(provider.clone());
-        Ok(provider)
-    }
+	/// Resolve the provider lazily. On success, stores it for re-use
+	/// and returns a clone of the `Arc`. On failure, returns the
+	/// error verbatim — the next call retries (no permanent lock).
+	async fn ensure_provider(&self) -> Result<Arc<dyn ::gcp_auth::TokenProvider>, TokenSourceError> {
+		let mut guard = self.provider.lock().await;
+		if let Some(p) = guard.as_ref() {
+			return Ok(p.clone());
+		}
+		let provider = ::gcp_auth::provider()
+			.await
+			.map_err(|e| TokenSourceError::ProviderInit(e.to_string()))?;
+		*guard = Some(provider.clone());
+		Ok(provider)
+	}
 }
 
 impl Default for GcpAdcTokenSource {
-    fn default() -> Self {
-        Self::new()
-    }
+	fn default() -> Self {
+		Self::new()
+	}
 }
 
 #[async_trait]
 impl TokenSource for GcpAdcTokenSource {
-    async fn bearer(&self) -> Result<String, TokenSourceError> {
-        // Fast path: cached + fresh.
-        {
-            let guard = self.cached.lock().await;
-            if let Some(c) = guard.as_ref() {
-                if c.fresh() {
-                    return Ok(c.token.clone());
-                }
-            }
-        }
+	async fn bearer(&self) -> Result<String, TokenSourceError> {
+		// Fast path: cached + fresh.
+		{
+			let guard = self.cached.lock().await;
+			if let Some(c) = guard.as_ref() {
+				if c.fresh() {
+					return Ok(c.token.clone());
+				}
+			}
+		}
 
-        // Slow path: refresh. We re-take the lock around the fetch
-        // so concurrent callers serialize on a single network round
-        // trip (rather than thundering-herd the metadata server).
-        let mut guard = self.cached.lock().await;
-        // Double-check inside the lock — another waiter may have
-        // refreshed while we were queued.
-        if let Some(c) = guard.as_ref() {
-            if c.fresh() {
-                return Ok(c.token.clone());
-            }
-        }
+		// Slow path: refresh. We re-take the lock around the fetch
+		// so concurrent callers serialize on a single network round
+		// trip (rather than thundering-herd the metadata server).
+		let mut guard = self.cached.lock().await;
+		// Double-check inside the lock — another waiter may have
+		// refreshed while we were queued.
+		if let Some(c) = guard.as_ref() {
+			if c.fresh() {
+				return Ok(c.token.clone());
+			}
+		}
 
-        let provider = self.ensure_provider().await?;
-        let scopes = [self.scope.as_str()];
-        let token = provider
-            .token(&scopes)
-            .await
-            .map_err(|e| TokenSourceError::Fetch(e.to_string()))?;
-        let token_str = token.as_str().to_string();
-        // `gcp_auth::Token::expires_at()` returns a `chrono::DateTime<Utc>`.
-        // Convert to `SystemTime` via the UNIX timestamp; `chrono` clamps
-        // to its valid range so this never panics. Negative timestamps
-        // (pre-epoch) are not legal for token expiries; if encountered we
-        // treat the token as already expired so the next call refreshes.
-        let expires_at = {
-            let dt = token.expires_at();
-            let unix_ts = dt.timestamp();
-            if unix_ts < 0 {
-                tracing::warn!(
-                    event = "vertex_adc_token_negative_expiry",
-                    expires_at_unix = unix_ts,
-                    "gcp_auth token expires_at is pre-epoch; treating as already-expired"
-                );
-                SystemTime::UNIX_EPOCH
-            } else {
-                SystemTime::UNIX_EPOCH + Duration::from_secs(unix_ts as u64)
-            }
-        };
-        let lifetime_remaining = expires_at
-            .duration_since(SystemTime::now())
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        tracing::info!(
-            event = "vertex_adc_token_refreshed",
-            scope = %self.scope,
-            lifetime_remaining_secs = lifetime_remaining,
-            "vertex ADC bearer token refreshed"
-        );
-        *guard = Some(CachedToken {
-            token: token_str.clone(),
-            expires_at,
-        });
-        Ok(token_str)
-    }
+		let provider = self.ensure_provider().await?;
+		let scopes = [self.scope.as_str()];
+		let token = provider
+			.token(&scopes)
+			.await
+			.map_err(|e| TokenSourceError::Fetch(e.to_string()))?;
+		let token_str = token.as_str().to_string();
+		// `gcp_auth::Token::expires_at()` returns a `chrono::DateTime<Utc>`.
+		// Convert to `SystemTime` via the UNIX timestamp; `chrono` clamps
+		// to its valid range so this never panics. Negative timestamps
+		// (pre-epoch) are not legal for token expiries; if encountered we
+		// treat the token as already expired so the next call refreshes.
+		let expires_at = {
+			let dt = token.expires_at();
+			let unix_ts = dt.timestamp();
+			if unix_ts < 0 {
+				tracing::warn!(
+					event = "vertex_adc_token_negative_expiry",
+					expires_at_unix = unix_ts,
+					"gcp_auth token expires_at is pre-epoch; treating as already-expired"
+				);
+				SystemTime::UNIX_EPOCH
+			} else {
+				SystemTime::UNIX_EPOCH + Duration::from_secs(unix_ts as u64)
+			}
+		};
+		let lifetime_remaining = expires_at.duration_since(SystemTime::now()).map(|d| d.as_secs()).unwrap_or(0);
+		tracing::info!(
+			event = "vertex_adc_token_refreshed",
+			scope = %self.scope,
+			lifetime_remaining_secs = lifetime_remaining,
+			"vertex ADC bearer token refreshed"
+		);
+		*guard = Some(CachedToken { token: token_str.clone(), expires_at });
+		Ok(token_str)
+	}
 }
 
 /// Static-token mock for tests. Production callers MUST NOT
@@ -259,57 +243,49 @@ impl TokenSource for GcpAdcTokenSource {
 /// the test harness wires it explicitly.
 #[derive(Debug, Clone)]
 pub struct StaticTokenSource {
-    token: String,
+	token: String,
 }
 
 impl StaticTokenSource {
-    pub fn new(token: impl Into<String>) -> Self {
-        Self {
-            token: token.into(),
-        }
-    }
+	pub fn new(token: impl Into<String>) -> Self {
+		Self { token: token.into() }
+	}
 }
 
 #[async_trait]
 impl TokenSource for StaticTokenSource {
-    async fn bearer(&self) -> Result<String, TokenSourceError> {
-        Ok(self.token.clone())
-    }
+	async fn bearer(&self) -> Result<String, TokenSourceError> {
+		Ok(self.token.clone())
+	}
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+	use super::*;
 
-    #[tokio::test]
-    async fn static_token_source_returns_token() {
-        let src = StaticTokenSource::new("test-bearer-abc123");
-        let t = src.bearer().await.expect("bearer");
-        assert_eq!(t, "test-bearer-abc123");
-        // Multiple calls return the same value.
-        let t2 = src.bearer().await.expect("bearer 2");
-        assert_eq!(t2, "test-bearer-abc123");
-    }
+	#[tokio::test]
+	async fn static_token_source_returns_token() {
+		let src = StaticTokenSource::new("test-bearer-abc123");
+		let t = src.bearer().await.expect("bearer");
+		assert_eq!(t, "test-bearer-abc123");
+		// Multiple calls return the same value.
+		let t2 = src.bearer().await.expect("bearer 2");
+		assert_eq!(t2, "test-bearer-abc123");
+	}
 
-    #[test]
-    fn cached_token_freshness_window() {
-        let now = SystemTime::now();
-        let fresh = CachedToken {
-            token: "x".into(),
-            expires_at: now + Duration::from_secs(REFRESH_AHEAD_SECS + 30),
-        };
-        assert!(fresh.fresh());
+	#[test]
+	fn cached_token_freshness_window() {
+		let now = SystemTime::now();
+		let fresh = CachedToken {
+			token: "x".into(),
+			expires_at: now + Duration::from_secs(REFRESH_AHEAD_SECS + 30),
+		};
+		assert!(fresh.fresh());
 
-        let stale = CachedToken {
-            token: "x".into(),
-            expires_at: now + Duration::from_secs(REFRESH_AHEAD_SECS - 1),
-        };
-        assert!(!stale.fresh());
+		let stale = CachedToken { token: "x".into(), expires_at: now + Duration::from_secs(REFRESH_AHEAD_SECS - 1) };
+		assert!(!stale.fresh());
 
-        let already_expired = CachedToken {
-            token: "x".into(),
-            expires_at: now - Duration::from_secs(1),
-        };
-        assert!(!already_expired.fresh());
-    }
+		let already_expired = CachedToken { token: "x".into(), expires_at: now - Duration::from_secs(1) };
+		assert!(!already_expired.fresh());
+	}
 }

@@ -37,56 +37,46 @@ use crate::config::CacheControlAutoFrozen;
 /// `i < N` is in the cache hot zone), or `0` when auto-derivation
 /// is disabled. Phase B PR-B2's live-zone dispatcher refuses to
 /// touch any index below this value.
-pub fn resolve_frozen_count(
-    parsed: &Value,
-    policy: CacheControlAutoFrozen,
-    request_id: &str,
-) -> usize {
-    if !policy.is_enabled() {
-        tracing::debug!(
-            request_id = %request_id,
-            cache_control_auto_frozen = policy.as_str(),
-            "cache_control auto-derivation disabled; floor=0"
-        );
-        return 0;
-    }
-    let count = headroom_core::compute_frozen_count(parsed);
-    tracing::debug!(
-        request_id = %request_id,
-        cache_control_auto_frozen = policy.as_str(),
-        frozen_count = count,
-        "cache_control auto-derivation result"
-    );
-    count
+pub fn resolve_frozen_count(parsed: &Value, policy: CacheControlAutoFrozen, request_id: &str) -> usize {
+	if !policy.is_enabled() {
+		tracing::debug!(
+			request_id = %request_id,
+			cache_control_auto_frozen = policy.as_str(),
+			"cache_control auto-derivation disabled; floor=0"
+		);
+		return 0;
+	}
+	let count = headroom_core::compute_frozen_count(parsed);
+	tracing::debug!(
+		request_id = %request_id,
+		cache_control_auto_frozen = policy.as_str(),
+		frozen_count = count,
+		"cache_control auto-derivation result"
+	);
+	count
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use serde_json::json;
+	use super::*;
+	use serde_json::json;
 
-    #[test]
-    fn disabled_policy_yields_zero_regardless_of_markers() {
-        let body = json!({
-            "messages": [
-                {"role": "user", "content": [
-                    {"type": "text", "text": "x", "cache_control": {"type": "ephemeral"}}
-                ]}
-            ]
-        });
-        assert_eq!(
-            resolve_frozen_count(&body, CacheControlAutoFrozen::Disabled, "rid"),
-            0
-        );
-    }
+	#[test]
+	fn disabled_policy_yields_zero_regardless_of_markers() {
+		let body = json!({
+			"messages": [
+				{"role": "user", "content": [
+					{"type": "text", "text": "x", "cache_control": {"type": "ephemeral"}}
+				]}
+			]
+		});
+		assert_eq!(resolve_frozen_count(&body, CacheControlAutoFrozen::Disabled, "rid"), 0);
+	}
 
-    #[test]
-    fn enabled_policy_walks_to_compute_count() {
-        // No markers → count is 0 even with policy enabled.
-        let body = json!({"messages": [{"role": "user", "content": "hi"}]});
-        assert_eq!(
-            resolve_frozen_count(&body, CacheControlAutoFrozen::Enabled, "rid"),
-            0
-        );
-    }
+	#[test]
+	fn enabled_policy_walks_to_compute_count() {
+		// No markers → count is 0 even with policy enabled.
+		let body = json!({"messages": [{"role": "user", "content": "hi"}]});
+		assert_eq!(resolve_frozen_count(&body, CacheControlAutoFrozen::Enabled, "rid"), 0);
+	}
 }

@@ -81,15 +81,15 @@ static TABLE: OnceLock<HashMap<String, u32>> = OnceLock::new();
 /// `claude-3-5-sonnet-mini` may be different) and a prefix rule
 /// would cause silent wrong answers.
 pub fn context_window_for(model: &str) -> u32 {
-    let table = TABLE.get_or_init(parse_vendored);
-    if let Some(&n) = table.get(model) {
-        return n;
-    }
-    // Unknown model. We don't log here on every miss — that's
-    // per-request noise. The caller (compression::anthropic) logs
-    // once, with the model id, when this happens. Just return the
-    // default and let the caller handle observability.
-    DEFAULT_CONTEXT_WINDOW
+	let table = TABLE.get_or_init(parse_vendored);
+	if let Some(&n) = table.get(model) {
+		return n;
+	}
+	// Unknown model. We don't log here on every miss — that's
+	// per-request noise. The caller (compression::anthropic) logs
+	// once, with the model id, when this happens. Just return the
+	// default and let the caller handle observability.
+	DEFAULT_CONTEXT_WINDOW
 }
 
 /// Walk the LiteLLM JSON and extract the chat-model context windows.
@@ -105,107 +105,102 @@ pub fn context_window_for(model: &str) -> u32 {
 /// fields are skipped silently — they'd hit `DEFAULT_CONTEXT_WINDOW`
 /// at lookup time anyway.
 fn parse_vendored() -> HashMap<String, u32> {
-    let raw: serde_json::Value = serde_json::from_str(VENDORED_JSON)
-        .expect("vendored LiteLLM JSON must parse at build time");
-    let obj = raw
-        .as_object()
-        .expect("LiteLLM JSON must be a top-level object");
+	let raw: serde_json::Value =
+		serde_json::from_str(VENDORED_JSON).expect("vendored LiteLLM JSON must parse at build time");
+	let obj = raw.as_object().expect("LiteLLM JSON must be a top-level object");
 
-    // Slight over-allocation; better than reallocating during the walk.
-    let mut out: HashMap<String, u32> = HashMap::with_capacity(obj.len());
-    for (key, val) in obj {
-        if key == "sample_spec" {
-            continue;
-        }
-        let entry = match val.as_object() {
-            Some(o) => o,
-            None => continue,
-        };
-        // Only chat-mode models are relevant for our compressor.
-        // Image / audio / embedding endpoints don't have a "messages"
-        // array we can compress.
-        if entry.get("mode").and_then(|m| m.as_str()) != Some("chat") {
-            continue;
-        }
+	// Slight over-allocation; better than reallocating during the walk.
+	let mut out: HashMap<String, u32> = HashMap::with_capacity(obj.len());
+	for (key, val) in obj {
+		if key == "sample_spec" {
+			continue;
+		}
+		let entry = match val.as_object() {
+			Some(o) => o,
+			None => continue,
+		};
+		// Only chat-mode models are relevant for our compressor.
+		// Image / audio / embedding endpoints don't have a "messages"
+		// array we can compress.
+		if entry.get("mode").and_then(|m| m.as_str()) != Some("chat") {
+			continue;
+		}
 
-        // Prefer max_input_tokens. Fall back to max_tokens (older
-        // entries used max_tokens as a synonym for input window).
-        let n = entry
-            .get("max_input_tokens")
-            .and_then(|v| v.as_u64())
-            .or_else(|| entry.get("max_tokens").and_then(|v| v.as_u64()));
-        let Some(n) = n else { continue };
+		// Prefer max_input_tokens. Fall back to max_tokens (older
+		// entries used max_tokens as a synonym for input window).
+		let n = entry
+			.get("max_input_tokens")
+			.and_then(|v| v.as_u64())
+			.or_else(|| entry.get("max_tokens").and_then(|v| v.as_u64()));
+		let Some(n) = n else { continue };
 
-        // u32 fits every realistic context window. The largest known
-        // today is ~10M (Magic.dev, hypothetical) — still under
-        // 4 billion. If a future model crosses u32::MAX we have
-        // larger problems than this `as`.
-        out.insert(key.clone(), n.min(u32::MAX as u64) as u32);
-    }
-    out
+		// u32 fits every realistic context window. The largest known
+		// today is ~10M (Magic.dev, hypothetical) — still under
+		// 4 billion. If a future model crosses u32::MAX we have
+		// larger problems than this `as`.
+		out.insert(key.clone(), n.min(u32::MAX as u64) as u32);
+	}
+	out
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+	use super::*;
 
-    #[test]
-    fn vendored_json_parses_at_runtime() {
-        // Calling this once forces parse via OnceLock. If the JSON
-        // is malformed, this test panics with a useful error before
-        // any lookup test runs. Subsequent tests in this module
-        // share the same parsed table.
-        let table = TABLE.get_or_init(parse_vendored);
-        assert!(
-            table.len() > 100,
-            "expected >100 chat models in LiteLLM snapshot, got {}",
-            table.len()
-        );
-    }
+	#[test]
+	fn vendored_json_parses_at_runtime() {
+		// Calling this once forces parse via OnceLock. If the JSON
+		// is malformed, this test panics with a useful error before
+		// any lookup test runs. Subsequent tests in this module
+		// share the same parsed table.
+		let table = TABLE.get_or_init(parse_vendored);
+		assert!(
+			table.len() > 100,
+			"expected >100 chat models in LiteLLM snapshot, got {}",
+			table.len()
+		);
+	}
 
-    #[test]
-    fn current_claude_models_present() {
-        // Lock against the snapshot rotting silently. If LiteLLM
-        // renames the canonical Claude entry we want a test failure
-        // — not a silent fall-through to DEFAULT_CONTEXT_WINDOW.
-        // Pick a model we expect to remain stable: claude-sonnet-4-5
-        // (current as of the snapshot fetch).
-        let n = context_window_for("claude-sonnet-4-5-20250929");
-        assert_eq!(n, 200_000, "claude-sonnet-4-5 should be 200K input window");
-    }
+	#[test]
+	fn current_claude_models_present() {
+		// Lock against the snapshot rotting silently. If LiteLLM
+		// renames the canonical Claude entry we want a test failure
+		// — not a silent fall-through to DEFAULT_CONTEXT_WINDOW.
+		// Pick a model we expect to remain stable: claude-sonnet-4-5
+		// (current as of the snapshot fetch).
+		let n = context_window_for("claude-sonnet-4-5-20250929");
+		assert_eq!(n, 200_000, "claude-sonnet-4-5 should be 200K input window");
+	}
 
-    #[test]
-    fn current_gpt_models_present() {
-        assert_eq!(context_window_for("gpt-4o-mini"), 128_000);
-        assert_eq!(context_window_for("gpt-4-turbo"), 128_000);
-    }
+	#[test]
+	fn current_gpt_models_present() {
+		assert_eq!(context_window_for("gpt-4o-mini"), 128_000);
+		assert_eq!(context_window_for("gpt-4-turbo"), 128_000);
+	}
 
-    #[test]
-    fn unknown_model_returns_default() {
-        assert_eq!(
-            context_window_for("definitely-not-a-real-model-2099"),
-            DEFAULT_CONTEXT_WINDOW
-        );
-        assert_eq!(context_window_for(""), DEFAULT_CONTEXT_WINDOW);
-    }
+	#[test]
+	fn unknown_model_returns_default() {
+		assert_eq!(context_window_for("definitely-not-a-real-model-2099"), DEFAULT_CONTEXT_WINDOW);
+		assert_eq!(context_window_for(""), DEFAULT_CONTEXT_WINDOW);
+	}
 
-    #[test]
-    fn empty_or_garbage_string_does_not_panic() {
-        // The lookup must not panic on adversarial input — bad
-        // model strings come from the wire and we forward unknown
-        // ones rather than failing the request.
-        let _ = context_window_for("");
-        let _ = context_window_for("\0\0\0");
-        let _ = context_window_for(&"x".repeat(10_000));
-    }
+	#[test]
+	fn empty_or_garbage_string_does_not_panic() {
+		// The lookup must not panic on adversarial input — bad
+		// model strings come from the wire and we forward unknown
+		// ones rather than failing the request.
+		let _ = context_window_for("");
+		let _ = context_window_for("\0\0\0");
+		let _ = context_window_for(&"x".repeat(10_000));
+	}
 
-    #[test]
-    fn sample_spec_entry_is_excluded() {
-        // LiteLLM's JSON includes a "sample_spec" template entry
-        // documenting the schema. It must not appear as a real
-        // model in our lookup — a request specifying it would
-        // otherwise get a bogus context window.
-        let table = TABLE.get_or_init(parse_vendored);
-        assert!(!table.contains_key("sample_spec"));
-    }
+	#[test]
+	fn sample_spec_entry_is_excluded() {
+		// LiteLLM's JSON includes a "sample_spec" template entry
+		// documenting the schema. It must not appear as a real
+		// model in our lookup — a request specifying it would
+		// otherwise get a bogus context window.
+		let table = TABLE.get_or_init(parse_vendored);
+		assert!(!table.contains_key("sample_spec"));
+	}
 }

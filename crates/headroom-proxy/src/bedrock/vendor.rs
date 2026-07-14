@@ -21,11 +21,8 @@ const GEO_PREFIXES: [&str; 4] = ["eu.", "us.", "apac.", "global."];
 /// `eu.anthropic.claude-…` → `anthropic`; `amazon.titan-…` → `amazon`;
 /// `global.amazon.nova-…` → `amazon`.
 pub fn canonical_vendor(model_id: &str) -> &str {
-    let stripped = GEO_PREFIXES
-        .iter()
-        .find_map(|p| model_id.strip_prefix(p))
-        .unwrap_or(model_id);
-    stripped.split('.').next().unwrap_or(stripped)
+	let stripped = GEO_PREFIXES.iter().find_map(|p| model_id.strip_prefix(p)).unwrap_or(model_id);
+	stripped.split('.').next().unwrap_or(stripped)
 }
 
 /// Whether the model id is an Anthropic-shape model — a foundation
@@ -33,50 +30,34 @@ pub fn canonical_vendor(model_id: &str) -> &str {
 /// (`<geo>.anthropic.…`) — i.e. eligible for the live-zone Anthropic
 /// compression + envelope pipeline.
 pub fn is_anthropic_model_id(model_id: &str) -> bool {
-    canonical_vendor(model_id) == "anthropic"
+	canonical_vendor(model_id) == "anthropic"
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+	use super::*;
 
-    #[test]
-    fn canonical_vendor_strips_known_cross_region_prefix() {
-        assert_eq!(
-            canonical_vendor("anthropic.claude-3-haiku-20240307-v1:0"),
-            "anthropic"
-        );
-        assert_eq!(
-            canonical_vendor("eu.anthropic.claude-haiku-4-5-20251001-v1:0"),
-            "anthropic"
-        );
-        assert_eq!(canonical_vendor("amazon.titan-text-express-v1"), "amazon");
-        assert_eq!(canonical_vendor("global.amazon.nova-lite-v1:0"), "amazon");
-        // Unknown leading token is NOT stripped — stays as its own vendor.
-        assert_eq!(canonical_vendor("random.anthropic.x"), "random");
-    }
+	#[test]
+	fn canonical_vendor_strips_known_cross_region_prefix() {
+		assert_eq!(canonical_vendor("anthropic.claude-3-haiku-20240307-v1:0"), "anthropic");
+		assert_eq!(canonical_vendor("eu.anthropic.claude-haiku-4-5-20251001-v1:0"), "anthropic");
+		assert_eq!(canonical_vendor("amazon.titan-text-express-v1"), "amazon");
+		assert_eq!(canonical_vendor("global.amazon.nova-lite-v1:0"), "amazon");
+		// Unknown leading token is NOT stripped — stays as its own vendor.
+		assert_eq!(canonical_vendor("random.anthropic.x"), "random");
+	}
 
-    #[test]
-    fn anthropic_model_id_matches_foundation_and_inference_profiles() {
-        assert!(is_anthropic_model_id(
-            "anthropic.claude-3-haiku-20240307-v1:0"
-        ));
-        assert!(is_anthropic_model_id(
-            "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
-        ));
-        assert!(is_anthropic_model_id(
-            "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
-        ));
-        assert!(is_anthropic_model_id(
-            "apac.anthropic.claude-3-5-sonnet-20240620-v1:0"
-        ));
-        assert!(is_anthropic_model_id(
-            "global.anthropic.claude-haiku-4-5-20251001-v1:0"
-        ));
-        // Non-Anthropic vendors, including geo-prefixed, stay false.
-        assert!(!is_anthropic_model_id("amazon.titan-text-express-v1"));
-        assert!(!is_anthropic_model_id("meta.llama3-70b-instruct-v1:0"));
-        assert!(!is_anthropic_model_id("eu.amazon.nova-lite-v1:0"));
-        assert!(!is_anthropic_model_id("mistral.voxtral-mini-3b-2507"));
-    }
+	#[test]
+	fn anthropic_model_id_matches_foundation_and_inference_profiles() {
+		assert!(is_anthropic_model_id("anthropic.claude-3-haiku-20240307-v1:0"));
+		assert!(is_anthropic_model_id("eu.anthropic.claude-haiku-4-5-20251001-v1:0"));
+		assert!(is_anthropic_model_id("us.anthropic.claude-3-5-sonnet-20241022-v2:0"));
+		assert!(is_anthropic_model_id("apac.anthropic.claude-3-5-sonnet-20240620-v1:0"));
+		assert!(is_anthropic_model_id("global.anthropic.claude-haiku-4-5-20251001-v1:0"));
+		// Non-Anthropic vendors, including geo-prefixed, stay false.
+		assert!(!is_anthropic_model_id("amazon.titan-text-express-v1"));
+		assert!(!is_anthropic_model_id("meta.llama3-70b-instruct-v1:0"));
+		assert!(!is_anthropic_model_id("eu.amazon.nova-lite-v1:0"));
+		assert!(!is_anthropic_model_id("mistral.voxtral-mini-3b-2507"));
+	}
 }

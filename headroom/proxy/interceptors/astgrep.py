@@ -40,6 +40,7 @@ def _min_chars_to_rewrite() -> int:
     except (TypeError, ValueError):
         return 500
 
+
 # Tool_input keys that indicate the model targeted a specific line range;
 # outlining would frustrate that intent and likely cause a re-read.
 # Provenance of the keys we recognize:

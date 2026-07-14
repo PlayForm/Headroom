@@ -43,56 +43,49 @@ use hyper_util::rt::TokioIo;
 use tokio::sync::Mutex;
 
 fn sha256_hex(bytes: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    hasher
-        .finalize()
-        .iter()
-        .fold(String::with_capacity(64), |mut acc, b| {
-            use std::fmt::Write as _;
-            let _ = write!(acc, "{b:02x}");
-            acc
-        })
+	let mut hasher = Sha256::new();
+	hasher.update(bytes);
+	hasher.finalize().iter().fold(String::with_capacity(64), |mut acc, b| {
+		use std::fmt::Write as _;
+		let _ = write!(acc, "{b:02x}");
+		acc
+	})
 }
 
 #[track_caller]
 fn assert_byte_equal(inbound: &[u8], received: &[u8]) {
-    assert_eq!(
-        inbound.len(),
-        received.len(),
-        "byte length mismatch: client={}, upstream={}",
-        inbound.len(),
-        received.len()
-    );
-    assert_eq!(
-        sha256_hex(inbound),
-        sha256_hex(received),
-        "SHA-256 mismatch (client vs. upstream-received)"
-    );
+	assert_eq!(
+		inbound.len(),
+		received.len(),
+		"byte length mismatch: client={}, upstream={}",
+		inbound.len(),
+		received.len()
+	);
+	assert_eq!(
+		sha256_hex(inbound),
+		sha256_hex(received),
+		"SHA-256 mismatch (client vs. upstream-received)"
+	);
 }
 
 /// Hand-rolled hyper upstream that emits a representative
 /// OpenAI-Responses SSE stream and captures the request body.
 /// We can't use wiremock here because it doesn't speak streaming
 /// response bodies — we need actual chunked frames over time.
-async fn responses_sse_upstream() -> (
-    SocketAddr,
-    Arc<Mutex<Option<Vec<u8>>>>,
-    tokio::task::JoinHandle<()>,
-) {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    let captured: Arc<Mutex<Option<Vec<u8>>>> = Arc::new(Mutex::new(None));
-    let captured_for_task = captured.clone();
-    let task = tokio::spawn(async move {
-        loop {
-            let Ok((stream, _)) = listener.accept().await else {
-                break;
-            };
-            let captured = captured_for_task.clone();
-            tokio::spawn(async move {
-                let io = TokioIo::new(stream);
-                let _ = hyper::server::conn::http1::Builder::new()
+async fn responses_sse_upstream() -> (SocketAddr, Arc<Mutex<Option<Vec<u8>>>>, tokio::task::JoinHandle<()>) {
+	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+	let addr = listener.local_addr().unwrap();
+	let captured: Arc<Mutex<Option<Vec<u8>>>> = Arc::new(Mutex::new(None));
+	let captured_for_task = captured.clone();
+	let task = tokio::spawn(async move {
+		loop {
+			let Ok((stream, _)) = listener.accept().await else {
+				break;
+			};
+			let captured = captured_for_task.clone();
+			tokio::spawn(async move {
+				let io = TokioIo::new(stream);
+				let _ = hyper::server::conn::http1::Builder::new()
                     .serve_connection(
                         io,
                         service_fn(move |req: Request<hyper::body::Incoming>| {
@@ -154,41 +147,41 @@ async fn responses_sse_upstream() -> (
                         }),
                     )
                     .await;
-            });
-        }
-    });
-    (addr, captured, task)
+			});
+		}
+	});
+	(addr, captured, task)
 }
 
 /// Tiny representative request body — the client sends this with
 /// `Accept: text/event-stream`. Below the 2 KiB output-item floor,
 /// so request-side compression is a no-op and bytes round-trip equal.
 fn small_responses_payload() -> Vec<u8> {
-    let payload = json!({
-        "model": "gpt-5",
-        "stream": true,
-        "input": [
-            {"type": "message", "role": "user",
-             "content": [{"type": "input_text", "text": "say hi"}]}
-        ]
-    });
-    serde_json::to_vec(&payload).unwrap()
+	let payload = json!({
+		"model": "gpt-5",
+		"stream": true,
+		"input": [
+			{"type": "message", "role": "user",
+			 "content": [{"type": "input_text", "text": "say hi"}]}
+		]
+	});
+	serde_json::to_vec(&payload).unwrap()
 }
 
 #[tokio::test]
 async fn streaming_request_bytes_byte_equal_upstream() {
-    let (addr, captured, _server) = responses_sse_upstream().await;
-    let proxy = start_proxy_with(&format!("http://{addr}"), |c| {
-        c.compression = true;
-        c.compression_mode = headroom_proxy::config::CompressionMode::LiveZone;
-        // Default ON, but pin it explicitly so the test pins behaviour
-        // even if the project default flips later.
-        c.enable_responses_streaming = true;
-    })
-    .await;
+	let (addr, captured, _server) = responses_sse_upstream().await;
+	let proxy = start_proxy_with(&format!("http://{addr}"), |c| {
+		c.compression = true;
+		c.compression_mode = headroom_proxy::config::CompressionMode::LiveZone;
+		// Default ON, but pin it explicitly so the test pins behaviour
+		// even if the project default flips later.
+		c.enable_responses_streaming = true;
+	})
+	.await;
 
-    let body = small_responses_payload();
-    let resp = reqwest::Client::new()
+	let body = small_responses_payload();
+	let resp = reqwest::Client::new()
         .post(format!("{}/v1/responses", proxy.url()))
         .header("content-type", "application/json")
         .header("accept", "text/event-stream")
@@ -203,36 +196,32 @@ async fn streaming_request_bytes_byte_equal_upstream() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 200);
-    // Drain the response so the upstream task finishes and capture lands.
-    let _ = resp.bytes().await.unwrap();
+	assert_eq!(resp.status(), 200);
+	// Drain the response so the upstream task finishes and capture lands.
+	let _ = resp.bytes().await.unwrap();
 
-    let got = captured
-        .lock()
-        .await
-        .clone()
-        .expect("upstream must observe a request body");
-    assert_byte_equal(&body, &got);
-    proxy.shutdown().await;
+	let got = captured.lock().await.clone().expect("upstream must observe a request body");
+	assert_byte_equal(&body, &got);
+	proxy.shutdown().await;
 }
 
 #[tokio::test]
 async fn streaming_response_round_trips_through_framer() {
-    // Engage the streaming pipeline and verify the bytes the client
-    // receives parse cleanly through the SAME `SseFramer` +
-    // `ResponseState` the proxy spawns internally. This is the
-    // round-trip property: any upstream sequence the framer accepts
-    // must reach the client unmodified.
-    let (addr, _captured, _server) = responses_sse_upstream().await;
-    let proxy = start_proxy_with(&format!("http://{addr}"), |c| {
-        c.compression = true;
-        c.compression_mode = headroom_proxy::config::CompressionMode::LiveZone;
-        c.enable_responses_streaming = true;
-    })
-    .await;
+	// Engage the streaming pipeline and verify the bytes the client
+	// receives parse cleanly through the SAME `SseFramer` +
+	// `ResponseState` the proxy spawns internally. This is the
+	// round-trip property: any upstream sequence the framer accepts
+	// must reach the client unmodified.
+	let (addr, _captured, _server) = responses_sse_upstream().await;
+	let proxy = start_proxy_with(&format!("http://{addr}"), |c| {
+		c.compression = true;
+		c.compression_mode = headroom_proxy::config::CompressionMode::LiveZone;
+		c.enable_responses_streaming = true;
+	})
+	.await;
 
-    let body = small_responses_payload();
-    let resp = reqwest::Client::new()
+	let body = small_responses_payload();
+	let resp = reqwest::Client::new()
         .post(format!("{}/v1/responses", proxy.url()))
         .header("content-type", "application/json")
         .header("accept", "text/event-stream")
@@ -247,67 +236,59 @@ async fn streaming_response_round_trips_through_framer() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 200);
-    assert_eq!(
-        resp.headers().get("content-type").unwrap(),
-        "text/event-stream"
-    );
-    let mut stream = resp.bytes_stream();
+	assert_eq!(resp.status(), 200);
+	assert_eq!(resp.headers().get("content-type").unwrap(), "text/event-stream");
+	let mut stream = resp.bytes_stream();
 
-    // Drain the body, feed each chunk into a real framer, and run
-    // the same state machine the proxy uses. End-state must reflect
-    // the upstream's emitted events (id, items, completed status).
-    let mut framer = SseFramer::new();
-    let mut state = ResponseState::new();
-    let mut total_bytes = 0usize;
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.expect("client byte stream must not error mid-response");
-        total_bytes += chunk.len();
-        framer.push(&chunk);
-        while let Some(ev_result) = framer.next_event() {
-            let ev = ev_result.expect("framer parses upstream-faithful bytes");
-            state
-                .apply(ev)
-                .expect("state machine handles representative stream");
-        }
-    }
-    // The upstream emitted ~1.2 KiB of SSE; assert non-trivial payload
-    // arrived (no premature truncation) and the state machine reached
-    // a terminal state.
-    assert!(
-        total_bytes > 200,
-        "expected non-trivial response payload, got {total_bytes} bytes"
-    );
-    assert_eq!(state.response_id.as_deref(), Some("resp_test"));
-    assert_eq!(
-        state.status,
-        headroom_proxy::sse::openai_responses::StreamStatus::Completed
-    );
-    assert!(state.items.contains_key("msg_1"));
-    let item = state.items.get("msg_1").unwrap();
-    assert!(item.complete, "msg_1 must be marked complete");
-    assert_eq!(item.output_text, "Hello world");
+	// Drain the body, feed each chunk into a real framer, and run
+	// the same state machine the proxy uses. End-state must reflect
+	// the upstream's emitted events (id, items, completed status).
+	let mut framer = SseFramer::new();
+	let mut state = ResponseState::new();
+	let mut total_bytes = 0usize;
+	while let Some(chunk) = stream.next().await {
+		let chunk = chunk.expect("client byte stream must not error mid-response");
+		total_bytes += chunk.len();
+		framer.push(&chunk);
+		while let Some(ev_result) = framer.next_event() {
+			let ev = ev_result.expect("framer parses upstream-faithful bytes");
+			state.apply(ev).expect("state machine handles representative stream");
+		}
+	}
+	// The upstream emitted ~1.2 KiB of SSE; assert non-trivial payload
+	// arrived (no premature truncation) and the state machine reached
+	// a terminal state.
+	assert!(
+		total_bytes > 200,
+		"expected non-trivial response payload, got {total_bytes} bytes"
+	);
+	assert_eq!(state.response_id.as_deref(), Some("resp_test"));
+	assert_eq!(state.status, headroom_proxy::sse::openai_responses::StreamStatus::Completed);
+	assert!(state.items.contains_key("msg_1"));
+	let item = state.items.get("msg_1").unwrap();
+	assert!(item.complete, "msg_1 must be marked complete");
+	assert_eq!(item.output_text, "Hello world");
 
-    proxy.shutdown().await;
+	proxy.shutdown().await;
 }
 
 #[tokio::test]
 async fn streaming_pipeline_disabled_still_passes_bytes() {
-    // Emergency-rollback path: when the operator flips
-    // `enable_responses_streaming=false`, the SSE state machine is
-    // skipped (a structured-log breadcrumb says so in proxy.rs), but
-    // the bytes still flow client-side. This test pins the
-    // "rollback never breaks the byte path" contract.
-    let (addr, _captured, _server) = responses_sse_upstream().await;
-    let proxy = start_proxy_with(&format!("http://{addr}"), |c| {
-        c.compression = true;
-        c.compression_mode = headroom_proxy::config::CompressionMode::LiveZone;
-        c.enable_responses_streaming = false;
-    })
-    .await;
+	// Emergency-rollback path: when the operator flips
+	// `enable_responses_streaming=false`, the SSE state machine is
+	// skipped (a structured-log breadcrumb says so in proxy.rs), but
+	// the bytes still flow client-side. This test pins the
+	// "rollback never breaks the byte path" contract.
+	let (addr, _captured, _server) = responses_sse_upstream().await;
+	let proxy = start_proxy_with(&format!("http://{addr}"), |c| {
+		c.compression = true;
+		c.compression_mode = headroom_proxy::config::CompressionMode::LiveZone;
+		c.enable_responses_streaming = false;
+	})
+	.await;
 
-    let body = small_responses_payload();
-    let resp = reqwest::Client::new()
+	let body = small_responses_payload();
+	let resp = reqwest::Client::new()
         .post(format!("{}/v1/responses", proxy.url()))
         .header("content-type", "application/json")
         .header("accept", "text/event-stream")
@@ -322,46 +303,46 @@ async fn streaming_pipeline_disabled_still_passes_bytes() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 200);
+	assert_eq!(resp.status(), 200);
 
-    let mut stream = resp.bytes_stream();
-    let mut all = Vec::new();
-    while let Some(chunk) = stream.next().await {
-        all.extend_from_slice(&chunk.unwrap());
-    }
-    // The upstream emitted recognisable event names; without parsing
-    // we just need to see the wire bytes survive the rollback.
-    let body_str = String::from_utf8_lossy(&all);
-    assert!(body_str.contains("response.created"));
-    assert!(body_str.contains("response.completed"));
+	let mut stream = resp.bytes_stream();
+	let mut all = Vec::new();
+	while let Some(chunk) = stream.next().await {
+		all.extend_from_slice(&chunk.unwrap());
+	}
+	// The upstream emitted recognisable event names; without parsing
+	// we just need to see the wire bytes survive the rollback.
+	let body_str = String::from_utf8_lossy(&all);
+	assert!(body_str.contains("response.created"));
+	assert!(body_str.contains("response.completed"));
 
-    proxy.shutdown().await;
+	proxy.shutdown().await;
 }
 
 #[tokio::test]
 async fn streaming_request_no_compression_when_input_below_threshold() {
-    // Pin the C3-style invariant on the streaming path: a streaming
-    // request whose input is below the 2 KiB floor MUST round-trip
-    // byte-equal upstream, regardless of `Accept: text/event-stream`.
-    let (addr, captured, _server) = responses_sse_upstream().await;
-    let proxy = start_proxy_with(&format!("http://{addr}"), |c| {
-        c.compression = true;
-        c.compression_mode = headroom_proxy::config::CompressionMode::LiveZone;
-    })
-    .await;
+	// Pin the C3-style invariant on the streaming path: a streaming
+	// request whose input is below the 2 KiB floor MUST round-trip
+	// byte-equal upstream, regardless of `Accept: text/event-stream`.
+	let (addr, captured, _server) = responses_sse_upstream().await;
+	let proxy = start_proxy_with(&format!("http://{addr}"), |c| {
+		c.compression = true;
+		c.compression_mode = headroom_proxy::config::CompressionMode::LiveZone;
+	})
+	.await;
 
-    let payload = json!({
-        "model": "gpt-5",
-        "stream": true,
-        "input": [
-            {"type": "function_call_output", "id": "fco_1", "call_id": "c1",
-             "output": "tiny output"},
-            {"type": "message", "role": "user",
-             "content": [{"type": "input_text", "text": "do the thing"}]}
-        ]
-    });
-    let body = serde_json::to_vec(&payload).unwrap();
-    let resp = reqwest::Client::new()
+	let payload = json!({
+		"model": "gpt-5",
+		"stream": true,
+		"input": [
+			{"type": "function_call_output", "id": "fco_1", "call_id": "c1",
+			 "output": "tiny output"},
+			{"type": "message", "role": "user",
+			 "content": [{"type": "input_text", "text": "do the thing"}]}
+		]
+	});
+	let body = serde_json::to_vec(&payload).unwrap();
+	let resp = reqwest::Client::new()
         .post(format!("{}/v1/responses", proxy.url()))
         .header("content-type", "application/json")
         .header("accept", "text/event-stream")
@@ -376,10 +357,10 @@ async fn streaming_request_no_compression_when_input_below_threshold() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 200);
-    let _ = resp.bytes().await.unwrap();
+	assert_eq!(resp.status(), 200);
+	let _ = resp.bytes().await.unwrap();
 
-    let got = captured.lock().await.clone().expect("upstream got body");
-    assert_byte_equal(&body, &got);
-    proxy.shutdown().await;
+	let got = captured.lock().await.clone().expect("upstream got body");
+	assert_byte_equal(&body, &got);
+	proxy.shutdown().await;
 }

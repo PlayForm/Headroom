@@ -141,11 +141,13 @@ fastembed = { version = "5", default-features = false, features = [
 # instead (same approach as Windows below). `headroom/_ort.py` pins
 # `ORT_DYLIB_PATH` before `headroom._core` imports.
 fastembed = { version = "5", default-features = false, features = [
-    "hf-hub-rustls-tls",
-    "ort-load-dynamic",
-    "image-models",
+	"hf-hub-rustls-tls",
+	"ort-load-dynamic",
+	"image-models",
 ] }
-ort = { version = "2.0.0-rc.12", default-features = false, features = ["load-dynamic"] }
+ort = { version = "2.0.0-rc.12", default-features = false, features = [
+	"load-dynamic",
+] }
 
 [target.'cfg(windows)'.dependencies]
 # `ort-download-binaries-*` emits DirectML link libs on Windows (`DXCORE`,
@@ -156,7 +158,9 @@ fastembed = { version = "5", default-features = false, features = [
 	"ort-load-dynamic",
 	"image-models",
 ] }
-ort = { version = "2.0.0-rc.12", default-features = false, features = ["load-dynamic"] }
+ort = { version = "2.0.0-rc.12", default-features = false, features = [
+	"load-dynamic",
+] }
 
 [features]
 default = []

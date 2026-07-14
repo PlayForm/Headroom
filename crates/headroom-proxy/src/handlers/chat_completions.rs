@@ -56,45 +56,43 @@ use crate::proxy::{forward_http, AppState};
 /// [`forward_http`]. Compression dispatch + SSE telemetry is handled
 /// inside `forward_http`'s shared gate (PR-C1 + PR-C2).
 pub async fn handle_chat_completions(
-    State(state): State<AppState>,
-    ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
-    method: Method,
-    uri: Uri,
-    headers: HeaderMap,
-    body: Bytes,
+	State(state): State<AppState>,
+	ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
+	method: Method,
+	uri: Uri,
+	headers: HeaderMap,
+	body: Bytes,
 ) -> Response {
-    // Reconstruct the Request<Body> shape forward_http expects.
-    // Cloning the headers into a fresh builder keeps the original
-    // method/uri/version intact. `axum::body::Body::from(Bytes)` is
-    // a single-shot stream, which is exactly what the buffered
-    // compression branch wants.
-    let mut builder = Request::builder().method(method).uri(uri);
-    if let Some(hs) = builder.headers_mut() {
-        *hs = headers;
-    }
-    let req = match builder.body(Body::from(body)) {
-        Ok(r) => r,
-        Err(e) => {
-            // Building the request out of pieces we already have
-            // shouldn't fail; if it does it's an internal bug. Don't
-            // silently swallow — log loudly and 500.
-            tracing::error!(
-                event = "handler_error",
-                handler = "chat_completions",
-                error = %e,
-                "failed to reconstruct request from buffered body"
-            );
-            return Response::builder()
-                .status(http::StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from("internal handler error"))
-                .expect("static response");
-        },
-    };
+	// Reconstruct the Request<Body> shape forward_http expects.
+	// Cloning the headers into a fresh builder keeps the original
+	// method/uri/version intact. `axum::body::Body::from(Bytes)` is
+	// a single-shot stream, which is exactly what the buffered
+	// compression branch wants.
+	let mut builder = Request::builder().method(method).uri(uri);
+	if let Some(hs) = builder.headers_mut() {
+		*hs = headers;
+	}
+	let req = match builder.body(Body::from(body)) {
+		Ok(r) => r,
+		Err(e) => {
+			// Building the request out of pieces we already have
+			// shouldn't fail; if it does it's an internal bug. Don't
+			// silently swallow — log loudly and 500.
+			tracing::error!(
+				event = "handler_error",
+				handler = "chat_completions",
+				error = %e,
+				"failed to reconstruct request from buffered body"
+			);
+			return Response::builder()
+				.status(http::StatusCode::INTERNAL_SERVER_ERROR)
+				.body(Body::from("internal handler error"))
+				.expect("static response");
+		},
+	};
 
-    forward_http(state, client_addr, req)
-        .await
-        .unwrap_or_else(|e| {
-            use axum::response::IntoResponse;
-            e.into_response()
-        })
+	forward_http(state, client_addr, req).await.unwrap_or_else(|e| {
+		use axum::response::IntoResponse;
+		e.into_response()
+	})
 }

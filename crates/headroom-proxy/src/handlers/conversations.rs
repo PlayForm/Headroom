@@ -64,178 +64,152 @@ use crate::proxy::{forward_http, AppState};
 /// (rather than #[axum::debug_handler]-decorated wrappers) so the
 /// per-route handlers stay one obvious function each.
 async fn forward_conversations(
-    state: AppState,
-    client_addr: SocketAddr,
-    req: Request<Body>,
-    route: &'static str,
-    conversation_id: Option<&str>,
-    item_id: Option<&str>,
+	state: AppState,
+	client_addr: SocketAddr,
+	req: Request<Body>,
+	route: &'static str,
+	conversation_id: Option<&str>,
+	item_id: Option<&str>,
 ) -> Response {
-    let method = req.method().clone();
-    let path = req.uri().path().to_string();
+	let method = req.method().clone();
+	let path = req.uri().path().to_string();
 
-    // PR-C4: structured-log breadcrumb. We log BEFORE forwarding so a
-    // stalled / failed upstream call still leaves a trace pointing
-    // at this code path.
-    tracing::info!(
-        event = "conversations_passthrough_pr_c4",
-        method = %method,
-        path = %path,
-        route = route,
-        conversation_id = conversation_id.unwrap_or(""),
-        item_id = item_id.unwrap_or(""),
-        passthrough_only = true,
-        compression_in_scope = false,
-        "conversations request: passthrough with instrumentation (compression deferred to C5+)"
-    );
+	// PR-C4: structured-log breadcrumb. We log BEFORE forwarding so a
+	// stalled / failed upstream call still leaves a trace pointing
+	// at this code path.
+	tracing::info!(
+		event = "conversations_passthrough_pr_c4",
+		method = %method,
+		path = %path,
+		route = route,
+		conversation_id = conversation_id.unwrap_or(""),
+		item_id = item_id.unwrap_or(""),
+		passthrough_only = true,
+		compression_in_scope = false,
+		"conversations request: passthrough with instrumentation (compression deferred to C5+)"
+	);
 
-    forward_http(state, client_addr, req)
-        .await
-        .unwrap_or_else(|e| {
-            use axum::response::IntoResponse;
-            // No silent fallback: surface the upstream error verbatim.
-            // The structured `tracing::warn!` emitted by
-            // `ProxyError::into_response` carries the original cause.
-            e.into_response()
-        })
+	forward_http(state, client_addr, req).await.unwrap_or_else(|e| {
+		use axum::response::IntoResponse;
+		// No silent fallback: surface the upstream error verbatim.
+		// The structured `tracing::warn!` emitted by
+		// `ProxyError::into_response` carries the original cause.
+		e.into_response()
+	})
 }
 
 /// `POST /v1/conversations` — create a new conversation.
 pub async fn handle_conversations_create(
-    State(state): State<AppState>,
-    ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
-    req: Request<Body>,
+	State(state): State<AppState>,
+	ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
+	req: Request<Body>,
 ) -> Response {
-    forward_conversations(state, client_addr, req, "conversations.create", None, None).await
+	forward_conversations(state, client_addr, req, "conversations.create", None, None).await
 }
 
 /// `GET /v1/conversations/{conversation_id}` — read a conversation.
 pub async fn handle_conversations_get(
-    State(state): State<AppState>,
-    ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
-    Path(conversation_id): Path<String>,
-    req: Request<Body>,
+	State(state): State<AppState>,
+	ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
+	Path(conversation_id): Path<String>,
+	req: Request<Body>,
 ) -> Response {
-    forward_conversations(
-        state,
-        client_addr,
-        req,
-        "conversations.get",
-        Some(&conversation_id),
-        None,
-    )
-    .await
+	forward_conversations(state, client_addr, req, "conversations.get", Some(&conversation_id), None).await
 }
 
 /// `POST /v1/conversations/{conversation_id}` — update conversation
 /// metadata (e.g. tags). Same shape as create.
 pub async fn handle_conversations_update(
-    State(state): State<AppState>,
-    ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
-    Path(conversation_id): Path<String>,
-    req: Request<Body>,
+	State(state): State<AppState>,
+	ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
+	Path(conversation_id): Path<String>,
+	req: Request<Body>,
 ) -> Response {
-    forward_conversations(
-        state,
-        client_addr,
-        req,
-        "conversations.update",
-        Some(&conversation_id),
-        None,
-    )
-    .await
+	forward_conversations(state, client_addr, req, "conversations.update", Some(&conversation_id), None).await
 }
 
 /// `DELETE /v1/conversations/{conversation_id}` — delete a conversation.
 pub async fn handle_conversations_delete(
-    State(state): State<AppState>,
-    ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
-    Path(conversation_id): Path<String>,
-    req: Request<Body>,
+	State(state): State<AppState>,
+	ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
+	Path(conversation_id): Path<String>,
+	req: Request<Body>,
 ) -> Response {
-    forward_conversations(
-        state,
-        client_addr,
-        req,
-        "conversations.delete",
-        Some(&conversation_id),
-        None,
-    )
-    .await
+	forward_conversations(state, client_addr, req, "conversations.delete", Some(&conversation_id), None).await
 }
 
 /// `POST /v1/conversations/{conversation_id}/items` — append items.
 /// Body is streamed to upstream — never buffered (histories can be
 /// multi-MB).
 pub async fn handle_conversations_items_create(
-    State(state): State<AppState>,
-    ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
-    Path(conversation_id): Path<String>,
-    req: Request<Body>,
+	State(state): State<AppState>,
+	ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
+	Path(conversation_id): Path<String>,
+	req: Request<Body>,
 ) -> Response {
-    forward_conversations(
-        state,
-        client_addr,
-        req,
-        "conversations.items.create",
-        Some(&conversation_id),
-        None,
-    )
-    .await
+	forward_conversations(
+		state,
+		client_addr,
+		req,
+		"conversations.items.create",
+		Some(&conversation_id),
+		None,
+	)
+	.await
 }
 
 /// `GET /v1/conversations/{conversation_id}/items` — list items.
 pub async fn handle_conversations_items_list(
-    State(state): State<AppState>,
-    ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
-    Path(conversation_id): Path<String>,
-    req: Request<Body>,
+	State(state): State<AppState>,
+	ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
+	Path(conversation_id): Path<String>,
+	req: Request<Body>,
 ) -> Response {
-    forward_conversations(
-        state,
-        client_addr,
-        req,
-        "conversations.items.list",
-        Some(&conversation_id),
-        None,
-    )
-    .await
+	forward_conversations(
+		state,
+		client_addr,
+		req,
+		"conversations.items.list",
+		Some(&conversation_id),
+		None,
+	)
+	.await
 }
 
 /// `GET /v1/conversations/{conversation_id}/items/{item_id}` —
 /// read one item.
 pub async fn handle_conversations_item_get(
-    State(state): State<AppState>,
-    ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
-    Path((conversation_id, item_id)): Path<(String, String)>,
-    req: Request<Body>,
+	State(state): State<AppState>,
+	ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
+	Path((conversation_id, item_id)): Path<(String, String)>,
+	req: Request<Body>,
 ) -> Response {
-    forward_conversations(
-        state,
-        client_addr,
-        req,
-        "conversations.items.get",
-        Some(&conversation_id),
-        Some(&item_id),
-    )
-    .await
+	forward_conversations(
+		state,
+		client_addr,
+		req,
+		"conversations.items.get",
+		Some(&conversation_id),
+		Some(&item_id),
+	)
+	.await
 }
 
 /// `DELETE /v1/conversations/{conversation_id}/items/{item_id}` —
 /// delete one item.
 pub async fn handle_conversations_item_delete(
-    State(state): State<AppState>,
-    ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
-    Path((conversation_id, item_id)): Path<(String, String)>,
-    req: Request<Body>,
+	State(state): State<AppState>,
+	ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
+	Path((conversation_id, item_id)): Path<(String, String)>,
+	req: Request<Body>,
 ) -> Response {
-    forward_conversations(
-        state,
-        client_addr,
-        req,
-        "conversations.items.delete",
-        Some(&conversation_id),
-        Some(&item_id),
-    )
-    .await
+	forward_conversations(
+		state,
+		client_addr,
+		req,
+		"conversations.items.delete",
+		Some(&conversation_id),
+		Some(&item_id),
+	)
+	.await
 }

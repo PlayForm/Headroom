@@ -45,8 +45,7 @@ pub mod prometheus;
 pub mod proxy_metrics;
 
 pub use prometheus::{
-    handle_metrics, observe_bedrock_invoke_latency, record_bedrock_eventstream_message,
-    record_bedrock_invoke,
+	handle_metrics, observe_bedrock_invoke_latency, record_bedrock_eventstream_message, record_bedrock_invoke,
 };
 
 // Phase G PR-G3 — re-export the canonical record_* helpers so call
@@ -55,14 +54,13 @@ pub use prometheus::{
 // `observability::proxy_metrics::record_x` one. The deeper modules
 // stay reachable for tests asserting on the metric vectors directly.
 pub use cache_hit_rate::{
-    compute_hit_rate as compute_cache_hit_rate, observe as observe_cache_hit_rate,
-    provider as cache_hit_rate_provider,
+	compute_hit_rate as compute_cache_hit_rate, observe as observe_cache_hit_rate, provider as cache_hit_rate_provider,
 };
 pub use compression_ratio::{
-    observe_ratio as observe_compression_ratio,
-    record_rejected_by_token_check as record_compression_rejected_by_token_check,
+	observe_ratio as observe_compression_ratio,
+	record_rejected_by_token_check as record_compression_rejected_by_token_check,
 };
 pub use proxy_metrics::{
-    extract_rate_limit_snapshot, record_passthrough_bytes_modified, record_rate_limit_snapshot,
-    record_response_status, record_service_tier, RateLimitSnapshot,
+	extract_rate_limit_snapshot, record_passthrough_bytes_modified, record_rate_limit_snapshot, record_response_status,
+	record_service_tier, RateLimitSnapshot,
 };
