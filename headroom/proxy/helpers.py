@@ -24,6 +24,87 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from headroom import paths as _paths
 from headroom._subprocess import run
+from headroom.proxy import (
+    diagnostic_decode_policy,
+    memory_injection_mode_policy,
+    query_log_policy,
+    request_limit_policy,
+    sse_byte_buffer_policy,
+    wire_debug_format_policy,
+    wire_debug_redaction_policy,
+)
+from headroom.proxy.beta_header_merge import (
+    merge_anthropic_beta as merge_anthropic_beta,
+)
+from headroom.proxy.beta_header_merge import (
+    merge_beta_tokens,
+    split_beta_tokens,
+)
+from headroom.proxy.beta_header_merge import (
+    merge_openai_beta as merge_openai_beta,
+)
+from headroom.proxy.beta_header_policy import (
+    BETA_HEADER_STICKY_DEFAULT,
+    BETA_HEADER_STICKY_ENV,
+    BETA_TRACKER_MAX_SESSIONS_DEFAULT,
+    BETA_TRACKER_MAX_SESSIONS_ENV,
+    BetaHeaderStickyMode,
+    resolve_beta_header_sticky_mode,
+    resolve_beta_tracker_max_sessions,
+)
+from headroom.proxy.body_forwarding import (
+    BodyMutationTracker as BodyMutationTracker,  # noqa: F401 - compatibility export
+)
+from headroom.proxy.body_forwarding import (
+    PythonForwarderMode as PythonForwarderMode,  # noqa: F401 - compatibility export
+)
+from headroom.proxy.body_forwarding import (
+    get_python_forwarder_mode as get_python_forwarder_mode,  # noqa: F401 - compatibility export
+)
+from headroom.proxy.body_forwarding import (
+    prepare_outbound_body_bytes as prepare_outbound_body_bytes,  # noqa: F401 - compatibility export
+)
+from headroom.proxy.body_forwarding import serialize_body_canonical
+from headroom.proxy.ccr_golden_policy import (
+    create_fresh_ccr_tool_definition,
+    replay_golden_ccr_tool_definition,
+)
+from headroom.proxy.ccr_marker_policy import (
+    has_new_ccr_markers as _has_new_ccr_markers,
+)
+from headroom.proxy.ccr_marker_policy import (
+    should_inject_ccr_tool as _should_inject_ccr_tool,
+)
+from headroom.proxy.ccr_session_tracker import SessionCcrTracker as _SessionCcrTracker
+from headroom.proxy.internal_header_policy import (
+    INTERNAL_HEADER_PREFIX,
+    STRIP_INTERNAL_HEADERS_DEFAULT,
+    STRIP_INTERNAL_HEADERS_ENV,
+    StripInternalHeadersMode,
+    resolve_strip_internal_headers_mode,
+    strip_internal_headers,
+)
+from headroom.proxy.memory_golden_policy import (
+    replay_golden_memory_tool_definition,
+    serialize_memory_tool_definition_canonical,
+)
+from headroom.proxy.tool_injection_config import (
+    ToolInjectionStickyMode,
+)
+from headroom.proxy.tool_injection_config import (
+    get_tool_injection_sticky_mode as _get_tool_injection_sticky_mode,
+)
+from headroom.proxy.tool_injection_config import (
+    get_tool_tracker_max_sessions as _get_tool_tracker_max_sessions,
+)
+from headroom.proxy.tool_injection_logging import (
+    ToolInjectionDecision,
+)
+from headroom.proxy.tool_injection_logging import (
+    log_tool_injection_decision as _log_tool_injection_decision,
+)
+from headroom.proxy.tool_injection_tracker import SessionToolTracker as _SessionToolTracker
+from headroom.proxy.tool_name_policy import extract_tool_name
 
 if TYPE_CHECKING:
     import httpx
@@ -33,24 +114,8 @@ logger = logging.getLogger("headroom.proxy")
 
 _CODEX_WIRE_DEBUG_ENV = "HEADROOM_CODEX_WIRE_DEBUG"
 _CODEX_WIRE_DEBUG_DIR_ENV = "HEADROOM_CODEX_WIRE_DEBUG_DIR"
-_CODEX_WIRE_REDACTED = "[REDACTED]"
-_CODEX_WIRE_SECRET_KEYS = (
-    "authorization",
-    "cookie",
-    "set-cookie",
-    "api-key",
-    "x-api-key",
-    "openai-api-key",
-    "anthropic-api-key",
-    "access_token",
-    "refresh_token",
-    "id_token",
-    "bearer",
-    "password",
-    "secret",
-    "token",
-    "credential",
-)
+_CODEX_WIRE_REDACTED = wire_debug_redaction_policy.WIRE_DEBUG_REDACTED
+_CODEX_WIRE_SECRET_KEYS = wire_debug_redaction_policy.WIRE_DEBUG_SECRET_KEYS
 
 
 def codex_wire_debug_enabled() -> bool:
@@ -72,37 +137,20 @@ def _codex_wire_debug_dir() -> Path:
 
 
 def _should_redact_key(key: str) -> bool:
-    normalized = key.lower().replace("-", "_")
-    if normalized in {marker.replace("-", "_") for marker in _CODEX_WIRE_SECRET_KEYS}:
-        return True
-    return (
-        normalized.endswith("_api_key")
-        or normalized.endswith("_secret")
-        or normalized.endswith("_password")
-        or normalized.endswith("_access_token")
-        or normalized.endswith("_refresh_token")
-    )
+    return wire_debug_redaction_policy.should_redact_key(key)
 
 
 def _redact_value(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {
-            k: (_CODEX_WIRE_REDACTED if _should_redact_key(str(k)) else _redact_value(v))
-            for k, v in value.items()
-        }
-    if isinstance(value, list):
-        return [_redact_value(item) for item in value]
-    return value
+    return wire_debug_redaction_policy.redact_for_wire_debug(value)
 
 
 def redact_for_wire_debug(value: Any) -> Any:
     """Redact obvious secrets while preserving request/response shape."""
-
-    return _redact_value(value)
+    return wire_debug_redaction_policy.redact_for_wire_debug(value)
 
 
 def _safe_event_name(event: str) -> str:
-    return "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in event)[:80]
+    return wire_debug_format_policy.safe_wire_debug_name(event)
 
 
 def _wire_debug_preview(value: Any, *, max_chars: int | None = None) -> str:
@@ -113,22 +161,7 @@ def _wire_debug_preview(value: Any, *, max_chars: int | None = None) -> str:
     deliberate trim boundary belongs.
     """
 
-    try:
-        if isinstance(value, bytes):
-            text = value.decode("utf-8", errors="replace")
-        elif isinstance(value, str):
-            text = value
-        elif value is None:
-            return ""
-        else:
-            text = json.dumps(value, ensure_ascii=False, default=str, separators=(",", ":"))
-    except Exception:
-        text = repr(value)
-
-    text = " ".join(text.split())
-    if max_chars is not None and len(text) > max_chars:
-        return text[: max_chars - 1] + "…"
-    return text
+    return wire_debug_format_policy.wire_debug_preview(value, max_chars=max_chars)
 
 
 def capture_codex_wire_debug(
@@ -221,11 +254,11 @@ def capture_codex_wire_debug(
 #     forwards untouched.
 #
 # Configurable via HEADROOM_MEMORY_INJECTION_MODE env var. There is no
-# "system_prompt" option - that path is permanently retired by I2 (cache hot
+# "system_prompt" option — that path is permanently retired by I2 (cache hot
 # zone never modified). See REALIGNMENT/02-architecture.md §2.2.
-_MEMORY_INJECTION_MODE_ENV = "HEADROOM_MEMORY_INJECTION_MODE"
-_MEMORY_INJECTION_MODE_DEFAULT: Literal["live_zone_tail", "disabled"] = "live_zone_tail"
-MemoryInjectionMode = Literal["live_zone_tail", "disabled"]
+_MEMORY_INJECTION_MODE_ENV = memory_injection_mode_policy.MEMORY_INJECTION_MODE_ENV
+_MEMORY_INJECTION_MODE_DEFAULT = memory_injection_mode_policy.MEMORY_INJECTION_MODE_DEFAULT
+MemoryInjectionMode = memory_injection_mode_policy.MemoryInjectionMode
 
 
 def get_memory_injection_mode() -> MemoryInjectionMode:
@@ -234,13 +267,8 @@ def get_memory_injection_mode() -> MemoryInjectionMode:
     Read at request time so the env var can be flipped without restart for
     smoke tests. Unknown values are rejected loudly (no silent fallback).
     """
-    raw = os.environ.get(_MEMORY_INJECTION_MODE_ENV, "").strip().lower()
-    if not raw:
-        return _MEMORY_INJECTION_MODE_DEFAULT
-    if raw in ("live_zone_tail", "disabled"):
-        return cast(MemoryInjectionMode, raw)
-    raise ValueError(
-        f"Invalid {_MEMORY_INJECTION_MODE_ENV}={raw!r}; expected 'live_zone_tail' or 'disabled'"
+    return memory_injection_mode_policy.resolve_memory_injection_mode(
+        os.environ.get(_MEMORY_INJECTION_MODE_ENV)
     )
 
 
@@ -249,51 +277,7 @@ def hash_query_for_log(query: str) -> str:
 
     Uses BLAKE2b truncated to 16 hex chars. Never logs the raw query content.
     """
-    h = hashlib.blake2b(query.encode("utf-8", errors="replace"), digest_size=8)
-    return h.hexdigest()
-
-
-# ---------------------------------------------------------------------------
-# Byte-faithful Python forwarder support (PR-A3 - fixes P0-2).
-# ---------------------------------------------------------------------------
-#
-# Every Python forwarder (server.py:_retry_request, streaming.py,
-# openai.py:_ws_http_fallback, batch.py) historically used
-# ``httpx.AsyncClient.post(url, json=body)``. httpx's default JSON encoder
-# uses ``separators=(", ", ": ")`` and ``ensure_ascii=True`` so the bytes
-# leaving the proxy never byte-equal the bytes that arrived from a
-# well-behaved client (Claude Code, Codex CLI emit compact + UTF-8). Every
-# such request collapses Anthropic prefix-cache hit-rate.
-#
-# PR-A3 switches every forwarder to byte-faithful forwarding:
-#   * unmutated body → forward original ``await request.body()`` verbatim;
-#   * mutated body  → re-serialize once via ``serialize_body_canonical``.
-#
-# A ``BodyMutationTracker`` accompanies each request so the forwarder can
-# pick the right path. Memory-injection / compression / image-rewrite sites
-# call ``tracker.mark_mutated(reason)``.
-
-_PYTHON_FORWARDER_MODE_ENV = "HEADROOM_PROXY_PYTHON_FORWARDER_MODE"
-PythonForwarderMode = Literal["byte_faithful", "legacy_json_kwarg"]
-_PYTHON_FORWARDER_MODE_DEFAULT: PythonForwarderMode = "byte_faithful"
-
-
-def get_python_forwarder_mode() -> PythonForwarderMode:
-    """Return the active Python-forwarder mode.
-
-    Read at request time. Unknown values raise loudly per the no-silent-
-    fallback build constraint. The ``legacy_json_kwarg`` value is an
-    explicit operator opt-in for emergency rollback - NOT a fallback.
-    """
-    raw = os.environ.get(_PYTHON_FORWARDER_MODE_ENV, "").strip().lower()
-    if not raw:
-        return _PYTHON_FORWARDER_MODE_DEFAULT
-    if raw in ("byte_faithful", "legacy_json_kwarg"):
-        return cast(PythonForwarderMode, raw)
-    raise ValueError(
-        f"Invalid {_PYTHON_FORWARDER_MODE_ENV}={raw!r}; "
-        "expected 'byte_faithful' or 'legacy_json_kwarg'"
-    )
+    return query_log_policy.hash_query_for_log(query)
 
 
 def extract_tags(headers: Any) -> dict[str, str]:
@@ -329,90 +313,6 @@ def _headroom_bypass_enabled(headers: Any) -> bool:
     except AttributeError:
         return False
     return bypass or passthrough
-
-
-def serialize_body_canonical(body: dict[str, Any]) -> bytes:
-    """Re-serialize a request body deterministically with cache-stable formatting.
-
-    Uses compact separators and preserves UTF-8 (no ``\\uXXXX`` escapes), so
-    byte output matches what well-behaved API clients (Claude Code, Codex
-    CLI) emit. Python 3.7+ dict insertion order is preserved by
-    ``json.dumps`` so message ordering is stable.
-
-    This is the canonical re-serialization for any forwarder path that did
-    mutate the body (memory injection, compression, etc.).
-    """
-    return json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-
-
-class BodyMutationTracker:
-    """Records whether a request body was mutated and why.
-
-    The forwarder reads ``mutated`` to decide between byte-faithful
-    passthrough and canonical re-serialization. Reasons are logged with
-    each outbound request to make cache-affecting decisions auditable.
-
-    Thread-safety: a single tracker instance is owned by exactly one
-    request task. No locking needed.
-    """
-
-    __slots__ = ("_mutated", "_reasons")
-
-    def __init__(self) -> None:
-        self._mutated: bool = False
-        self._reasons: list[str] = []
-
-    def mark_mutated(self, reason: str) -> None:
-        """Mark the body as mutated and record the reason.
-
-        ``reason`` should be a stable identifier (snake_case) suitable for
-        log aggregation, e.g. ``memory_injection`` or
-        ``compression_smart_crusher``.
-        """
-        if not reason:
-            raise ValueError("BodyMutationTracker.mark_mutated: reason must be non-empty")
-        self._mutated = True
-        if reason not in self._reasons:
-            self._reasons.append(reason)
-
-    @property
-    def mutated(self) -> bool:
-        return self._mutated
-
-    @property
-    def reasons(self) -> list[str]:
-        return list(self._reasons)
-
-
-def prepare_outbound_body_bytes(
-    *,
-    body: dict[str, Any],
-    original_body_bytes: bytes | None,
-    body_mutated: bool,
-    forwarder_mode: PythonForwarderMode | None = None,
-) -> tuple[bytes, str]:
-    """Pick the outbound body bytes for a forwarder call.
-
-    Returns ``(outbound_bytes, source)`` where ``source`` is one of
-    ``passthrough`` (original bytes verbatim), ``canonical`` (re-serialized
-    deterministically because body was mutated), or ``legacy`` (rollback
-    mode - old ``json=body`` behavior).
-
-    * ``forwarder_mode == "byte_faithful"`` (default): unmutated → passthrough,
-      mutated → canonical.
-    * ``forwarder_mode == "legacy_json_kwarg"``: always re-encode via the old
-      httpx-style separators (operator opt-in, for rollback only).
-    """
-    mode = forwarder_mode if forwarder_mode is not None else get_python_forwarder_mode()
-    if mode == "legacy_json_kwarg":
-        # Old httpx default: separators=(", ", ": "), ensure_ascii=True.
-        legacy_bytes = json.dumps(body, separators=(", ", ": "), ensure_ascii=True).encode("utf-8")
-        return legacy_bytes, "legacy"
-
-    # byte_faithful path
-    if body_mutated or original_body_bytes is None:
-        return serialize_body_canonical(body), "canonical"
-    return original_body_bytes, "passthrough"
 
 
 def log_outbound_request(
@@ -457,7 +357,7 @@ def log_memory_injection(
     """Emit a structured log line for every memory-context routing decision.
 
     Per realignment build constraints: log every cache-affecting decision.
-    Never log raw query content or Authorization header - only a stable
+    Never log raw query content or Authorization header — only a stable
     hash of the query.
     """
     query_hash = hash_query_for_log(query) if query else ""
@@ -527,7 +427,7 @@ def append_text_to_latest_user_chat_message(
                 new_messages[idx] = updated_msg
                 return new_messages, len(context_text)
 
-        # User message but no eligible text block - leave untouched and stop.
+        # User message but no eligible text block — leave untouched and stop.
         return messages, 0
 
     return messages, 0
@@ -585,7 +485,7 @@ def append_text_to_latest_user_input_item(
                 new_input[idx] = updated_item
                 return new_input, len(context_text)
 
-        # User item but no eligible text block - leave untouched and stop.
+        # User item but no eligible text block — leave untouched and stop.
         return body_input, 0
 
     return body_input, 0
@@ -632,8 +532,8 @@ MAX_SSE_BUFFER_SIZE = 10 * 1024 * 1024
 # HEADROOM_SSE_BUFFER_MAX_BYTES. Guards against pathological huge events
 # (a single event > 1 MB by default is treated as an upstream protocol bug
 # and surfaces loudly rather than silently growing the buffer).
-_SSE_EVENT_MAX_BYTES_ENV = "HEADROOM_SSE_BUFFER_MAX_BYTES"
-_SSE_EVENT_MAX_BYTES_DEFAULT = 1 * 1024 * 1024  # 1 MB
+_SSE_EVENT_MAX_BYTES_ENV = request_limit_policy.SSE_EVENT_MAX_BYTES_ENV
+_SSE_EVENT_MAX_BYTES_DEFAULT = request_limit_policy.SSE_EVENT_MAX_BYTES_DEFAULT
 
 
 def get_sse_event_max_bytes() -> int:
@@ -642,55 +542,31 @@ def get_sse_event_max_bytes() -> int:
     Read at request time so operators can flip the env var without a
     restart. Negative values are rejected loudly (no silent fallback).
     """
-    raw = os.environ.get(_SSE_EVENT_MAX_BYTES_ENV)
-    if raw is None or raw == "":
-        return _SSE_EVENT_MAX_BYTES_DEFAULT
-    try:
-        value = int(raw)
-    except ValueError as exc:
-        raise ValueError(f"{_SSE_EVENT_MAX_BYTES_ENV} must be an integer, got {raw!r}") from exc
-    if value <= 0:
-        raise ValueError(f"{_SSE_EVENT_MAX_BYTES_ENV} must be positive, got {value}")
-    return value
+    return request_limit_policy.resolve_sse_event_max_bytes(
+        os.environ.get(_SSE_EVENT_MAX_BYTES_ENV)
+    )
 
 
 # Body-too-large status code (PR-A8 / P5-59). Default 413 (RFC 7231 §6.5.11).
 # Configurable via HEADROOM_PROXY_BODY_TOO_LARGE_STATUS for operators who need
 # to override (no expected production use; documentation knob).
-_BODY_TOO_LARGE_STATUS_ENV = "HEADROOM_PROXY_BODY_TOO_LARGE_STATUS"
-_BODY_TOO_LARGE_STATUS_DEFAULT = 413
+_BODY_TOO_LARGE_STATUS_ENV = request_limit_policy.BODY_TOO_LARGE_STATUS_ENV
+_BODY_TOO_LARGE_STATUS_DEFAULT = request_limit_policy.BODY_TOO_LARGE_STATUS_DEFAULT
 
 
 def get_body_too_large_status() -> int:
     """Return the HTTP status code for body-too-large rejections."""
-    raw = os.environ.get(_BODY_TOO_LARGE_STATUS_ENV)
-    if raw is None or raw == "":
-        return _BODY_TOO_LARGE_STATUS_DEFAULT
-    try:
-        value = int(raw)
-    except ValueError as exc:
-        raise ValueError(f"{_BODY_TOO_LARGE_STATUS_ENV} must be an integer, got {raw!r}") from exc
-    if not 400 <= value < 600:
-        raise ValueError(f"{_BODY_TOO_LARGE_STATUS_ENV} must be a 4xx/5xx status, got {value}")
-    return value
+    return request_limit_policy.resolve_body_too_large_status(
+        os.environ.get(_BODY_TOO_LARGE_STATUS_ENV)
+    )
 
 
-# SSE byte-buffer helper supports LF and CRLF event separators. Per the SSE
-# spec the default event name is "message"; we return ``None`` so callers can
-# decide whether to apply that default.
-_SSE_EVENT_TERMINATORS = (b"\n\n", b"\r\n\r\n")
+_SSE_EVENT_TERMINATORS = sse_byte_buffer_policy.SSE_EVENT_TERMINATORS
 
 
 def _find_sse_event_terminator(buf: bytearray) -> tuple[int, int] | None:
     """Return the earliest complete SSE event terminator in ``buf``."""
-    matches = [
-        (idx, len(terminator))
-        for terminator in _SSE_EVENT_TERMINATORS
-        if (idx := buf.find(terminator)) != -1
-    ]
-    if not matches:
-        return None
-    return min(matches, key=lambda match: match[0])
+    return sse_byte_buffer_policy.find_sse_event_terminator(buf)
 
 
 _SSE_EVENT_LINE_PREFIX = b"event:"
@@ -709,16 +585,7 @@ def safe_decode_for_logging(raw: bytes, *, max_bytes: int | None = None) -> str:
 
     Use ``parse_sse_events_from_byte_buffer`` for SSE parsing instead.
     """
-    blob = raw[:max_bytes] if max_bytes is not None else raw
-    # Decode incrementally and represent any invalid bytes as the
-    # Unicode replacement character (�). Implemented via the
-    # `codecs` incremental decoder so we never reach for the
-    # forbidden `errors="ignore"`/`errors="replace"` keyword in the
-    # SSE-bearing modules.
-    import codecs as _codecs
-
-    decoder = _codecs.getincrementaldecoder("utf-8")(errors="replace")
-    return decoder.decode(bytes(blob), final=True)
+    return diagnostic_decode_policy.safe_decode_for_logging(raw, max_bytes=max_bytes)
 
 
 def parse_sse_events_from_byte_buffer(
@@ -730,43 +597,14 @@ def parse_sse_events_from_byte_buffer(
     Mutates ``buf`` in-place to leave only partial-event tail bytes.
 
     Operates on bytes; only decodes complete events as UTF-8 (raises if a
-    *complete* event has invalid UTF-8 - that's an upstream protocol bug
+    *complete* event has invalid UTF-8 — that's an upstream protocol bug
     we want loud, not silent).
 
     Per PR-A8 / P1-8: this is the canonical SSE event splitter. NEVER use
     ``decode("utf-8", errors="ignore")`` on a partial buffer; UTF-8
     multi-byte characters split across TCP reads will corrupt content.
     """
-    events: list[tuple[str | None, str]] = []
-    while True:
-        terminator_match = _find_sse_event_terminator(buf)
-        if terminator_match is None:
-            break
-        idx, terminator_len = terminator_match
-        event_bytes = bytes(buf[:idx])
-        # Drain the event + the trailing terminator from the buffer.
-        del buf[: idx + terminator_len]
-        # Decoding the COMPLETE event must succeed. If it doesn't, the
-        # upstream emitted invalid UTF-8 mid-stream - surface loudly.
-        event_text = event_bytes.decode("utf-8")
-        event_name: str | None = None
-        data_lines: list[str] = []
-        for line in event_text.splitlines():
-            if not line:
-                continue
-            # SSE comment line - ignored per spec.
-            if line.startswith(":"):
-                continue
-            if line.startswith("event:"):
-                event_name = line[len("event:") :].lstrip()
-            elif line.startswith("data:"):
-                data_lines.append(line[len("data:") :].lstrip())
-        # Per SSE spec, multiple `data:` lines join with newline. We
-        # preserve that here even though OpenAI/Anthropic emit one
-        # `data:` per event.
-        if data_lines:
-            events.append((event_name, "\n".join(data_lines)))
-    return events
+    return sse_byte_buffer_policy.parse_sse_events_from_byte_buffer(buf)
 
 
 # Maximum message array length (prevents DoS from deeply nested payloads)
@@ -895,7 +733,7 @@ def decide_compression_failure_action(
             if parsed > 0:
                 threshold = parsed
         except ValueError:
-            # Operator typo'd the env value - keep the default rather than
+            # Operator typo'd the env value — keep the default rather than
             # raise on every WS frame. Loud warning instead.
             logger.warning(
                 "Ignoring non-integer %s=%r; using default %d",
@@ -920,7 +758,7 @@ def decide_compression_failure_action(
 def jitter_delay_ms(base_ms: int, max_ms: int, attempt: int) -> float:
     """Exponential backoff with 50-150% jitter.
 
-    Returns ``min(base_ms * 2**attempt, max_ms) * (0.5 + random())`` - the
+    Returns ``min(base_ms * 2**attempt, max_ms) * (0.5 + random())`` — the
     canonical formula used across proxy retry loops. Extracted so every
     retry site shares one implementation.
     """
@@ -955,7 +793,7 @@ def retry_after_ms(response: httpx.Response, max_ms: int) -> float | None:
 
 # Transient upstream statuses worth retrying with backoff: 429 (rate limit) and
 # 529 (Anthropic ``overloaded_error``). Both mean "the server is temporarily
-# limiting/overloaded - try again shortly", unlike other 4xx which signal a
+# limiting/overloaded — try again shortly", unlike other 4xx which signal a
 # problem with the request itself. Single source of truth so the streaming and
 # non-streaming forwarders agree on what is retriable.
 RETRYABLE_OVERLOAD_STATUSES: frozenset[int] = frozenset({429, 529})
@@ -979,7 +817,7 @@ async def request_with_transient_retry(
     is healthy (it answers a fresh connection with 200). Retrying opens a new
     connection and succeeds, mirroring curl's behaviour. See GH #1112.
 
-    Only ``httpx.RemoteProtocolError`` is retried - the specific stale
+    Only ``httpx.RemoteProtocolError`` is retried — the specific stale
     keep-alive symptom; every other exception (``ConnectError``, timeouts,
     HTTP status errors) propagates immediately so existing handling is
     unchanged. Use this for buffered (non-streaming) requests only: a streamed
@@ -1288,7 +1126,7 @@ def _read_rtk_lifetime_stats() -> dict[str, Any] | None:
                 summary=summary if isinstance(summary, dict) else {},
             )
         else:
-            # A failed read is "no data", never a zero counter - a synthetic
+            # A failed read is "no data", never a zero counter — a synthetic
             # zero here re-pins the session baseline and inflates session
             # savings by the tool's whole lifetime on recovery.
             stderr_excerpt = (result.stderr or "")[:200]
@@ -1299,7 +1137,7 @@ def _read_rtk_lifetime_stats() -> dict[str, Any] | None:
             )
             return None
     except Exception as exc:
-        # Reason is the exception class name (without payload - RTK
+        # Reason is the exception class name (without payload — RTK
         # exceptions can carry filesystem paths).
         logger.warning(
             "event=rtk_stats_subprocess_failed reason=%s error=%s",
@@ -1327,7 +1165,7 @@ def _read_lean_ctx_lifetime_stats() -> dict[str, Any] | None:
             text=True,
             timeout=5,
         )
-        # Failed reads return None ("no data") - mirrors the rtk reader so
+        # Failed reads return None ("no data") — mirrors the rtk reader so
         # the baseline logic never sees synthetic zeros from either tool.
         if result.returncode != 0 or not result.stdout.strip():
             logger.warning(
@@ -1369,7 +1207,7 @@ async def initialize_context_tool_session_baseline() -> None:
     with _context_tool_stats_cache_lock:
         if payload is None or not payload.get("installed", False):
             # Failed or tool-absent read: defer the pin to the first
-            # successful read (guarded lazy-init) - pinning zeros here would
+            # successful read (guarded lazy-init) — pinning zeros here would
             # inflate session savings by the tool's whole lifetime once it
             # recovers or gets installed.
             _context_tool_session_baseline.update(
@@ -1435,7 +1273,7 @@ def _get_context_tool_stats() -> dict[str, Any] | None:
     payload = _read_context_tool_lifetime_stats(tool)
     with _context_tool_stats_cache_lock:
         # Baseline mutations only happen on successful reads from an
-        # installed tool - a failed read (None) or a tool-absent zero payload
+        # installed tool — a failed read (None) or a tool-absent zero payload
         # must never pin or re-pin, or session deltas inflate by the whole
         # lifetime when the tool comes back.
         tool_installed = payload is not None and bool(payload.get("installed", False))
@@ -1472,7 +1310,7 @@ def _get_context_tool_stats() -> dict[str, Any] | None:
             baseline_tokens_saved = int(_context_tool_session_baseline["tokens_saved"])
             baseline_total_time_ms = int(_context_tool_session_baseline["total_time_ms"])
             # A tool-absent payload carries zero counters that are not a
-            # genuine external reset - only successful installed reads may
+            # genuine external reset — only successful installed reads may
             # re-pin the baseline.
             counter_reset_detected = tool_installed and (
                 lifetime_total_commands < baseline_total_commands
@@ -1603,13 +1441,13 @@ def is_anthropic_auth(headers: dict[str, str]) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Internal-header stripping (PR-A5 - fixes P5-49).
+# Internal-header stripping (PR-A5 — fixes P5-49).
 # ---------------------------------------------------------------------------
 #
 # `x-headroom-*` request headers (e.g. ``x-headroom-bypass``,
 # ``x-headroom-mode``, ``x-headroom-user-id``, ``x-headroom-stack``,
 # ``x-headroom-base-url``) are internal control flags consumed by the
-# proxy itself. They MUST NOT leak upstream - leaking them would (a)
+# proxy itself. They MUST NOT leak upstream — leaking them would (a)
 # fingerprint the proxy to subscription enforcers and (b) expose the
 # user-id/stack/base-url internals to whichever vendor terminates the
 # request.
@@ -1620,20 +1458,13 @@ def is_anthropic_auth(headers: dict[str, str]) -> bool:
 # every upstream-bound forwarder receives.
 #
 # Note: response-side ``X-Headroom-*`` injection (e.g.
-# ``x-headroom-tokens-saved``) is unrelated - the proxy is allowed to
+# ``x-headroom-tokens-saved``) is unrelated — the proxy is allowed to
 # tell its client about its own work. This helper only filters
 # request-side headers.
 
-_INTERNAL_HEADER_PREFIX = "x-headroom-"
-
-# Operator opt-in env var. ``enabled`` (default) strips internal
-# ``x-headroom-*`` headers from every upstream-bound forwarder.
-# ``disabled`` is an explicit operator opt-in for diagnostic shadow
-# tracing - NOT a fallback. Per realignment build constraint #4 the
-# behaviour is loud, configurable, and never silent.
-_STRIP_INTERNAL_HEADERS_ENV = "HEADROOM_STRIP_INTERNAL_HEADERS"
-StripInternalHeadersMode = Literal["enabled", "disabled"]
-_STRIP_INTERNAL_HEADERS_DEFAULT: StripInternalHeadersMode = "enabled"
+_INTERNAL_HEADER_PREFIX = INTERNAL_HEADER_PREFIX
+_STRIP_INTERNAL_HEADERS_ENV = STRIP_INTERNAL_HEADERS_ENV
+_STRIP_INTERNAL_HEADERS_DEFAULT = STRIP_INTERNAL_HEADERS_DEFAULT
 
 
 def get_strip_internal_headers_mode() -> StripInternalHeadersMode:
@@ -1643,14 +1474,7 @@ def get_strip_internal_headers_mode() -> StripInternalHeadersMode:
     restart. Unknown values raise loudly per the no-silent-fallback
     build constraint.
     """
-    raw = os.environ.get(_STRIP_INTERNAL_HEADERS_ENV, "").strip().lower()
-    if not raw:
-        return _STRIP_INTERNAL_HEADERS_DEFAULT
-    if raw in ("enabled", "disabled"):
-        return cast(StripInternalHeadersMode, raw)
-    raise ValueError(
-        f"Invalid {_STRIP_INTERNAL_HEADERS_ENV}={raw!r}; expected 'enabled' or 'disabled'"
-    )
+    return resolve_strip_internal_headers_mode(os.environ.get(_STRIP_INTERNAL_HEADERS_ENV))
 
 
 def _strip_internal_headers(headers: dict[str, str]) -> dict[str, str]:
@@ -1666,11 +1490,7 @@ def _strip_internal_headers(headers: dict[str, str]) -> dict[str, str]:
     is set, returns a shallow copy unchanged. That mode is for diagnostic
     shadow tracing only and is documented as a per-deploy choice.
     """
-    mode = get_strip_internal_headers_mode()
-    if mode == "disabled":
-        # Always return a copy so callers can mutate without surprise.
-        return dict(headers)
-    return {k: v for k, v in headers.items() if not k.lower().startswith(_INTERNAL_HEADER_PREFIX)}
+    return strip_internal_headers(headers, mode=get_strip_internal_headers_mode())
 
 
 def log_outbound_headers(
@@ -1695,7 +1515,7 @@ def log_outbound_headers(
 
 
 # ---------------------------------------------------------------------------
-# Beta-header merge + per-session stickiness (PR-A6 - fixes P5-50; preps P0-6).
+# Beta-header merge + per-session stickiness (PR-A6 — fixes P5-50; preps P0-6).
 # ---------------------------------------------------------------------------
 #
 # Anthropic's `anthropic-beta` and OpenAI's `OpenAI-Beta` request headers
@@ -1704,7 +1524,7 @@ def log_outbound_headers(
 #
 #   1. Mid-session mutation: when memory is enabled the proxy historically
 #      did an ad-hoc concat of `context-management-2025-06-27` onto the
-#      client value (anthropic.py:1244-1248) - every variant produced a
+#      client value (anthropic.py:1244-1248) — every variant produced a
 #      different byte sequence and the order was undefined when the same
 #      client value already contained a Headroom-required token.
 #
@@ -1724,21 +1544,20 @@ def log_outbound_headers(
 #   * `SessionBetaTracker`: bounded LRU cache keyed by `(provider,
 #     session_id)` tracking every beta token observed for that session.
 #     On every request we union the client value with previously-seen
-#     tokens and update the seen set - so a beta seen in turn N is
+#     tokens and update the seen set — so a beta seen in turn N is
 #     present in turn N+1 even if the client drops it. LRU bound (default
 #     1000 sessions) prevents unbounded growth. Reentrant lock so future
 #     callers from inside another locked method don't self-deadlock.
 #
 # Operator opt-in `HEADROOM_BETA_HEADER_STICKY=disabled` short-circuits
 # the tracker (returns the client value verbatim). That mode is loud and
-# explicit per realignment build constraint #4 - NOT a silent fallback.
+# explicit per realignment build constraint #4 — NOT a silent fallback.
 
-_BETA_HEADER_STICKY_ENV = "HEADROOM_BETA_HEADER_STICKY"
-BetaHeaderStickyMode = Literal["enabled", "disabled"]
-_BETA_HEADER_STICKY_DEFAULT: BetaHeaderStickyMode = "enabled"
+_BETA_HEADER_STICKY_ENV = BETA_HEADER_STICKY_ENV
+_BETA_HEADER_STICKY_DEFAULT = BETA_HEADER_STICKY_DEFAULT
 
-_BETA_TRACKER_MAX_SESSIONS_ENV = "HEADROOM_BETA_TRACKER_MAX_SESSIONS"
-_BETA_TRACKER_MAX_SESSIONS_DEFAULT = 1000
+_BETA_TRACKER_MAX_SESSIONS_ENV = BETA_TRACKER_MAX_SESSIONS_ENV
+_BETA_TRACKER_MAX_SESSIONS_DEFAULT = BETA_TRACKER_MAX_SESSIONS_DEFAULT
 
 
 def get_beta_header_sticky_mode() -> BetaHeaderStickyMode:
@@ -1748,103 +1567,18 @@ def get_beta_header_sticky_mode() -> BetaHeaderStickyMode:
     restart. Unknown values raise loudly per the no-silent-fallback
     build constraint.
     """
-    raw = os.environ.get(_BETA_HEADER_STICKY_ENV, "").strip().lower()
-    if not raw:
-        return _BETA_HEADER_STICKY_DEFAULT
-    if raw in ("enabled", "disabled"):
-        return cast(BetaHeaderStickyMode, raw)
-    raise ValueError(f"Invalid {_BETA_HEADER_STICKY_ENV}={raw!r}; expected 'enabled' or 'disabled'")
+    return resolve_beta_header_sticky_mode(os.environ.get(_BETA_HEADER_STICKY_ENV))
 
 
 def get_beta_tracker_max_sessions() -> int:
     """Return the LRU bound for `SessionBetaTracker` (sessions cap)."""
-    raw = os.environ.get(_BETA_TRACKER_MAX_SESSIONS_ENV, "").strip()
-    if not raw:
-        return _BETA_TRACKER_MAX_SESSIONS_DEFAULT
-    try:
-        value = int(raw)
-    except ValueError as exc:
-        raise ValueError(
-            f"Invalid {_BETA_TRACKER_MAX_SESSIONS_ENV}={raw!r}; expected positive int"
-        ) from exc
-    if value <= 0:
-        raise ValueError(f"Invalid {_BETA_TRACKER_MAX_SESSIONS_ENV}={raw!r}; expected positive int")
-    return value
+    return resolve_beta_tracker_max_sessions(os.environ.get(_BETA_TRACKER_MAX_SESSIONS_ENV))
 
 
-def _split_beta_tokens(value: str | None) -> list[str]:
-    """Split a comma-separated beta-header value into trimmed tokens.
-
-    Empty/whitespace-only entries are dropped. Pure function, no regex.
-    """
-    if not value:
-        return []
-    out: list[str] = []
-    for raw in value.split(","):
-        token = raw.strip()
-        if token:
-            out.append(token)
-    return out
+_split_beta_tokens = split_beta_tokens
 
 
-def _merge_beta_tokens(client_value: str | None, headroom_required: list[str]) -> str:
-    """Shared deterministic merge for `anthropic-beta` / `OpenAI-Beta` tokens.
-
-    Rules (per Anthropic guide §6.3 #6 "sticky-on; add but never reorder"):
-
-    * Client tokens come first, in their original order.
-    * Headroom-required tokens append in the order given, skipping any
-      token already present (case-insensitive).
-    * Dedupe is case-insensitive but the FIRST occurrence's casing wins
-      (prevents drift when client uses one casing across turns).
-    * Returns ``""`` when both inputs are empty.
-
-    Pure function. No regex. No global state.
-    """
-    seen_lower: set[str] = set()
-    out: list[str] = []
-    for token in _split_beta_tokens(client_value):
-        lower = token.lower()
-        if lower in seen_lower:
-            continue
-        seen_lower.add(lower)
-        out.append(token)
-    for token in headroom_required:
-        if not token:
-            continue
-        token = token.strip()
-        if not token:
-            continue
-        lower = token.lower()
-        if lower in seen_lower:
-            continue
-        seen_lower.add(lower)
-        out.append(token)
-    return ",".join(out)
-
-
-def merge_anthropic_beta(client_value: str | None, headroom_required: list[str]) -> str:
-    """Merge client `anthropic-beta` value with Headroom-required tokens.
-
-    See `_merge_beta_tokens` for full semantics. Order is deterministic:
-    client tokens first (in their original order), then headroom tokens
-    (in the order passed). No sorting - sticky-on per Anthropic guide
-    §6.3 #6 means we add but never reorder. Dedupe is case-insensitive
-    but preserves the original casing of the first occurrence.
-
-    Returns ``""`` when both inputs are empty.
-    """
-    return _merge_beta_tokens(client_value, headroom_required)
-
-
-def merge_openai_beta(client_value: str | None, headroom_required: list[str]) -> str:
-    """Merge client `OpenAI-Beta` value with Headroom-required tokens.
-
-    Mirror of `merge_anthropic_beta`. Same semantics - the OpenAI header
-    follows the same comma-separated convention and the same cache-stable
-    rules apply.
-    """
-    return _merge_beta_tokens(client_value, headroom_required)
+_merge_beta_tokens = merge_beta_tokens
 
 
 class SessionBetaTracker:
@@ -1899,7 +1633,7 @@ class SessionBetaTracker:
         ``openai``). ``session_id`` is the proxy's per-conversation ID
         (e.g. `SessionTrackerStore.compute_session_id` output for the
         HTTP path; the WS handler's per-connection UUID for the WS
-        path - note WS sessions are short-lived and won't accumulate
+        path — note WS sessions are short-lived and won't accumulate
         cross-turn).
 
         When `HEADROOM_BETA_HEADER_STICKY=disabled` returns the client
@@ -1914,7 +1648,7 @@ class SessionBetaTracker:
             raise ValueError("session_id must be non-empty")
 
         if get_beta_header_sticky_mode() == "disabled":
-            # Diagnostic mode - return the client value verbatim, do not
+            # Diagnostic mode — return the client value verbatim, do not
             # touch tracker state. This is loud (operators read the env
             # var) and per-deploy.
             return (client_value or "").strip()
@@ -1958,7 +1692,7 @@ class SessionBetaTracker:
 
 # Process-wide singleton. Lazily replaced by tests via `reset` /
 # `_reset_session_beta_tracker_for_test`. One tracker for both providers
-# - the (provider, session_id) key keeps namespaces independent.
+# — the (provider, session_id) key keeps namespaces independent.
 _session_beta_tracker_lock = threading.Lock()
 _session_beta_tracker: SessionBetaTracker | None = None
 
@@ -1996,7 +1730,7 @@ def log_beta_header_merge(
 
     `headroom_added` is a list of public, documented beta tokens
     (e.g. ``context-management-2025-06-27``,
-    ``responses_websockets=2026-02-06``) - safe to log. We intentionally
+    ``responses_websockets=2026-02-06``) — safe to log. We intentionally
     do NOT log the raw client value because beta tokens, while public,
     can carry experiment IDs the user has not opted to share with
     Headroom logs. Emitting counts only makes the decision auditable.
@@ -2014,7 +1748,7 @@ def log_beta_header_merge(
 
 
 # ---------------------------------------------------------------------------
-# Memory-tool injection session-stickiness (PR-A7 - closes P0-6).
+# Memory-tool injection session-stickiness (PR-A7 — closes P0-6).
 # ---------------------------------------------------------------------------
 #
 # Memory adds `memory_save` / `memory_search` tool definitions to
@@ -2036,7 +1770,7 @@ def log_beta_header_merge(
 #   * `SessionToolTracker`: bounded LRU keyed by (provider, session_id)
 #     storing the GOLDEN tool-definition bytes injected on the first
 #     turn. Subsequent turns of that session always inject the same
-#     bytes - even if memory is disabled mid-session (sticky-on per
+#     bytes — even if memory is disabled mid-session (sticky-on per
 #     guide §6.3 #2). Provider-aware so the same `session_id` under
 #     two providers keeps independent state.
 #
@@ -2046,16 +1780,9 @@ def log_beta_header_merge(
 #
 # Operator opt-in `HEADROOM_TOOL_INJECTION_STICKY=disabled` short-
 # circuits the tracker; per-turn decision flows through unchanged. That
-# mode is loud and explicit per realignment build constraint #4 - NOT a
+# mode is loud and explicit per realignment build constraint #4 — NOT a
 # silent fallback. It exists for diagnostic shadow tracing / emergency
 # rollback only.
-
-_TOOL_INJECTION_STICKY_ENV = "HEADROOM_TOOL_INJECTION_STICKY"
-ToolInjectionStickyMode = Literal["enabled", "disabled"]
-_TOOL_INJECTION_STICKY_DEFAULT: ToolInjectionStickyMode = "enabled"
-
-_TOOL_TRACKER_MAX_SESSIONS_ENV = "HEADROOM_TOOL_TRACKER_MAX_SESSIONS"
-_TOOL_TRACKER_MAX_SESSIONS_DEFAULT = 1000
 
 
 def get_tool_injection_sticky_mode() -> ToolInjectionStickyMode:
@@ -2065,30 +1792,12 @@ def get_tool_injection_sticky_mode() -> ToolInjectionStickyMode:
     restart. Unknown values raise loudly per the no-silent-fallback
     build constraint.
     """
-    raw = os.environ.get(_TOOL_INJECTION_STICKY_ENV, "").strip().lower()
-    if not raw:
-        return _TOOL_INJECTION_STICKY_DEFAULT
-    if raw in ("enabled", "disabled"):
-        return cast(ToolInjectionStickyMode, raw)
-    raise ValueError(
-        f"Invalid {_TOOL_INJECTION_STICKY_ENV}={raw!r}; expected 'enabled' or 'disabled'"
-    )
+    return _get_tool_injection_sticky_mode()
 
 
 def get_tool_tracker_max_sessions() -> int:
     """Return the LRU bound for `SessionToolTracker` (sessions cap)."""
-    raw = os.environ.get(_TOOL_TRACKER_MAX_SESSIONS_ENV, "").strip()
-    if not raw:
-        return _TOOL_TRACKER_MAX_SESSIONS_DEFAULT
-    try:
-        value = int(raw)
-    except ValueError as exc:
-        raise ValueError(
-            f"Invalid {_TOOL_TRACKER_MAX_SESSIONS_ENV}={raw!r}; expected positive int"
-        ) from exc
-    if value <= 0:
-        raise ValueError(f"Invalid {_TOOL_TRACKER_MAX_SESSIONS_ENV}={raw!r}; expected positive int")
-    return value
+    return _get_tool_tracker_max_sessions()
 
 
 def serialize_tool_definition_canonical(tool_definition: dict[str, Any]) -> bytes:
@@ -2097,7 +1806,7 @@ def serialize_tool_definition_canonical(tool_definition: dict[str, Any]) -> byte
     Uses ``serialize_body_canonical`` semantics (compact separators, UTF-8,
     no ASCII escaping). Python 3.7+ dict insertion order is preserved by
     ``json.dumps`` so callers must construct the tool definition with a
-    stable key order - which the static schemas in
+    stable key order — which the static schemas in
     ``headroom/proxy/memory_handler.py`` and
     ``headroom/proxy/memory_tool_adapter.py`` already do.
 
@@ -2108,133 +1817,13 @@ def serialize_tool_definition_canonical(tool_definition: dict[str, Any]) -> byte
     return serialize_body_canonical(tool_definition)
 
 
-class SessionToolTracker:
-    """Bounded LRU tracker recording per-session memory-tool injection state.
-
-    Once memory injects tool definitions into a session, future requests
-    in that session always inject the byte-equal same definitions -
-    never toggling on/off mid-session (guide §6.3 #2). The first turn's
-    canonical bytes are stored as the golden definition; subsequent
-    turns reuse those bytes verbatim.
-
-    State per session: ordered list of (tool_name → golden_bytes)
-    pairs. Order is preserved so the rebuilt tool list matches the
-    original injection order.
-
-    Bounded by ``max_sessions`` (default 1000) via ``OrderedDict`` LRU
-    eviction: hits move-to-end; overflow pops oldest. Reentrant lock so
-    future callers from inside another locked method don't self-deadlock
-    (mirrors `SessionBetaTracker` / `CompressionCache` pattern).
-
-    The tracker is provider-aware: the same ``session_id`` for Anthropic
-    and OpenAI keeps independent state (the tool schemas differ in
-    format).
-    """
+class SessionToolTracker(_SessionToolTracker):
+    """Env-aware compatibility wrapper for the pure session tool tracker."""
 
     def __init__(self, max_sessions: int | None = None) -> None:
         if max_sessions is None:
             max_sessions = get_tool_tracker_max_sessions()
-        if max_sessions <= 0:
-            raise ValueError("max_sessions must be > 0")
-        self._max_sessions: int = max_sessions
-        self._lock = threading.RLock()
-        # Value is an OrderedDict[tool_name -> golden_definition_bytes].
-        # Storing per-tool bytes (not the entire tools list) keeps the
-        # tracker resilient to non-memory tool list changes by the client
-        # (which are the client's responsibility, not ours to gate).
-        self._sessions: OrderedDict[tuple[str, str], OrderedDict[str, bytes]] = OrderedDict()
-
-    @property
-    def active_sessions(self) -> int:
-        with self._lock:
-            return len(self._sessions)
-
-    def _key(self, provider: str, session_id: str) -> tuple[str, str]:
-        return (provider, session_id)
-
-    def should_inject(self, provider: str, session_id: str) -> bool:
-        """Return True iff this session has previously injected memory tools.
-
-        Used by the sticky-on path: when memory is disabled this turn but
-        the session previously injected, we still inject the golden bytes.
-        """
-        if not provider:
-            raise ValueError("provider must be non-empty")
-        if not session_id:
-            raise ValueError("session_id must be non-empty")
-        with self._lock:
-            entry = self._sessions.get(self._key(provider, session_id))
-            if entry is None:
-                return False
-            # LRU touch on read so the carry-over decision keeps the
-            # session in the hot set.
-            self._sessions.move_to_end(self._key(provider, session_id))
-            return len(entry) > 0
-
-    def get_golden_definitions(
-        self, provider: str, session_id: str
-    ) -> list[tuple[str, bytes]] | None:
-        """Return the previously-recorded (name, bytes) pairs for the session.
-
-        Returns ``None`` when the session has never injected memory tools.
-        Callers replay the bytes verbatim into ``body["tools"]``.
-        """
-        if not provider:
-            raise ValueError("provider must be non-empty")
-        if not session_id:
-            raise ValueError("session_id must be non-empty")
-        with self._lock:
-            entry = self._sessions.get(self._key(provider, session_id))
-            if entry is None:
-                return None
-            self._sessions.move_to_end(self._key(provider, session_id))
-            # Snapshot - never expose internal storage directly.
-            return [(name, golden_bytes) for name, golden_bytes in entry.items()]
-
-    def record_injection(
-        self,
-        provider: str,
-        session_id: str,
-        tool_name: str,
-        tool_definition_bytes: bytes,
-    ) -> None:
-        """Record the golden bytes for a single memory tool in this session.
-
-        First-write wins: re-recording the same ``tool_name`` for an
-        existing session is a no-op (prevents drift if the canonical
-        serialization output changed between deploys mid-session). For
-        a *new* session, record fresh. LRU bound applies on every write.
-        """
-        if not provider:
-            raise ValueError("provider must be non-empty")
-        if not session_id:
-            raise ValueError("session_id must be non-empty")
-        if not tool_name:
-            raise ValueError("tool_name must be non-empty")
-        if not tool_definition_bytes:
-            raise ValueError("tool_definition_bytes must be non-empty")
-
-        key = self._key(provider, session_id)
-
-        with self._lock:
-            entry = self._sessions.get(key)
-            if entry is None:
-                entry = OrderedDict()
-                self._sessions[key] = entry
-
-            # First-write wins: only record if not already pinned.
-            if tool_name not in entry:
-                entry[tool_name] = tool_definition_bytes
-
-            # LRU touch + bound enforcement.
-            self._sessions.move_to_end(key)
-            while len(self._sessions) > self._max_sessions:
-                self._sessions.popitem(last=False)
-
-    def reset(self) -> None:
-        """Clear all session state (test helper)."""
-        with self._lock:
-            self._sessions.clear()
+        super().__init__(max_sessions=max_sessions)
 
 
 # Process-wide singleton. Lazily replaced by tests via
@@ -2268,12 +1857,7 @@ def log_tool_injection_decision(
     *,
     provider: str,
     session_id: str | None,
-    decision: Literal[
-        "inject_first_time",
-        "inject_sticky_replay",
-        "skip",
-        "skip_disabled_via_env",
-    ],
+    decision: ToolInjectionDecision,
     tool_definition_bytes_count: int,
     request_id: str | None,
 ) -> None:
@@ -2285,14 +1869,13 @@ def log_tool_injection_decision(
     tool definition contents (might contain user-specific schemas) per
     constraint #11.
     """
-    logger.info(
-        "event=tool_injection_decision provider=%s session_id=%s "
-        "decision=%s tool_definition_bytes_count=%d request_id=%s",
-        provider,
-        session_id or "",
-        decision,
-        tool_definition_bytes_count,
-        request_id or "",
+    _log_tool_injection_decision(
+        logger=logger,
+        provider=provider,
+        session_id=session_id,
+        decision=decision,
+        tool_definition_bytes_count=tool_definition_bytes_count,
+        request_id=request_id,
     )
 
 
@@ -2304,19 +1887,7 @@ def _extract_tool_name(tool_definition: dict[str, Any]) -> str | None:
       * Anthropic native: ``{"type": "memory_20250818", "name": "memory"}``
       * OpenAI function: ``{"type": "function", "function": {"name": "memory_save", ...}}``
     """
-    name = tool_definition.get("name")
-    if isinstance(name, str) and name:
-        return name
-    fn = tool_definition.get("function")
-    if isinstance(fn, dict):
-        fn_name = fn.get("name")
-        if isinstance(fn_name, str) and fn_name:
-            return fn_name
-    # Native memory tool with no explicit name uses ``type`` as its identifier.
-    type_val = tool_definition.get("type")
-    if isinstance(type_val, str) and type_val:
-        return type_val
-    return None
+    return extract_tool_name(tool_definition)
 
 
 def apply_session_sticky_memory_tools(
@@ -2340,7 +1911,7 @@ def apply_session_sticky_memory_tools(
 
       * If session previously injected and tracker has golden bytes:
         ALWAYS inject the golden bytes verbatim (sticky-on). Memory-this-
-        turn flag is irrelevant - once injected, always injected.
+        turn flag is irrelevant — once injected, always injected.
 
       * If session has NOT previously injected:
           - ``inject_this_turn=True``: serialize ``memory_tools_to_inject``,
@@ -2382,7 +1953,7 @@ def apply_session_sticky_memory_tools(
             return tools_out, False
         # Disabled mode + inject_this_turn=True: append the definitions
         # verbatim without recording golden bytes (per-turn decision
-        # passes through as the broken behavior - explicit operator
+        # passes through as the broken behavior — explicit operator
         # opt-in only). Skip names already in the list.
         added_bytes = 0
         for tool_def in memory_tools_to_inject:
@@ -2391,7 +1962,7 @@ def apply_session_sticky_memory_tools(
                 continue
             tools_out.append(tool_def)
             existing_names.add(tn)
-            added_bytes += len(serialize_tool_definition_canonical(tool_def))
+            added_bytes += len(serialize_memory_tool_definition_canonical(tool_def))
         log_tool_injection_decision(
             provider=provider,
             session_id=session_id,
@@ -2401,7 +1972,7 @@ def apply_session_sticky_memory_tools(
         )
         return tools_out, added_bytes > 0
 
-    # Sticky path requires a session_id. None means we cannot track -
+    # Sticky path requires a session_id. None means we cannot track —
     # fall back to the caller's per-turn decision (loud, single log line)
     # so WS handlers / pre-session paths remain functional.
     if not session_id:
@@ -2421,7 +1992,7 @@ def apply_session_sticky_memory_tools(
                 continue
             tools_out.append(tool_def)
             existing_names.add(tn)
-            added_bytes += len(serialize_tool_definition_canonical(tool_def))
+            added_bytes += len(serialize_memory_tool_definition_canonical(tool_def))
         log_tool_injection_decision(
             provider=provider,
             session_id=None,
@@ -2442,23 +2013,26 @@ def apply_session_sticky_memory_tools(
         replay_bytes = 0
         for tool_name, golden_bytes in golden:
             if tool_name in existing_names:
-                # Client also has a tool by this name - don't double up.
+                # Client also has a tool by this name — don't double up.
                 # Their bytes win (the client's choice, not ours to gate).
                 continue
             try:
-                tool_def = json.loads(golden_bytes.decode("utf-8"))
+                replay = replay_golden_memory_tool_definition(
+                    tool_name=tool_name,
+                    golden_tool_bytes=golden_bytes,
+                )
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                 logger.error(
-                    "corrupt golden tool bytes for session %s tool %s: %s - skipping tool injection",
+                    "corrupt golden tool bytes for session %s tool %s: %s — skipping tool injection",
                     session_id,
                     tool_name,
                     exc,
                     exc_info=True,
                 )
                 continue
-            tools_out.append(tool_def)
-            existing_names.add(tool_name)
-            replay_bytes += len(golden_bytes)
+            tools_out.append(replay.tool_definition)
+            existing_names.add(replay.tool_name)
+            replay_bytes += len(replay.canonical_bytes)
         log_tool_injection_decision(
             provider=provider,
             session_id=session_id,
@@ -2485,7 +2059,7 @@ def apply_session_sticky_memory_tools(
         tn = _extract_tool_name(tool_def)
         if tn is None or tn in existing_names:
             continue
-        golden_bytes = serialize_tool_definition_canonical(tool_def)
+        golden_bytes = serialize_memory_tool_definition_canonical(tool_def)
         tracker.record_injection(
             provider=provider,
             session_id=session_id,
@@ -2510,7 +2084,7 @@ def apply_session_sticky_memory_tools(
 # Per realignment plan PR-B7 (`REALIGNMENT/04-phase-B-live-zone.md`):
 # once a session has performed any CCR compression, the
 # `headroom_retrieve` tool stays registered in `body["tools"]` for every
-# subsequent request in that session - never toggled off.
+# subsequent request in that session — never toggled off.
 #
 # The legacy `CCRToolInjector.has_compressed_content` flips on/off based
 # on whether the *latest request* contained compression markers, which
@@ -2518,105 +2092,13 @@ def apply_session_sticky_memory_tools(
 # tool list bytes stay byte-stable across turns once injected.
 
 
-class SessionCcrTracker:
-    """Bounded LRU tracker recording per-(provider, session_id) CCR state.
-
-    Two pieces of state per session:
-
-      * ``has_done_ccr``: True once the proxy observed any CCR
-        compression marker in the messages of a request. Once True, it
-        never flips back to False (the prompt cache anchored on the
-        previous turn's tool list demands the tool stays present).
-      * ``golden_tool_bytes``: canonical serialization of the
-        ``headroom_retrieve`` tool definition recorded the first time
-        the tracker injected it. Subsequent turns replay these bytes
-        verbatim.
-
-    Bounded by ``max_sessions`` via ``OrderedDict`` LRU. Mirrors
-    :class:`SessionToolTracker` semantics so the operator's mental model
-    is one tracker pattern, not two.
-    """
+class SessionCcrTracker(_SessionCcrTracker):
+    """Env-aware compatibility wrapper for the pure CCR session tracker."""
 
     def __init__(self, max_sessions: int | None = None) -> None:
         if max_sessions is None:
             max_sessions = get_tool_tracker_max_sessions()
-        if max_sessions <= 0:
-            raise ValueError("max_sessions must be > 0")
-        self._max_sessions = max_sessions
-        self._lock = threading.RLock()
-        # Value is (has_done_ccr, golden_tool_bytes_or_none).
-        self._sessions: OrderedDict[tuple[str, str], tuple[bool, bytes | None]] = OrderedDict()
-
-    @property
-    def active_sessions(self) -> int:
-        with self._lock:
-            return len(self._sessions)
-
-    def _key(self, provider: str, session_id: str) -> tuple[str, str]:
-        return (provider, session_id)
-
-    def has_done_ccr(self, provider: str, session_id: str) -> bool:
-        """Return True iff this session has previously performed CCR."""
-        if not provider:
-            raise ValueError("provider must be non-empty")
-        if not session_id:
-            raise ValueError("session_id must be non-empty")
-        with self._lock:
-            entry = self._sessions.get(self._key(provider, session_id))
-            if entry is None:
-                return False
-            self._sessions.move_to_end(self._key(provider, session_id))
-            return entry[0]
-
-    def get_golden_tool_bytes(self, provider: str, session_id: str) -> bytes | None:
-        """Return the recorded golden tool-definition bytes, or None."""
-        if not provider:
-            raise ValueError("provider must be non-empty")
-        if not session_id:
-            raise ValueError("session_id must be non-empty")
-        with self._lock:
-            entry = self._sessions.get(self._key(provider, session_id))
-            if entry is None:
-                return None
-            self._sessions.move_to_end(self._key(provider, session_id))
-            return entry[1]
-
-    def record_ccr_done(
-        self,
-        provider: str,
-        session_id: str,
-        golden_tool_bytes: bytes,
-    ) -> None:
-        """Mark the session as having performed CCR and pin the golden bytes.
-
-        First-write wins for ``golden_tool_bytes`` (subsequent calls
-        with the same session keep the original bytes - prevents drift
-        if the canonical serialization changed mid-session). The
-        ``has_done_ccr`` flag is monotonic: once True, never False.
-        """
-        if not provider:
-            raise ValueError("provider must be non-empty")
-        if not session_id:
-            raise ValueError("session_id must be non-empty")
-        if not golden_tool_bytes:
-            raise ValueError("golden_tool_bytes must be non-empty")
-        key = self._key(provider, session_id)
-        with self._lock:
-            existing = self._sessions.get(key)
-            if existing is None:
-                self._sessions[key] = (True, golden_tool_bytes)
-            else:
-                # Preserve original golden bytes; just promote the flag.
-                pinned = existing[1] if existing[1] is not None else golden_tool_bytes
-                self._sessions[key] = (True, pinned)
-            self._sessions.move_to_end(key)
-            while len(self._sessions) > self._max_sessions:
-                self._sessions.popitem(last=False)
-
-    def reset(self) -> None:
-        """Clear all session state (test helper)."""
-        with self._lock:
-            self._sessions.clear()
+        super().__init__(max_sessions=max_sessions)
 
 
 # Process-wide singleton.
@@ -2649,7 +2131,7 @@ def has_new_ccr_markers(
     """Whether the about-to-forward content carries CCR markers NOT already forwarded.
 
     ``overlay_cached_prefix`` (#1850) replays the previously-forwarded (compressed)
-    prefix byte-identical to keep the prompt cache warm - which reintroduces the
+    prefix byte-identical to keep the prompt cache warm — which reintroduces the
     ``hash=…`` markers that prefix already carried. Those markers are *historical*:
     the agent saw them last turn and the retrieve-tool state was already settled
     for them. Only markers that are genuinely NEW this turn justify overriding the
@@ -2660,21 +2142,11 @@ def has_new_ccr_markers(
     Returns True iff ``current_detected_hashes`` contains a hash that is not present
     in ``previous_forwarded_messages``.
     """
-    current = set(current_detected_hashes)
-    if not current:
-        return False
-    if not previous_forwarded_messages:
-        # No prior forward → every marker is new (genuine first CCR turn).
-        return True
-    from headroom.ccr.tool_injection import CCRToolInjector
-
-    prev = CCRToolInjector(
+    return _has_new_ccr_markers(
+        current_detected_hashes=current_detected_hashes,
+        previous_forwarded_messages=previous_forwarded_messages,
         provider=provider,
-        inject_tool=False,
-        inject_system_instructions=False,
     )
-    prev.scan_for_markers(previous_forwarded_messages)
-    return bool(current - set(prev.detected_hashes))
 
 
 def should_inject_ccr_tool(
@@ -2691,7 +2163,7 @@ def should_inject_ccr_tool(
     Tool injection is normally deferred when there is a frozen message prefix
     (``frozen_message_count > 0``) to preserve the prompt cache. But if
     compression emitted fresh markers this turn, deferring would hand the agent
-    a ``<<ccr:hash>>`` marker with no tool to redeem it - silent data loss. In
+    a ``<<ccr:hash>>`` marker with no tool to redeem it — silent data loss. In
     that case we override the deferral and inject anyway (one cache miss is
     cheaper than dropped content).
 
@@ -2699,11 +2171,11 @@ def should_inject_ccr_tool(
     True only when injection happens *because* of new markers despite a deferral,
     so the caller can log the override distinctly.
     """
-    inject_tool = configured_inject_tool
-    if inject_tool and frozen_message_count > 0:
-        inject_tool = False  # defer to preserve cache
-    is_marker_override = not inject_tool and has_compressed_content
-    return (inject_tool or is_marker_override), is_marker_override
+    return _should_inject_ccr_tool(
+        configured_inject_tool=configured_inject_tool,
+        frozen_message_count=frozen_message_count,
+        has_compressed_content=has_compressed_content,
+    )
 
 
 def apply_session_sticky_ccr_tool(
@@ -2716,7 +2188,7 @@ def apply_session_sticky_ccr_tool(
 ) -> tuple[list[dict[str, Any]], bool]:
     """Apply sticky-on CCR retrieval-tool injection per :class:`SessionCcrTracker`.
 
-    Coordination point for both Anthropic and OpenAI handlers - replaces
+    Coordination point for both Anthropic and OpenAI handlers — replaces
     the legacy ``CCRToolInjector.inject_tool_definition`` "flip on, flip
     off" behaviour.
 
@@ -2726,7 +2198,7 @@ def apply_session_sticky_ccr_tool(
         ``has_compressed_content_this_turn`` flag drives the decision
         verbatim (matching legacy behaviour for WS / pre-session paths).
       * If the session has previously done CCR (``has_done_ccr``):
-        ALWAYS inject the recorded golden bytes - even if this turn has
+        ALWAYS inject the recorded golden bytes — even if this turn has
         no fresh compression. That is the load-bearing PR-B7 fix.
       * Otherwise, inject only when this turn produced compressed content.
         The first injection records the golden bytes for future turns.
@@ -2738,7 +2210,7 @@ def apply_session_sticky_ccr_tool(
     Returns ``(updated_tools, was_injected)``. ``updated_tools`` is a
     fresh list (caller-safe).
     """
-    from headroom.ccr.tool_injection import CCR_TOOL_NAME, create_ccr_tool_definition
+    from headroom.ccr.tool_injection import CCR_TOOL_NAME
 
     if provider not in ("anthropic", "openai", "google"):
         raise ValueError(f"unsupported provider: {provider!r}")
@@ -2750,7 +2222,7 @@ def apply_session_sticky_ccr_tool(
         if n:
             existing_names.add(n)
 
-    # Client (or MCP) already provided a tool by this name - don't double up.
+    # Client (or MCP) already provided a tool by this name — don't double up.
     if CCR_TOOL_NAME in existing_names:
         log_tool_injection_decision(
             provider=provider,
@@ -2772,14 +2244,13 @@ def apply_session_sticky_ccr_tool(
                 request_id=request_id,
             )
             return tools_out, False
-        tool_def = create_ccr_tool_definition(provider)
-        canonical = serialize_tool_definition_canonical(tool_def)
-        tools_out.append(tool_def)
+        replay = create_fresh_ccr_tool_definition(provider)
+        tools_out.append(replay.tool_definition)
         log_tool_injection_decision(
             provider=provider,
             session_id=None,
             decision="inject_first_time",
-            tool_definition_bytes_count=len(canonical),
+            tool_definition_bytes_count=len(replay.canonical_bytes),
             request_id=request_id,
         )
         return tools_out, True
@@ -2788,7 +2259,7 @@ def apply_session_sticky_ccr_tool(
     previously_done = tracker.has_done_ccr(provider, session_id)
 
     if previously_done:
-        # Sticky replay path. Always inject - even if this turn had no
+        # Sticky replay path. Always inject — even if this turn had no
         # fresh CCR compression. Prefer the recorded golden bytes; fall
         # back to a freshly serialized definition if (somehow) the
         # tracker lost them. Loud per build constraint #4: we log the
@@ -2796,19 +2267,19 @@ def apply_session_sticky_ccr_tool(
         golden = tracker.get_golden_tool_bytes(provider, session_id)
         if golden is not None:
             try:
-                tool_def = json.loads(golden.decode("utf-8"))
-                tools_out.append(tool_def)
+                replay = replay_golden_ccr_tool_definition(golden)
+                tools_out.append(replay.tool_definition)
                 log_tool_injection_decision(
                     provider=provider,
                     session_id=session_id,
                     decision="inject_sticky_replay",
-                    tool_definition_bytes_count=len(golden),
+                    tool_definition_bytes_count=len(replay.canonical_bytes),
                     request_id=request_id,
                 )
                 return tools_out, True
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                 logger.error(
-                    "corrupt golden CCR tool bytes for session %s: %s - regenerating fresh definition",
+                    "corrupt golden CCR tool bytes for session %s: %s — regenerating fresh definition",
                     session_id,
                     exc,
                     exc_info=True,
@@ -2816,20 +2287,19 @@ def apply_session_sticky_ccr_tool(
                 # Fall through to fresh creation below
         # Tracker says "done CCR" but has no golden bytes (or they were corrupt). Pin
         # them now so future turns are stable.
-        tool_def = create_ccr_tool_definition(provider)
-        canonical = serialize_tool_definition_canonical(tool_def)
-        tracker.record_ccr_done(provider, session_id, canonical)
-        tools_out.append(tool_def)
+        replay = create_fresh_ccr_tool_definition(provider)
+        tracker.record_ccr_done(provider, session_id, replay.canonical_bytes)
+        tools_out.append(replay.tool_definition)
         log_tool_injection_decision(
             provider=provider,
             session_id=session_id,
             decision="inject_sticky_replay",
-            tool_definition_bytes_count=len(canonical),
+            tool_definition_bytes_count=len(replay.canonical_bytes),
             request_id=request_id,
         )
         return tools_out, True
 
-    # Fresh session - only inject when this turn produced compressed content.
+    # Fresh session — only inject when this turn produced compressed content.
     if not has_compressed_content_this_turn:
         log_tool_injection_decision(
             provider=provider,
@@ -2840,15 +2310,14 @@ def apply_session_sticky_ccr_tool(
         )
         return tools_out, False
 
-    tool_def = create_ccr_tool_definition(provider)
-    canonical = serialize_tool_definition_canonical(tool_def)
-    tracker.record_ccr_done(provider, session_id, canonical)
-    tools_out.append(tool_def)
+    replay = create_fresh_ccr_tool_definition(provider)
+    tracker.record_ccr_done(provider, session_id, replay.canonical_bytes)
+    tools_out.append(replay.tool_definition)
     log_tool_injection_decision(
         provider=provider,
         session_id=session_id,
         decision="inject_first_time",
-        tool_definition_bytes_count=len(canonical),
+        tool_definition_bytes_count=len(replay.canonical_bytes),
         request_id=request_id,
     )
     return tools_out, True
@@ -3045,7 +2514,7 @@ def compute_turn_id(
 # When Claude Code points at a custom ``ANTHROPIC_BASE_URL`` (the proxy) with
 # ``ENABLE_TOOL_SEARCH`` unset, it stops deferring MCP/system tool schemas
 # behind the server-side Tool Search Tool and materializes them all into its
-# local context window - tens of K tokens. That decision is made client-side
+# local context window — tens of K tokens. That decision is made client-side
 # before the request reaches us, so the proxy cannot reverse it; the only
 # remedy is the ``ENABLE_TOOL_SEARCH`` env var (set automatically by
 # ``headroom wrap claude``). For users who run ``claude`` manually we cannot
@@ -3070,7 +2539,7 @@ def claude_code_tool_search_inactive(
 ) -> bool:
     """Return ``True`` when a Claude Code request is *not* deferring tools.
 
-    Detected from request shape alone - no token thresholds, so it scales to
+    Detected from request shape alone — no token thresholds, so it scales to
     any tool surface:
 
     * the request is from Claude Code (``client == "claude-code"``),
@@ -3120,7 +2589,7 @@ def tool_search_hint_pending() -> bool:
 
     Lets the request hot path skip the (O(number-of-tools)) detection scan on
     every request once the hint has already been emitted. A benign race here
-    only costs one extra detection scan, never a duplicate warning - the
+    only costs one extra detection scan, never a duplicate warning — the
     actual one-shot guarantee lives in :func:`take_tool_search_hint_slot`.
     """
     return not _tool_search_hint_emitted
@@ -3153,8 +2622,8 @@ def reset_tool_search_hint_state() -> None:
 #
 # Clients that eagerly materialize every tool schema (opencode ships ~135 tool
 # defs ≈ 28k tokens on EVERY request) never opt into Anthropic's Tool Search
-# Tool themselves. Unlike the Claude Code case above - where the schemas are
-# already in the client's own context and the proxy can't reverse it - a plain
+# Tool themselves. Unlike the Claude Code case above — where the schemas are
+# already in the client's own context and the proxy can't reverse it — a plain
 # API client's tools live only in the request body, so the proxy CAN defer them:
 # mark the non-core tools ``defer_loading: true`` and inject a tool_search tool.
 # Anthropic then excludes deferred tools from the context window (they stop
@@ -3164,7 +2633,7 @@ def reset_tool_search_hint_state() -> None:
 
 # Core coding tools kept non-deferred so routine edit/read/run loops never pay a
 # search round-trip. Everything else (Slack/Linear/Sentry/Notion/Snowflake/…) is
-# deferred and loaded on demand. Anthropic recommends keeping the 3-5 (here a few
+# deferred and loaded on demand. Anthropic recommends keeping the 3–5 (here a few
 # more) most frequent tools resident.
 _TOOL_SEARCH_CORE_TOOLS = frozenset(
     {
@@ -3210,7 +2679,7 @@ def inject_tool_search_deferral(
 
     Invariants enforced (else Anthropic 400s): the search tool is never deferred;
     at least one tool stays non-deferred; a deferred tool never carries
-    ``cache_control`` - if the client's tools cache breakpoint sat on a now-deferred
+    ``cache_control`` — if the client's tools cache breakpoint sat on a now-deferred
     tool, it is moved to the last non-deferred real tool so the (smaller) tools
     prefix still caches.
     """
@@ -3220,7 +2689,7 @@ def inject_tool_search_deferral(
         if isinstance(tool, dict) and str(tool.get("type", "")).startswith(
             _TOOL_SEARCH_TOOL_TYPE_PREFIX
         ):
-            return tools  # client already uses tool search - leave it alone
+            return tools  # client already uses tool search — leave it alone
 
     search_tool = {"type": search_type, "name": search_name}
     out: list[Any] = [search_tool]
@@ -3258,20 +2727,20 @@ def inject_tool_search_deferral(
 
 
 # ---------------------------------------------------------------------------
-# Server-side Tool Search injection - OpenAI Responses API (gpt-5.4+).
+# Server-side Tool Search injection — OpenAI Responses API (gpt-5.4+).
 #
 # The OpenAI-side analogue of inject_tool_search_deferral above. OpenAI shipped
 # the same idea for the Responses API on gpt-5.4+: mark a function/MCP tool
 # ``defer_loading: true`` and add a ``{"type": "tool_search"}`` tool, and OpenAI
 # keeps the deferred tools' heavy parameter schemas OUT of the model's context
-# (only name+description remain) until the model searches for one - while every
+# (only name+description remain) until the model searches for one — while every
 # tool stays callable and the prompt cache is preserved. Same win as Anthropic
 # (~15-25k tool-schema tokens -> ~200) for clients that ship a big tool surface
 # and never opt into tool search themselves (opencode, plain API clients).
 #
 # Differences from the Anthropic path that require a separate function:
 #   * Responses function tools carry ``type: "function"`` (Anthropic real tools
-#     have no ``type``), so the resident/defer test is inverted - we defer
+#     have no ``type``), so the resident/defer test is inverted — we defer
 #     ``function`` (non-core) and ``mcp`` tools and keep OTHER typed/hosted tools
 #     (web_search, file_search, code_interpreter, computer, image_generation, and
 #     the search tool itself) resident.
@@ -3281,6 +2750,7 @@ def inject_tool_search_deferral(
 
 _OPENAI_TOOL_SEARCH_TYPE = "tool_search"
 _OPENAI_TOOL_SEARCH_MIN_TOOLS = 12
+_OPENAI_TOOL_SEARCH_RESIDENT_NAMES = frozenset({"terminal"})
 # gpt-5.4 is the first model with Responses tool_search (OpenAI docs). Version-
 # gated by default; overridable per deployment via a regex in
 # HEADROOM_OPENAI_TOOL_SEARCH_MODELS (matched against the model name) so new
@@ -3335,7 +2805,7 @@ def inject_tool_search_deferral_openai(
         return tools
     for tool in tools:
         if isinstance(tool, dict) and tool.get("type") == _OPENAI_TOOL_SEARCH_TYPE:
-            return tools  # client already uses tool search - leave it alone
+            return tools  # client already uses tool search — leave it alone
 
     out: list[Any] = [{"type": _OPENAI_TOOL_SEARCH_TYPE}]
     deferred = 0
@@ -3345,9 +2815,13 @@ def inject_tool_search_deferral_openai(
             continue
         ttype = tool.get("type")
         # Deferrable: a non-core function, or an MCP server (OpenAI models are
-        # trained to search namespaces / MCP servers). Everything else - core
-        # coding tools and other hosted tools - stays resident.
-        deferrable = (ttype == "function" and tool.get("name") not in core_tools) or ttype == "mcp"
+        # trained to search namespaces / MCP servers). Everything else — core
+        # coding tools and other hosted tools — stays resident.
+        deferrable = (
+            ttype == "function"
+            and tool.get("name") not in core_tools
+            and tool.get("name") not in _OPENAI_TOOL_SEARCH_RESIDENT_NAMES
+        ) or ttype == "mcp"
         if deferrable and not tool.get("defer_loading"):
             new_tool = dict(tool)
             new_tool["defer_loading"] = True

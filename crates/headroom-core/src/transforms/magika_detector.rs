@@ -35,6 +35,11 @@
 //!   error early instead of crashing with SIGILL; the detection chain then
 //!   falls through to Tier 2 and Tier 3 normally.
 
+#[cfg(any(
+    target_os = "windows",
+    all(target_os = "macos", target_arch = "x86_64")
+))]
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -58,7 +63,277 @@ use crate::transforms::content_detector::ContentType;
 /// Delegates to the shared [`crate::onnx_cpu`] guard so magika and the
 /// embedding scorer agree on a single CPU-support source of truth.
 pub(crate) fn magika_onnx_runtime_supported_by_cpu() -> bool {
-	crate::onnx_cpu::onnx_runtime_supported_by_cpu()
+    crate::onnx_cpu::onnx_runtime_supported_by_cpu()
+}
+
+/// Check whether this process can safely initialize Magika's ONNX session.
+///
+/// This is stricter than the CPU check. On dynamic-ORT platforms, the runtime
+/// loader must be pinned before `Session::new()` runs; otherwise Windows can
+/// resolve the OS-provided `System32\onnxruntime.dll` and hang inside ORT
+/// initialization. Python callers get the pin from `headroom._ort`; direct Rust
+/// binaries/tests need this fail-fast guard.
+pub(crate) fn magika_runtime_available_for_session_init() -> Result<(), String> {
+    if !magika_onnx_runtime_supported_by_cpu() {
+        return Err(
+            "Magika ONNX Runtime backend requires AVX2 on this platform; \
+             falling back to non-Magika detection"
+                .to_string(),
+        );
+    }
+
+    dynamic_ort_loader_ready()
+}
+
+#[cfg(any(
+    target_os = "windows",
+    all(target_os = "macos", target_arch = "x86_64")
+))]
+static DYNAMIC_ORT_INIT: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+
+#[cfg(any(
+    target_os = "windows",
+    all(target_os = "macos", target_arch = "x86_64")
+))]
+fn dynamic_ort_loader_ready() -> Result<(), String> {
+    DYNAMIC_ORT_INIT
+        .get_or_init(initialize_dynamic_ort)
+        .as_ref()
+        .map(|_| ())
+        .map_err(Clone::clone)
+}
+
+#[cfg(any(
+    target_os = "windows",
+    all(target_os = "macos", target_arch = "x86_64")
+))]
+fn initialize_dynamic_ort() -> Result<PathBuf, String> {
+    let explicit = std::env::var("ORT_DYLIB_PATH")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    if let Some(path) = explicit {
+        let path = PathBuf::from(path);
+        if !path.is_file() {
+            return Err(format!(
+                "ORT_DYLIB_PATH points to a missing ONNX Runtime library: {}",
+                path.display()
+            ));
+        }
+        init_ort_from_path(&path)?;
+        return Ok(path);
+    }
+
+    let mut errors = Vec::new();
+    let candidates = discover_onnxruntime_libraries();
+    for path in &candidates {
+        match init_ort_from_path(path) {
+            Ok(()) => {
+                tracing::info!(
+                    ort_dylib_path = %path.display(),
+                    "initialized ONNX Runtime for Magika from discovered onnxruntime package"
+                );
+                return Ok(path.clone());
+            }
+            Err(error) => errors.push(format!("{}: {error}", path.display())),
+        }
+    }
+
+    if candidates.is_empty() {
+        Err(
+            "no pip onnxruntime native library was found for Magika dynamic ONNX Runtime loading; \
+             install headroom-ai[proxy], install onnxruntime, or set ORT_DYLIB_PATH"
+                .to_string(),
+        )
+    } else {
+        Err(format!(
+            "failed to initialize ONNX Runtime for Magika from discovered libraries: {}",
+            errors.join("; ")
+        ))
+    }
+}
+
+#[cfg(any(
+    target_os = "windows",
+    all(target_os = "macos", target_arch = "x86_64")
+))]
+fn init_ort_from_path(path: &Path) -> Result<(), String> {
+    let builder = ort::init_from(path).map_err(|error| {
+        format!(
+            "failed to load ONNX Runtime from `{}`: {error}",
+            path.display()
+        )
+    })?;
+    let _committed = builder.commit();
+    Ok(())
+}
+
+#[cfg(any(
+    target_os = "windows",
+    all(target_os = "macos", target_arch = "x86_64")
+))]
+fn discover_onnxruntime_libraries() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+
+    for var in ["VIRTUAL_ENV", "CONDA_PREFIX"] {
+        if let Some(root) = env_path(var) {
+            roots.push(root);
+        }
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        roots.push(cwd.join(".venv"));
+        roots.push(cwd.join("venv"));
+    }
+
+    if let Some(user_profile) = env_path("USERPROFILE") {
+        roots.extend(versioned_children(
+            user_profile
+                .join(".pyenv")
+                .join("pyenv-win")
+                .join("versions"),
+        ));
+        roots.extend(versioned_children(
+            user_profile
+                .join("AppData")
+                .join("Local")
+                .join("Programs")
+                .join("Python"),
+        ));
+        roots.extend(versioned_children(
+            user_profile.join("AppData").join("Roaming").join("Python"),
+        ));
+    }
+
+    if let Some(home) = env_path("HOME") {
+        roots.extend(versioned_children(home.join(".pyenv").join("versions")));
+        roots.push(home.join(".local"));
+    }
+
+    let mut candidates = Vec::new();
+    for root in roots {
+        candidates.extend(onnxruntime_candidates_under(&root));
+    }
+    dedup_existing_files(candidates)
+}
+
+#[cfg(any(
+    target_os = "windows",
+    all(target_os = "macos", target_arch = "x86_64")
+))]
+fn env_path(name: &str) -> Option<PathBuf> {
+    std::env::var_os(name)
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+}
+
+#[cfg(any(
+    target_os = "windows",
+    all(target_os = "macos", target_arch = "x86_64")
+))]
+fn versioned_children(root: PathBuf) -> Vec<PathBuf> {
+    let mut children = std::fs::read_dir(root)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect::<Vec<_>>();
+    children.sort_by(|a, b| b.cmp(a));
+    children
+}
+
+#[cfg(any(
+    target_os = "windows",
+    all(target_os = "macos", target_arch = "x86_64")
+))]
+fn onnxruntime_candidates_under(root: &Path) -> Vec<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        vec![
+            root.join("Lib")
+                .join("site-packages")
+                .join("onnxruntime")
+                .join("capi")
+                .join("onnxruntime.dll"),
+            root.join("site-packages")
+                .join("onnxruntime")
+                .join("capi")
+                .join("onnxruntime.dll"),
+        ]
+    }
+
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    {
+        let mut candidates = Vec::new();
+        for site_packages in python_site_packages_dirs(root) {
+            let capi = site_packages.join("onnxruntime").join("capi");
+            candidates.extend(onnxruntime_dylibs_in(&capi));
+        }
+        candidates
+    }
+}
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn python_site_packages_dirs(root: &Path) -> Vec<PathBuf> {
+    let mut dirs = vec![root.join("lib").join("site-packages")];
+    let lib = root.join("lib");
+    dirs.extend(
+        std::fs::read_dir(lib)
+            .ok()
+            .into_iter()
+            .flat_map(|entries| entries.filter_map(Result::ok))
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.is_dir()
+                    && path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.starts_with("python"))
+            })
+            .map(|path| path.join("site-packages")),
+    );
+    dirs
+}
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn onnxruntime_dylibs_in(capi: &Path) -> Vec<PathBuf> {
+    let mut dylibs = std::fs::read_dir(capi)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("libonnxruntime") && name.ends_with(".dylib"))
+        })
+        .collect::<Vec<_>>();
+    dylibs.sort();
+    dylibs
+}
+
+#[cfg(any(
+    target_os = "windows",
+    all(target_os = "macos", target_arch = "x86_64")
+))]
+fn dedup_existing_files(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for path in paths {
+        if path.is_file() && !out.iter().any(|seen| seen == &path) {
+            out.push(path);
+        }
+    }
+    out
+}
+
+#[cfg(not(any(
+    target_os = "windows",
+    all(target_os = "macos", target_arch = "x86_64")
+)))]
+fn dynamic_ort_loader_ready() -> Result<(), String> {
+    Ok(())
 }
 
 /// Errors from the magika detector. Wraps the underlying `magika::Error`
@@ -66,24 +341,24 @@ pub(crate) fn magika_onnx_runtime_supported_by_cpu() -> bool {
 /// pulling magika types into their imports.
 #[derive(Debug, Error)]
 pub enum MagikaDetectorError {
-	/// One-time session initialization failed (model load, ONNX init).
-	/// Once we hit this, every subsequent call also fails — there is no
-	/// retry path here. The router should surface and stop.
-	#[error("magika session init failed: {0}")]
-	Init(String),
+    /// One-time session initialization failed (model load, ONNX init).
+    /// Once we hit this, every subsequent call also fails — there is no
+    /// retry path here. The router should surface and stop.
+    #[error("magika session init failed: {0}")]
+    Init(String),
 
-	/// Inference call failed for this input. Usually transient; future
-	/// calls may succeed. The error message is the magika-side text;
-	/// we don't try to wrap it.
-	#[error("magika inference failed: {0}")]
-	Inference(String),
+    /// Inference call failed for this input. Usually transient; future
+    /// calls may succeed. The error message is the magika-side text;
+    /// we don't try to wrap it.
+    #[error("magika inference failed: {0}")]
+    Inference(String),
 
-	/// Singleton lock was poisoned (a previous holder panicked while
-	/// holding it). The detector is unusable until the process
-	/// restarts. We don't auto-recover — a panicked detector means
-	/// something is corrupt and continuing would mask it.
-	#[error("magika session lock poisoned")]
-	Poisoned,
+    /// Singleton lock was poisoned (a previous holder panicked while
+    /// holding it). The detector is unusable until the process
+    /// restarts. We don't auto-recover — a panicked detector means
+    /// something is corrupt and continuing would mask it.
+    #[error("magika session lock poisoned")]
+    Poisoned,
 }
 
 /// One-process singleton holding the magika session. Lazily
@@ -114,61 +389,61 @@ static MAGIKA_SESSION: OnceLock<Mutex<Result<Session, String>>> = OnceLock::new(
 const MAGIKA_INIT_TIMEOUT_SECS_DEFAULT: u64 = 5;
 
 fn magika_init_timeout() -> Duration {
-	let secs = std::env::var("HEADROOM_MAGIKA_INIT_TIMEOUT_SECS")
-		.ok()
-		.and_then(|v| v.trim().parse::<u64>().ok())
-		.filter(|&s| s > 0)
-		.unwrap_or(MAGIKA_INIT_TIMEOUT_SECS_DEFAULT);
-	Duration::from_secs(secs)
+    let secs = std::env::var("HEADROOM_MAGIKA_INIT_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|&s| s > 0)
+        .unwrap_or(MAGIKA_INIT_TIMEOUT_SECS_DEFAULT);
+    Duration::from_secs(secs)
 }
 
 fn session() -> &'static Mutex<Result<Session, String>> {
-	MAGIKA_SESSION.get_or_init(|| {
-		// Early-out if the CPU can't run the precompiled ONNX Runtime.
-		// Without this check the `onnxruntime` shared library will crash
-		// with SIGILL on x86 CPUs lacking AVX2.
-		if !magika_onnx_runtime_supported_by_cpu() {
-			return Mutex::new(Err("Magika ONNX Runtime backend requires AVX2 on this platform; \
-                 falling back to non-Magika detection"
-				.to_string()));
-		}
+    MAGIKA_SESSION.get_or_init(|| {
+        // Early-out if ORT is known to be unsafe or unavailable in this
+        // process. This avoids both SIGILL on unsupported CPUs and Windows
+        // deadlocks from unpinned dynamic ONNX Runtime loading.
+        if let Err(error) = magika_runtime_available_for_session_init() {
+            return Mutex::new(Err(error));
+        }
 
-		let timeout = magika_init_timeout();
-		let (tx, rx) = mpsc::channel();
-		// Run the (potentially hanging) ONNX init on a side thread so we
-		// can bound it. `Session: Send` (the static itself requires it),
-		// so moving the result across the channel is sound. On timeout we
-		// record an `Err` — `detection::detect` already falls through to
-		// the unidiff/regex tiers on `Err` — and the orphaned init thread
-		// is left to finish on its own; its eventual `send` lands on a
-		// dropped receiver (harmless) and the `Session` is then dropped.
-		let spawned = std::thread::Builder::new().name("magika-init".into()).spawn(move || {
-			let _ = tx.send(Session::new().map_err(|e| e.to_string()));
-		});
-		if let Err(e) = spawned {
-			tracing::warn!("magika init thread spawn failed: {e}");
-			return Mutex::new(Err(format!("magika init thread spawn failed: {e}")));
-		}
-		match rx.recv_timeout(timeout) {
-			Ok(res) => Mutex::new(res),
-			Err(_) => {
-				let ort_dylib = std::env::var("ORT_DYLIB_PATH").ok();
-				tracing::warn!(
-					timeout_secs = timeout.as_secs(),
-					ort_dylib_path = ort_dylib.as_deref(),
-					"magika ONNX session init timed out; detection falls back to \
+        let timeout = magika_init_timeout();
+        let (tx, rx) = mpsc::channel();
+        // Run the (potentially hanging) ONNX init on a side thread so we
+        // can bound it. `Session: Send` (the static itself requires it),
+        // so moving the result across the channel is sound. On timeout we
+        // record an `Err` — `detection::detect` already falls through to
+        // the unidiff/regex tiers on `Err` — and the orphaned init thread
+        // is left to finish on its own; its eventual `send` lands on a
+        // dropped receiver (harmless) and the `Session` is then dropped.
+        let spawned = std::thread::Builder::new()
+            .name("magika-init".into())
+            .spawn(move || {
+                let _ = tx.send(Session::new().map_err(|e| e.to_string()));
+            });
+        if let Err(e) = spawned {
+            tracing::warn!("magika init thread spawn failed: {e}");
+            return Mutex::new(Err(format!("magika init thread spawn failed: {e}")));
+        }
+        match rx.recv_timeout(timeout) {
+            Ok(res) => Mutex::new(res),
+            Err(_) => {
+                let ort_dylib = std::env::var("ORT_DYLIB_PATH").ok();
+                tracing::warn!(
+                    timeout_secs = timeout.as_secs(),
+                    ort_dylib_path = ort_dylib.as_deref(),
+                    "magika ONNX session init timed out; detection falls back to \
                      non-ML tiers for this process. On Windows an unset \
                      ORT_DYLIB_PATH usually means the WinML System32 \
                      onnxruntime.dll was picked up (deadlocks ort init)."
-				);
-				Mutex::new(Err(format!(
-					"magika session init exceeded {}s timeout; \
+                );
+                Mutex::new(Err(format!(
+                    "magika session init exceeded {}s timeout; \
                      using non-ML detection tiers",
-					timeout.as_secs()
-				)))
-			},
-		}
-	})
+                    timeout.as_secs()
+                )))
+            }
+        }
+    })
 }
 
 /// Classify `content` and return the mapped Headroom [`ContentType`].
@@ -176,20 +451,22 @@ fn session() -> &'static Mutex<Result<Session, String>> {
 /// Empty input shortcuts to [`ContentType::PlainText`] without touching
 /// the model — saves the round trip on every empty tool result.
 pub fn magika_detect(content: &str) -> Result<ContentType, MagikaDetectorError> {
-	if content.is_empty() {
-		return Ok(ContentType::PlainText);
-	}
+    if content.is_empty() {
+        return Ok(ContentType::PlainText);
+    }
 
-	let mutex = session();
-	let mut guard = mutex.lock().map_err(|_| MagikaDetectorError::Poisoned)?;
-	let session = guard.as_mut().map_err(|e| MagikaDetectorError::Init(e.clone()))?;
+    let mutex = session();
+    let mut guard = mutex.lock().map_err(|_| MagikaDetectorError::Poisoned)?;
+    let session = guard
+        .as_mut()
+        .map_err(|e| MagikaDetectorError::Init(e.clone()))?;
 
-	let bytes = content.as_bytes();
-	let file_type = session
-		.identify_content_sync(bytes)
-		.map_err(|e| MagikaDetectorError::Inference(e.to_string()))?;
+    let bytes = content.as_bytes();
+    let file_type = session
+        .identify_content_sync(bytes)
+        .map_err(|e| MagikaDetectorError::Inference(e.to_string()))?;
 
-	Ok(map_magika_label(file_type.info().label))
+    Ok(map_magika_label(file_type.info().label))
 }
 
 /// Map a magika label string to Headroom's [`ContentType`] enum.
@@ -206,39 +483,42 @@ pub fn magika_detect(content: &str) -> Result<ContentType, MagikaDetectorError> 
 /// a wrong compressor. PR5 will refine this for `SearchResults` /
 /// `BuildOutput` (which magika has no equivalent for).
 pub fn map_magika_label(label: &str) -> ContentType {
-	match label {
-		// ── JSON ───────────────────────────────────────────────────
-		// PR5 will refine this with the existing `is_json_array_of_dicts`
-		// check — magika says "this is JSON" but doesn't tell us if it's
-		// an array of records vs. a single object. For PR3 the mapping
-		// exists; the refinement is a router concern.
-		"json" | "jsonl" => ContentType::JsonArray,
+    match label {
+        // ── JSON ───────────────────────────────────────────────────
+        // PR5 will refine this with the existing `is_json_array_of_dicts`
+        // check — magika says "this is JSON" but doesn't tell us if it's
+        // an array of records vs. a single object. For PR3 the mapping
+        // exists; the refinement is a router concern.
+        "json" | "jsonl" => ContentType::JsonArray,
 
-		// ── Diffs ──────────────────────────────────────────────────
-		"diff" => ContentType::GitDiff,
+        // ── Diffs ──────────────────────────────────────────────────
+        "diff" => ContentType::GitDiff,
 
-		// ── HTML ───────────────────────────────────────────────────
-		"html" | "xml" => ContentType::Html,
+        // ── HTML ───────────────────────────────────────────────────
+        "html" | "xml" => ContentType::Html,
 
-		// ── Source code ────────────────────────────────────────────
-		// The big "code" group from magika. We list the labels we
-		// actually expect to see in tool outputs / pasted code in
-		// proxy traffic. Anything else in the code group falls
-		// through to PlainText — better passthrough than misroute.
-		"rust" | "python" | "javascript" | "typescript" | "go" | "java" | "c" | "cpp" | "cs" | "php" | "ruby"
-		| "swift" | "kotlin" | "scala" | "haskell" | "lua" | "dart" | "perl" | "shell" | "powershell" | "batch"
-		| "sql" | "css" | "vue" | "groovy" | "clojure" | "asm" | "cmake" | "dockerfile" | "makefile" | "yaml"
-		| "toml" | "ini" | "hcl" | "jinja" => ContentType::SourceCode,
+        // ── Source code ────────────────────────────────────────────
+        // The big "code" group from magika. We list the labels we
+        // actually expect to see in tool outputs / pasted code in
+        // proxy traffic. Anything else in the code group falls
+        // through to PlainText — better passthrough than misroute.
+        "rust" | "python" | "javascript" | "typescript" | "go" | "java" | "c" | "cpp" | "cs"
+        | "php" | "ruby" | "swift" | "kotlin" | "scala" | "haskell" | "lua" | "dart" | "perl"
+        | "shell" | "powershell" | "batch" | "sql" | "css" | "vue" | "groovy" | "clojure"
+        | "asm" | "cmake" | "dockerfile" | "makefile" | "yaml" | "toml" | "ini" | "hcl"
+        | "jinja" => ContentType::SourceCode,
 
-		// ── Plain text-ish ─────────────────────────────────────────
-		// markdown, rst, latex, log-style, txt, empty/unknown all
-		// route as plain text. The router won't try to compress these
-		// with a code-aware compressor.
-		"markdown" | "rst" | "latex" | "txt" | "empty" | "unknown" | "undefined" => ContentType::PlainText,
+        // ── Plain text-ish ─────────────────────────────────────────
+        // markdown, rst, latex, log-style, txt, empty/unknown all
+        // route as plain text. The router won't try to compress these
+        // with a code-aware compressor.
+        "markdown" | "rst" | "latex" | "txt" | "empty" | "unknown" | "undefined" => {
+            ContentType::PlainText
+        }
 
-		// ── Default: passthrough ───────────────────────────────────
-		_ => ContentType::PlainText,
-	}
+        // ── Default: passthrough ───────────────────────────────────
+        _ => ContentType::PlainText,
+    }
 }
 
 // ─── Tests ─────────────────────────────────────────────────────────────
@@ -255,54 +535,56 @@ pub fn map_magika_label(label: &str) -> ContentType {
 
 #[cfg(test)]
 mod tests {
-	use super::*;
+    use super::*;
 
-	fn assert_detect(content: &str, expected: ContentType, hint: &str) {
-		if !magika_onnx_runtime_supported_by_cpu() {
-			// On x86 hosts without AVX2 the magika session returns Err
-			// before any ONNX init — assert graceful degradation
-			// rather than panicking.
-			match magika_detect(content) {
-				Err(MagikaDetectorError::Init(msg)) => {
-					assert!(msg.contains("AVX2"), "{hint}: expected AVX2 error, got: {msg}");
-				},
-				other => panic!("{hint}: on no-AVX2 host expected Init(AVX2) error, got {other:?}"),
-			}
-		} else {
-			match magika_detect(content) {
-				Ok(got) => {
-					assert_eq!(got, expected, "{hint}: expected {expected:?}, got {got:?}")
-				},
-				Err(e) => panic!("{hint}: detection failed: {e}"),
-			}
-		}
-	}
+    fn assert_detect(content: &str, expected: ContentType, hint: &str) {
+        if let Err(init_reason) = magika_runtime_available_for_session_init() {
+            // On hosts where Magika cannot safely initialize, assert graceful
+            // degradation rather than panicking or hanging.
+            match magika_detect(content) {
+                Err(MagikaDetectorError::Init(msg)) => {
+                    assert!(
+                        msg == init_reason,
+                        "{hint}: expected init error {init_reason:?}, got: {msg:?}"
+                    );
+                }
+                other => panic!("{hint}: expected Magika init error, got {other:?}"),
+            }
+        } else {
+            match magika_detect(content) {
+                Ok(got) => {
+                    assert_eq!(got, expected, "{hint}: expected {expected:?}, got {got:?}")
+                }
+                Err(e) => panic!("{hint}: detection failed: {e}"),
+            }
+        }
+    }
 
-	#[test]
-	fn empty_input_is_plain_text_without_model_call() {
-		// The shortcut path — should not touch the model.
-		let result = magika_detect("").unwrap();
-		assert_eq!(result, ContentType::PlainText);
-	}
+    #[test]
+    fn empty_input_is_plain_text_without_model_call() {
+        // The shortcut path — should not touch the model.
+        let result = magika_detect("").unwrap();
+        assert_eq!(result, ContentType::PlainText);
+    }
 
-	#[test]
-	fn detects_json() {
-		assert_detect(
-			r#"{"name": "Alice", "age": 30, "tags": ["a", "b"]}"#,
-			ContentType::JsonArray,
-			"single-object JSON",
-		);
-	}
+    #[test]
+    fn detects_json() {
+        assert_detect(
+            r#"{"name": "Alice", "age": 30, "tags": ["a", "b"]}"#,
+            ContentType::JsonArray,
+            "single-object JSON",
+        );
+    }
 
-	#[test]
-	fn detects_json_array() {
-		let payload = r#"[{"id": 1, "v": "a"}, {"id": 2, "v": "b"}, {"id": 3, "v": "c"}]"#;
-		assert_detect(payload, ContentType::JsonArray, "array-of-records JSON");
-	}
+    #[test]
+    fn detects_json_array() {
+        let payload = r#"[{"id": 1, "v": "a"}, {"id": 2, "v": "b"}, {"id": 3, "v": "c"}]"#;
+        assert_detect(payload, ContentType::JsonArray, "array-of-records JSON");
+    }
 
-	#[test]
-	fn detects_python_source() {
-		let src = r#"
+    #[test]
+    fn detects_python_source() {
+        let src = r#"
 def fibonacci(n):
     if n <= 1:
         return n
@@ -313,12 +595,12 @@ class Tree:
         self.value = value
         self.children = []
 "#;
-		assert_detect(src, ContentType::SourceCode, "python class+def");
-	}
+        assert_detect(src, ContentType::SourceCode, "python class+def");
+    }
 
-	#[test]
-	fn detects_rust_source() {
-		let src = r#"
+    #[test]
+    fn detects_rust_source() {
+        let src = r#"
 use std::collections::HashMap;
 
 pub struct Counter {
@@ -331,24 +613,24 @@ impl Counter {
     }
 }
 "#;
-		assert_detect(src, ContentType::SourceCode, "rust struct+impl");
-	}
+        assert_detect(src, ContentType::SourceCode, "rust struct+impl");
+    }
 
-	#[test]
-	fn detects_javascript_source() {
-		let src = r#"
+    #[test]
+    fn detects_javascript_source() {
+        let src = r#"
 const fetchUser = async (id) => {
     const response = await fetch(`/api/users/${id}`);
     if (!response.ok) throw new Error('Not found');
     return response.json();
 };
 "#;
-		assert_detect(src, ContentType::SourceCode, "JS arrow + async");
-	}
+        assert_detect(src, ContentType::SourceCode, "JS arrow + async");
+    }
 
-	#[test]
-	fn detects_unified_diff() {
-		let diff = r#"diff --git a/foo.py b/foo.py
+    #[test]
+    fn detects_unified_diff() {
+        let diff = r#"diff --git a/foo.py b/foo.py
 index abc123..def456 100644
 --- a/foo.py
 +++ b/foo.py
@@ -357,107 +639,134 @@ index abc123..def456 100644
 +    print("new line")
      return "world"
 "#;
-		assert_detect(diff, ContentType::GitDiff, "git unified diff");
-	}
+        assert_detect(diff, ContentType::GitDiff, "git unified diff");
+    }
 
-	#[test]
-	fn detects_markdown_as_plain_text() {
-		// Markdown isn't routed to a code compressor — it goes to
-		// plain text. This is by design; markdown compression has its
-		// own path that isn't hooked up yet.
-		let md = "# Hello\n\nThis is **bold** and *italic*.\n\n- Item 1\n- Item 2\n";
-		assert_detect(md, ContentType::PlainText, "markdown");
-	}
+    #[test]
+    fn detects_markdown_as_plain_text() {
+        // Markdown isn't routed to a code compressor — it goes to
+        // plain text. This is by design; markdown compression has its
+        // own path that isn't hooked up yet.
+        let md = "# Hello\n\nThis is **bold** and *italic*.\n\n- Item 1\n- Item 2\n";
+        assert_detect(md, ContentType::PlainText, "markdown");
+    }
 
-	#[test]
-	fn detects_plain_text() {
-		let prose = "The quick brown fox jumps over the lazy dog. \
+    #[test]
+    fn detects_plain_text() {
+        let prose = "The quick brown fox jumps over the lazy dog. \
                      This is just regular English prose with no \
                      special structure.";
-		assert_detect(prose, ContentType::PlainText, "english prose");
-	}
+        assert_detect(prose, ContentType::PlainText, "english prose");
+    }
 
-	#[test]
-	fn detects_html() {
-		let html = "<!DOCTYPE html><html><head><title>x</title></head><body><h1>Hi</h1></body></html>";
-		assert_detect(html, ContentType::Html, "minimal HTML page");
-	}
+    #[test]
+    fn detects_html() {
+        let html =
+            "<!DOCTYPE html><html><head><title>x</title></head><body><h1>Hi</h1></body></html>";
+        assert_detect(html, ContentType::Html, "minimal HTML page");
+    }
 
-	#[test]
-	fn detects_yaml_as_source_code() {
-		let yaml = "name: my-app\nversion: 1.0\ndependencies:\n  - foo\n  - bar\n";
-		assert_detect(yaml, ContentType::SourceCode, "YAML config");
-	}
+    #[test]
+    fn detects_yaml_as_source_code() {
+        let yaml = "name: my-app\nversion: 1.0\ndependencies:\n  - foo\n  - bar\n";
+        assert_detect(yaml, ContentType::SourceCode, "YAML config");
+    }
 
-	#[test]
-	fn detects_shell_script_as_source_code() {
-		let sh = "#!/bin/bash\nset -euo pipefail\nfor f in *.txt; do\n  echo \"$f\"\ndone\n";
-		assert_detect(sh, ContentType::SourceCode, "bash script with shebang");
-	}
+    #[test]
+    fn detects_shell_script_as_source_code() {
+        let sh = "#!/bin/bash\nset -euo pipefail\nfor f in *.txt; do\n  echo \"$f\"\ndone\n";
+        assert_detect(sh, ContentType::SourceCode, "bash script with shebang");
+    }
 
-	#[test]
-	fn detects_sql_as_source_code() {
-		let sql = "SELECT u.id, u.name, COUNT(o.id) AS order_count \
+    #[test]
+    fn detects_sql_as_source_code() {
+        let sql = "SELECT u.id, u.name, COUNT(o.id) AS order_count \
                    FROM users u LEFT JOIN orders o ON u.id = o.user_id \
                    WHERE u.active = TRUE GROUP BY u.id, u.name;";
-		assert_detect(sql, ContentType::SourceCode, "SQL query");
-	}
+        assert_detect(sql, ContentType::SourceCode, "SQL query");
+    }
 
-	#[test]
-	fn singleton_session_is_reused_across_calls() {
-		// Two back-to-back calls should reuse the same session
-		// (or same cached error). On AVX2 hosts the session is
-		// Ok and repeated calls succeed; on no-AVX2 hosts the
-		// session is Err and repeated calls return the same Err.
-		if !magika_onnx_runtime_supported_by_cpu() {
-			// On no-AVX2 the singleton caches the init error;
-			// repeated calls all return the same Init error.
-			let r1 = magika_detect("hello world");
-			let r2 = magika_detect("def f(): pass");
-			let r3 = magika_detect(r#"{"a":1}"#);
-			for r in [&r1, &r2, &r3] {
-				match r {
-					Err(MagikaDetectorError::Init(msg)) => {
-						assert!(msg.contains("AVX2"), "expected AVX2 error, got: {msg}");
-					},
-					other => panic!("on no-AVX2 host expected Init(AVX2) error, got {other:?}"),
-				}
-			}
-		} else {
-			// On AVX2 hosts the session loads once and all calls
-			// succeed. Wall-clock asymmetry (cold ~50 ms, warm
-			// <1 ms) confirms reuse.
-			magika_detect("hello world").unwrap();
-			magika_detect("def f(): pass").unwrap();
-			magika_detect(r#"{"a":1}"#).unwrap();
-		}
-	}
+    #[test]
+    fn singleton_session_is_reused_across_calls() {
+        // Two back-to-back calls should reuse the same session
+        // (or same cached error). When the Magika runtime is available the
+        // session is Ok and repeated calls succeed; otherwise the session is
+        // Err and repeated calls return the same Err.
+        if let Err(init_reason) = magika_runtime_available_for_session_init() {
+            let r1 = magika_detect("hello world");
+            let r2 = magika_detect("def f(): pass");
+            let r3 = magika_detect(r#"{"a":1}"#);
+            for r in [&r1, &r2, &r3] {
+                match r {
+                    Err(MagikaDetectorError::Init(msg)) => {
+                        assert_eq!(msg, &init_reason);
+                    }
+                    other => panic!("expected Magika init error, got {other:?}"),
+                }
+            }
+        } else {
+            // On available hosts the session loads once and all calls
+            // succeed. Wall-clock asymmetry (cold ~50 ms, warm
+            // <1 ms) confirms reuse.
+            magika_detect("hello world").unwrap();
+            magika_detect("def f(): pass").unwrap();
+            magika_detect(r#"{"a":1}"#).unwrap();
+        }
+    }
 
-	#[test]
-	fn unmapped_labels_route_to_plain_text() {
-		// Direct test of the mapping table — covers labels we
-		// explicitly didn't enumerate. Future magika versions may
-		// add new labels and we want unknown-but-real labels to
-		// safely passthrough rather than misroute.
-		assert_eq!(map_magika_label("ace"), ContentType::PlainText);
-		assert_eq!(map_magika_label("flac"), ContentType::PlainText);
-		assert_eq!(map_magika_label("3gp"), ContentType::PlainText);
-		assert_eq!(map_magika_label("garbage_unseen_label"), ContentType::PlainText);
-	}
+    #[test]
+    fn unmapped_labels_route_to_plain_text() {
+        // Direct test of the mapping table — covers labels we
+        // explicitly didn't enumerate. Future magika versions may
+        // add new labels and we want unknown-but-real labels to
+        // safely passthrough rather than misroute.
+        assert_eq!(map_magika_label("ace"), ContentType::PlainText);
+        assert_eq!(map_magika_label("flac"), ContentType::PlainText);
+        assert_eq!(map_magika_label("3gp"), ContentType::PlainText);
+        assert_eq!(
+            map_magika_label("garbage_unseen_label"),
+            ContentType::PlainText
+        );
+    }
 
-	#[test]
-	fn known_label_table_round_trips() {
-		// Cheap sanity that the mapping arms compile and behave.
-		// No magika session needed — pure table lookup.
-		assert_eq!(map_magika_label("json"), ContentType::JsonArray);
-		assert_eq!(map_magika_label("jsonl"), ContentType::JsonArray);
-		assert_eq!(map_magika_label("diff"), ContentType::GitDiff);
-		assert_eq!(map_magika_label("html"), ContentType::Html);
-		assert_eq!(map_magika_label("rust"), ContentType::SourceCode);
-		assert_eq!(map_magika_label("python"), ContentType::SourceCode);
-		assert_eq!(map_magika_label("yaml"), ContentType::SourceCode);
-		assert_eq!(map_magika_label("markdown"), ContentType::PlainText);
-		assert_eq!(map_magika_label("txt"), ContentType::PlainText);
-		assert_eq!(map_magika_label("empty"), ContentType::PlainText);
-	}
+    #[test]
+    fn known_label_table_round_trips() {
+        // Cheap sanity that the mapping arms compile and behave.
+        // No magika session needed — pure table lookup.
+        assert_eq!(map_magika_label("json"), ContentType::JsonArray);
+        assert_eq!(map_magika_label("jsonl"), ContentType::JsonArray);
+        assert_eq!(map_magika_label("diff"), ContentType::GitDiff);
+        assert_eq!(map_magika_label("html"), ContentType::Html);
+        assert_eq!(map_magika_label("rust"), ContentType::SourceCode);
+        assert_eq!(map_magika_label("python"), ContentType::SourceCode);
+        assert_eq!(map_magika_label("yaml"), ContentType::SourceCode);
+        assert_eq!(map_magika_label("markdown"), ContentType::PlainText);
+        assert_eq!(map_magika_label("txt"), ContentType::PlainText);
+        assert_eq!(map_magika_label("empty"), ContentType::PlainText);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_onnxruntime_candidate_matches_pip_layout() {
+        let root = std::env::temp_dir().join(format!(
+            "headroom-ort-discovery-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let dll = root
+            .join("Lib")
+            .join("site-packages")
+            .join("onnxruntime")
+            .join("capi")
+            .join("onnxruntime.dll");
+        std::fs::create_dir_all(dll.parent().unwrap()).unwrap();
+        std::fs::write(&dll, b"not a real dll").unwrap();
+
+        let candidates = dedup_existing_files(onnxruntime_candidates_under(&root));
+        assert_eq!(candidates, vec![dll]);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
 }
