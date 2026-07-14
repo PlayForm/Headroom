@@ -20,15 +20,15 @@ pub use cache_control::compute_frozen_count;
 /// Identity stub used by downstream crates and the Python binding to verify
 /// linkage end-to-end.
 pub fn hello() -> &'static str {
-    "headroom-core"
+	"headroom-core"
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+	use super::*;
 
-    #[test]
-    fn hello_returns_crate_name() {
-        assert_eq!(hello(), "headroom-core");
-    }
+	#[test]
+	fn hello_returns_crate_name() {
+		assert_eq!(hello(), "headroom-core");
+	}
 }

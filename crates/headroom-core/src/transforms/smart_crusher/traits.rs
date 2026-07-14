@@ -71,13 +71,13 @@ use serde_json::Value;
 /// calls. Constraints that don't need the strings simply ignore the
 /// argument.
 pub trait Constraint: Send + Sync {
-    /// Stable identifier — appears in `CrushEvent` strategy strings,
-    /// audit logs, and config-validation diagnostics. Use snake_case
-    /// (`"keep_errors"`, `"business_rule"`).
-    fn name(&self) -> &str;
+	/// Stable identifier — appears in `CrushEvent` strategy strings,
+	/// audit logs, and config-validation diagnostics. Use snake_case
+	/// (`"keep_errors"`, `"business_rule"`).
+	fn name(&self) -> &str;
 
-    /// Indices of items the allocator MUST keep.
-    fn must_keep(&self, items: &[Value], item_strings: Option<&[String]>) -> Vec<usize>;
+	/// Indices of items the allocator MUST keep.
+	fn must_keep(&self, items: &[Value], item_strings: Option<&[String]>) -> Vec<usize>;
 }
 
 // ── Observer ──────────────────────────────────────────────────────────────
@@ -87,19 +87,19 @@ pub trait Constraint: Send + Sync {
 /// audit logs, Loop training data, real-time dashboards.
 #[derive(Debug, Clone)]
 pub struct CrushEvent {
-    /// Strategy debug string returned by the crusher
-    /// (e.g. `"smart_sample(30->15)"`, `"passthrough"`,
-    /// `"top_n(50->15)"`).
-    pub strategy: String,
-    /// Length in bytes of the input content (whatever was passed to
-    /// `crush()`).
-    pub input_bytes: usize,
-    /// Length in bytes of the compressed output.
-    pub output_bytes: usize,
-    /// Wall-clock duration of the `crush()` call.
-    pub elapsed_ns: u64,
-    /// Whether the output differs from the input.
-    pub was_modified: bool,
+	/// Strategy debug string returned by the crusher
+	/// (e.g. `"smart_sample(30->15)"`, `"passthrough"`,
+	/// `"top_n(50->15)"`).
+	pub strategy: String,
+	/// Length in bytes of the input content (whatever was passed to
+	/// `crush()`).
+	pub input_bytes: usize,
+	/// Length in bytes of the compressed output.
+	pub output_bytes: usize,
+	/// Wall-clock duration of the `crush()` call.
+	pub elapsed_ns: u64,
+	/// Whether the output differs from the input.
+	pub was_modified: bool,
 }
 
 /// Decision-stream hook. Called after each top-level `SmartCrusher::crush`
@@ -117,16 +117,16 @@ pub struct CrushEvent {
 ///   (telemetry is naturally idempotent), but if you have an
 ///   audit-then-publish chain, add them in that order.
 pub trait Observer: Send + Sync {
-    /// Stable identifier — useful for filtering in the rare cases
-    /// where an observer wants to disable itself when another is
-    /// already configured. Default: the type name.
-    fn name(&self) -> &str {
-        std::any::type_name::<Self>()
-    }
+	/// Stable identifier — useful for filtering in the rare cases
+	/// where an observer wants to disable itself when another is
+	/// already configured. Default: the type name.
+	fn name(&self) -> &str {
+		std::any::type_name::<Self>()
+	}
 
-    /// Called once per `SmartCrusher::crush` invocation, after the
-    /// result is computed and before it is returned to the caller.
-    fn on_event(&self, event: &CrushEvent);
+	/// Called once per `SmartCrusher::crush` invocation, after the
+	/// result is computed and before it is returned to the caller.
+	fn on_event(&self, event: &CrushEvent);
 }
 
 // ── Re-exports for convenience ────────────────────────────────────────────
@@ -137,67 +137,63 @@ pub use crate::relevance::RelevanceScorer as Scorer;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use serde_json::json;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
+	use super::*;
+	use serde_json::json;
+	use std::sync::atomic::{AtomicUsize, Ordering};
+	use std::sync::Arc;
 
-    /// A tiny constraint that always keeps index 0 (if any items).
-    /// Pins the trait shape and the additive behavior of constraint
-    /// stacking.
-    struct AlwaysKeepFirst;
-    impl Constraint for AlwaysKeepFirst {
-        fn name(&self) -> &str {
-            "always_keep_first"
-        }
-        fn must_keep(&self, items: &[Value], _: Option<&[String]>) -> Vec<usize> {
-            if items.is_empty() {
-                Vec::new()
-            } else {
-                vec![0]
-            }
-        }
-    }
+	/// A tiny constraint that always keeps index 0 (if any items).
+	/// Pins the trait shape and the additive behavior of constraint
+	/// stacking.
+	struct AlwaysKeepFirst;
+	impl Constraint for AlwaysKeepFirst {
+		fn name(&self) -> &str {
+			"always_keep_first"
+		}
+		fn must_keep(&self, items: &[Value], _: Option<&[String]>) -> Vec<usize> {
+			if items.is_empty() { Vec::new() } else { vec![0] }
+		}
+	}
 
-    #[test]
-    fn constraint_returns_indices_in_bounds() {
-        let items = vec![json!({"a": 1}), json!({"a": 2})];
-        let c = AlwaysKeepFirst;
-        let kept = c.must_keep(&items, None);
-        assert_eq!(kept, vec![0]);
-        assert_eq!(c.name(), "always_keep_first");
-    }
+	#[test]
+	fn constraint_returns_indices_in_bounds() {
+		let items = vec![json!({"a": 1}), json!({"a": 2})];
+		let c = AlwaysKeepFirst;
+		let kept = c.must_keep(&items, None);
+		assert_eq!(kept, vec![0]);
+		assert_eq!(c.name(), "always_keep_first");
+	}
 
-    #[test]
-    fn constraint_handles_empty_input() {
-        let kept = AlwaysKeepFirst.must_keep(&[], None);
-        assert!(kept.is_empty());
-    }
+	#[test]
+	fn constraint_handles_empty_input() {
+		let kept = AlwaysKeepFirst.must_keep(&[], None);
+		assert!(kept.is_empty());
+	}
 
-    /// Counts events to verify the observer trait fires correctly
-    /// when wired into a SmartCrusher (integration test in
-    /// `crusher.rs::tests`).
-    #[derive(Default)]
-    struct CountingObserver {
-        count: Arc<AtomicUsize>,
-    }
-    impl Observer for CountingObserver {
-        fn on_event(&self, _: &CrushEvent) {
-            self.count.fetch_add(1, Ordering::SeqCst);
-        }
-    }
+	/// Counts events to verify the observer trait fires correctly
+	/// when wired into a SmartCrusher (integration test in
+	/// `crusher.rs::tests`).
+	#[derive(Default)]
+	struct CountingObserver {
+		count: Arc<AtomicUsize>,
+	}
+	impl Observer for CountingObserver {
+		fn on_event(&self, _: &CrushEvent) {
+			self.count.fetch_add(1, Ordering::SeqCst);
+		}
+	}
 
-    #[test]
-    fn observer_event_carries_strategy_and_sizes() {
-        let observer = CountingObserver::default();
-        let event = CrushEvent {
-            strategy: "smart_sample(30->15)".to_string(),
-            input_bytes: 1000,
-            output_bytes: 500,
-            elapsed_ns: 12_345,
-            was_modified: true,
-        };
-        observer.on_event(&event);
-        assert_eq!(observer.count.load(Ordering::SeqCst), 1);
-    }
+	#[test]
+	fn observer_event_carries_strategy_and_sizes() {
+		let observer = CountingObserver::default();
+		let event = CrushEvent {
+			strategy: "smart_sample(30->15)".to_string(),
+			input_bytes: 1000,
+			output_bytes: 500,
+			elapsed_ns: 12_345,
+			was_modified: true,
+		};
+		observer.on_event(&event);
+		assert_eq!(observer.count.load(Ordering::SeqCst), 1);
+	}
 }

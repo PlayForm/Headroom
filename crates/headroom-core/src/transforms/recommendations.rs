@@ -69,21 +69,21 @@ pub use super::live_zone::AuthMode;
 /// A single published recommendation row.
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct Recommendation {
-    pub auth_mode: String,
-    pub model_family: String,
-    pub structure_hash: String,
-    #[serde(default)]
-    pub skip_compression_recommended: bool,
-    pub strategy_hint: String,
-    pub confidence: f64,
-    pub observations: u64,
+	pub auth_mode: String,
+	pub model_family: String,
+	pub structure_hash: String,
+	#[serde(default)]
+	pub skip_compression_recommended: bool,
+	pub strategy_hint: String,
+	pub confidence: f64,
+	pub observations: u64,
 }
 
 /// Top-level TOML envelope: `[[recommendation]]` array.
 #[derive(Debug, Default, Deserialize)]
 struct RecommendationFile {
-    #[serde(default)]
-    recommendation: Vec<Recommendation>,
+	#[serde(default)]
+	recommendation: Vec<Recommendation>,
 }
 
 /// In-memory recommendation index, keyed by
@@ -97,118 +97,104 @@ struct RecommendationFile {
 /// parsing cost we already paid.
 #[derive(Debug, Default, Clone)]
 pub struct RecommendationStore {
-    by_key: HashMap<(String, String, String), Recommendation>,
+	by_key: HashMap<(String, String, String), Recommendation>,
 }
 
 impl RecommendationStore {
-    /// Build an empty store. Used for tests and as the fallback when
-    /// no `recommendations.toml` is present.
-    pub fn empty() -> Self {
-        Self {
-            by_key: HashMap::new(),
-        }
-    }
+	/// Build an empty store. Used for tests and as the fallback when
+	/// no `recommendations.toml` is present.
+	pub fn empty() -> Self {
+		Self { by_key: HashMap::new() }
+	}
 
-    /// Number of indexed rows.
-    pub fn len(&self) -> usize {
-        self.by_key.len()
-    }
+	/// Number of indexed rows.
+	pub fn len(&self) -> usize {
+		self.by_key.len()
+	}
 
-    /// Whether this store has zero recommendations.
-    pub fn is_empty(&self) -> bool {
-        self.by_key.is_empty()
-    }
+	/// Whether this store has zero recommendations.
+	pub fn is_empty(&self) -> bool {
+		self.by_key.is_empty()
+	}
 
-    /// Look up a recommendation by tenant slice + structure hash.
-    /// Returns `None` when no advice was published for that key.
-    pub fn lookup(
-        &self,
-        auth_mode: AuthMode,
-        model_family: &str,
-        structure_hash: &str,
-    ) -> Option<&Recommendation> {
-        // HashMap::get on a tuple key requires `Borrow` on tuples,
-        // which Rust doesn't provide for mixed `&str`/`String` tuples.
-        // Allocate a short-lived owned key — recommendation lookups
-        // happen once per request at most, so this isn't hot.
-        let key = (
-            auth_mode.as_str().to_string(),
-            model_family.to_string(),
-            structure_hash.to_string(),
-        );
-        self.by_key.get(&key)
-    }
+	/// Look up a recommendation by tenant slice + structure hash.
+	/// Returns `None` when no advice was published for that key.
+	pub fn lookup(&self, auth_mode: AuthMode, model_family: &str, structure_hash: &str) -> Option<&Recommendation> {
+		// HashMap::get on a tuple key requires `Borrow` on tuples,
+		// which Rust doesn't provide for mixed `&str`/`String` tuples.
+		// Allocate a short-lived owned key — recommendation lookups
+		// happen once per request at most, so this isn't hot.
+		let key = (
+			auth_mode.as_str().to_string(),
+			model_family.to_string(),
+			structure_hash.to_string(),
+		);
+		self.by_key.get(&key)
+	}
 
-    /// Parse a TOML string into a [`RecommendationStore`].
-    pub fn from_toml_str(s: &str) -> Result<Self, RecommendationsError> {
-        let parsed: RecommendationFile = toml::from_str(s).map_err(RecommendationsError::Parse)?;
-        let mut by_key = HashMap::with_capacity(parsed.recommendation.len());
-        for row in parsed.recommendation {
-            let key = (
-                row.auth_mode.clone(),
-                row.model_family.clone(),
-                row.structure_hash.clone(),
-            );
-            by_key.insert(key, row);
-        }
-        Ok(Self { by_key })
-    }
+	/// Parse a TOML string into a [`RecommendationStore`].
+	pub fn from_toml_str(s: &str) -> Result<Self, RecommendationsError> {
+		let parsed: RecommendationFile = toml::from_str(s).map_err(RecommendationsError::Parse)?;
+		let mut by_key = HashMap::with_capacity(parsed.recommendation.len());
+		for row in parsed.recommendation {
+			let key = (row.auth_mode.clone(), row.model_family.clone(), row.structure_hash.clone());
+			by_key.insert(key, row);
+		}
+		Ok(Self { by_key })
+	}
 
-    /// Read a TOML file from disk and parse it.
-    ///
-    /// Missing files yield [`RecommendationsError::Missing`] —
-    /// callers usually downgrade that to "use defaults" without
-    /// panicking. Malformed files surface [`RecommendationsError::Parse`].
-    pub fn from_file(path: impl AsRef<Path>) -> Result<Self, RecommendationsError> {
-        let path = path.as_ref();
-        let text = std::fs::read_to_string(path).map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                RecommendationsError::Missing(path.to_path_buf())
-            } else {
-                RecommendationsError::Io {
-                    path: path.to_path_buf(),
-                    source: e,
-                }
-            }
-        })?;
-        Self::from_toml_str(&text)
-    }
+	/// Read a TOML file from disk and parse it.
+	///
+	/// Missing files yield [`RecommendationsError::Missing`] —
+	/// callers usually downgrade that to "use defaults" without
+	/// panicking. Malformed files surface [`RecommendationsError::Parse`].
+	pub fn from_file(path: impl AsRef<Path>) -> Result<Self, RecommendationsError> {
+		let path = path.as_ref();
+		let text = std::fs::read_to_string(path).map_err(|e| {
+			if e.kind() == std::io::ErrorKind::NotFound {
+				RecommendationsError::Missing(path.to_path_buf())
+			} else {
+				RecommendationsError::Io { path: path.to_path_buf(), source: e }
+			}
+		})?;
+		Self::from_toml_str(&text)
+	}
 
-    /// Best-effort load: returns an empty store and logs structured
-    /// warnings when the file is missing or malformed. This is the
-    /// path the Rust proxy uses at startup — it's not fatal for the
-    /// publish pipeline to be down.
-    pub fn load_or_empty(path: impl AsRef<Path>) -> Self {
-        let path = path.as_ref();
-        match Self::from_file(path) {
-            Ok(store) => {
-                tracing::info!(
-                    event = "recommendations_loaded",
-                    path = %path.display(),
-                    rows = store.len(),
-                    "TOIN recommendations loaded",
-                );
-                store
-            },
-            Err(RecommendationsError::Missing(_)) => {
-                tracing::info!(
-                    event = "recommendations_missing",
-                    path = %path.display(),
-                    "no recommendations.toml present; using static defaults",
-                );
-                Self::empty()
-            },
-            Err(err) => {
-                tracing::warn!(
-                    event = "recommendations_load_failed",
-                    path = %path.display(),
-                    error = %err,
-                    "TOIN recommendations failed to load — falling back to empty store",
-                );
-                Self::empty()
-            },
-        }
-    }
+	/// Best-effort load: returns an empty store and logs structured
+	/// warnings when the file is missing or malformed. This is the
+	/// path the Rust proxy uses at startup — it's not fatal for the
+	/// publish pipeline to be down.
+	pub fn load_or_empty(path: impl AsRef<Path>) -> Self {
+		let path = path.as_ref();
+		match Self::from_file(path) {
+			Ok(store) => {
+				tracing::info!(
+					event = "recommendations_loaded",
+					path = %path.display(),
+					rows = store.len(),
+					"TOIN recommendations loaded",
+				);
+				store
+			},
+			Err(RecommendationsError::Missing(_)) => {
+				tracing::info!(
+					event = "recommendations_missing",
+					path = %path.display(),
+					"no recommendations.toml present; using static defaults",
+				);
+				Self::empty()
+			},
+			Err(err) => {
+				tracing::warn!(
+					event = "recommendations_load_failed",
+					path = %path.display(),
+					error = %err,
+					"TOIN recommendations failed to load — falling back to empty store",
+				);
+				Self::empty()
+			},
+		}
+	}
 }
 
 /// Process-wide store populated at first call to [`load_default`].
@@ -219,9 +205,9 @@ static GLOBAL: OnceLock<RecommendationStore> = OnceLock::new();
 /// Honors `HEADROOM_RECOMMENDATIONS_PATH` for prod overrides; falls
 /// back to [`DEFAULT_RECOMMENDATIONS_PATH`].
 pub fn default_path() -> PathBuf {
-    std::env::var(RECOMMENDATIONS_PATH_ENV_VAR)
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(DEFAULT_RECOMMENDATIONS_PATH))
+	std::env::var(RECOMMENDATIONS_PATH_ENV_VAR)
+		.map(PathBuf::from)
+		.unwrap_or_else(|_| PathBuf::from(DEFAULT_RECOMMENDATIONS_PATH))
 }
 
 /// Initialize and return the global [`RecommendationStore`].
@@ -229,18 +215,14 @@ pub fn default_path() -> PathBuf {
 /// On first call, reads the file at [`default_path`]; subsequent calls
 /// return the cached store. Idempotent and thread-safe via [`OnceLock`].
 pub fn load_default() -> &'static RecommendationStore {
-    GLOBAL.get_or_init(|| RecommendationStore::load_or_empty(default_path()))
+	GLOBAL.get_or_init(|| RecommendationStore::load_or_empty(default_path()))
 }
 
 /// Module-level convenience: look up a recommendation in the global
 /// store. PR-F3 will wire this into `dispatch_compressor`. PR-B5 only
 /// exposes the API surface.
-pub fn get(
-    auth_mode: AuthMode,
-    model: &str,
-    structure_hash: &str,
-) -> Option<&'static Recommendation> {
-    load_default().lookup(auth_mode, model, structure_hash)
+pub fn get(auth_mode: AuthMode, model: &str, structure_hash: &str) -> Option<&'static Recommendation> {
+	load_default().lookup(auth_mode, model, structure_hash)
 }
 
 /// Errors surfaced by the loader. Marked non-exhaustive so we can add
@@ -248,27 +230,27 @@ pub fn get(
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum RecommendationsError {
-    /// File doesn't exist on disk.
-    #[error("recommendations file not found: {0}")]
-    Missing(PathBuf),
-    /// Filesystem error other than NotFound.
-    #[error("recommendations IO error at {path}: {source}")]
-    Io {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-    /// TOML parse failure (typed wrapper for ergonomics).
-    #[error("recommendations TOML parse error: {0}")]
-    Parse(#[from] toml::de::Error),
+	/// File doesn't exist on disk.
+	#[error("recommendations file not found: {0}")]
+	Missing(PathBuf),
+	/// Filesystem error other than NotFound.
+	#[error("recommendations IO error at {path}: {source}")]
+	Io {
+		path: PathBuf,
+		#[source]
+		source: std::io::Error,
+	},
+	/// TOML parse failure (typed wrapper for ergonomics).
+	#[error("recommendations TOML parse error: {0}")]
+	Parse(#[from] toml::de::Error),
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+	use super::*;
 
-    fn sample_toml() -> &'static str {
-        r#"
+	fn sample_toml() -> &'static str {
+		r#"
 [[recommendation]]
 auth_mode = "payg"
 model_family = "claude-3-5"
@@ -286,58 +268,52 @@ strategy_hint = "log_compressor"
 confidence = 0.42
 observations = 60
 "#
-    }
+	}
 
-    #[test]
-    fn from_toml_str_indexes_by_tuple_key() {
-        let store = RecommendationStore::from_toml_str(sample_toml()).expect("parses");
-        assert_eq!(store.len(), 2);
+	#[test]
+	fn from_toml_str_indexes_by_tuple_key() {
+		let store = RecommendationStore::from_toml_str(sample_toml()).expect("parses");
+		assert_eq!(store.len(), 2);
 
-        let r = store
-            .lookup(AuthMode::Payg, "claude-3-5", "deadbeef")
-            .expect("hit");
-        assert!(r.skip_compression_recommended);
-        assert_eq!(r.strategy_hint, "smart_crusher");
-        assert!((r.confidence - 0.87).abs() < 1e-9);
-        assert_eq!(r.observations, 142);
-    }
+		let r = store.lookup(AuthMode::Payg, "claude-3-5", "deadbeef").expect("hit");
+		assert!(r.skip_compression_recommended);
+		assert_eq!(r.strategy_hint, "smart_crusher");
+		assert!((r.confidence - 0.87).abs() < 1e-9);
+		assert_eq!(r.observations, 142);
+	}
 
-    #[test]
-    fn from_toml_str_defaults_missing_skip_field_to_false() {
-        let store = RecommendationStore::from_toml_str(sample_toml()).expect("parses");
-        let r = store
-            .lookup(AuthMode::OAuth, "gpt-4o", "cafebabe")
-            .expect("hit");
-        assert!(!r.skip_compression_recommended);
-    }
+	#[test]
+	fn from_toml_str_defaults_missing_skip_field_to_false() {
+		let store = RecommendationStore::from_toml_str(sample_toml()).expect("parses");
+		let r = store.lookup(AuthMode::OAuth, "gpt-4o", "cafebabe").expect("hit");
+		assert!(!r.skip_compression_recommended);
+	}
 
-    #[test]
-    fn lookup_returns_none_for_missing_slice() {
-        let store = RecommendationStore::from_toml_str(sample_toml()).expect("parses");
-        assert!(store
-            .lookup(AuthMode::Unknown, "gpt-4o", "cafebabe")
-            .is_none());
-    }
+	#[test]
+	fn lookup_returns_none_for_missing_slice() {
+		let store = RecommendationStore::from_toml_str(sample_toml()).expect("parses");
+		assert!(store.lookup(AuthMode::Unknown, "gpt-4o", "cafebabe").is_none());
+	}
 
-    #[test]
-    fn empty_store_lookup_is_none() {
-        let store = RecommendationStore::empty();
-        assert!(store.is_empty());
-        assert!(store.lookup(AuthMode::Payg, "claude-3-5", "any").is_none());
-    }
+	#[test]
+	fn empty_store_lookup_is_none() {
+		let store = RecommendationStore::empty();
+		assert!(store.is_empty());
+		assert!(store.lookup(AuthMode::Payg, "claude-3-5", "any").is_none());
+	}
 
-    #[test]
-    fn malformed_toml_yields_parse_error() {
-        let bad = "this is not valid toml [[\n\n";
-        let err = RecommendationStore::from_toml_str(bad).unwrap_err();
-        assert!(matches!(err, RecommendationsError::Parse(_)));
-    }
+	#[test]
+	fn malformed_toml_yields_parse_error() {
+		let bad = "this is not valid toml [[\n\n";
+		let err = RecommendationStore::from_toml_str(bad).unwrap_err();
+		assert!(matches!(err, RecommendationsError::Parse(_)));
+	}
 
-    #[test]
-    fn auth_mode_strings_match_python_publish_cli() {
-        assert_eq!(AuthMode::Payg.as_str(), "payg");
-        assert_eq!(AuthMode::OAuth.as_str(), "oauth");
-        assert_eq!(AuthMode::Subscription.as_str(), "subscription");
-        assert_eq!(AuthMode::Unknown.as_str(), "unknown");
-    }
+	#[test]
+	fn auth_mode_strings_match_python_publish_cli() {
+		assert_eq!(AuthMode::Payg.as_str(), "payg");
+		assert_eq!(AuthMode::OAuth.as_str(), "oauth");
+		assert_eq!(AuthMode::Subscription.as_str(), "subscription");
+		assert_eq!(AuthMode::Unknown.as_str(), "unknown");
+	}
 }

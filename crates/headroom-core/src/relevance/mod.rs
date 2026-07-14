@@ -42,23 +42,17 @@ pub use hybrid::HybridScorer;
 ///   `Err` to mirror Python's `RuntimeError` when the underlying ONNX
 ///   backend isn't ready).
 pub fn create_scorer(tier: &str) -> Result<Box<dyn RelevanceScorer + Send + Sync>, String> {
-    match tier.to_lowercase().as_str() {
-        "bm25" => Ok(Box::new(BM25Scorer::default())),
-        "hybrid" => Ok(Box::new(HybridScorer::default())),
-        "embedding" => {
-            let s = EmbeddingScorer::default();
-            if s.is_available() {
-                Ok(Box::new(s))
-            } else {
-                Err(
-                    "EmbeddingScorer requires the ONNX backend (not yet implemented in Rust)"
-                        .to_string(),
-                )
-            }
-        },
-        other => Err(format!(
-            "Unknown scorer tier: {}. Valid tiers: bm25, embedding, hybrid",
-            other
-        )),
-    }
+	match tier.to_lowercase().as_str() {
+		"bm25" => Ok(Box::new(BM25Scorer::default())),
+		"hybrid" => Ok(Box::new(HybridScorer::default())),
+		"embedding" => {
+			let s = EmbeddingScorer::default();
+			if s.is_available() {
+				Ok(Box::new(s))
+			} else {
+				Err("EmbeddingScorer requires the ONNX backend (not yet implemented in Rust)".to_string())
+			}
+		},
+		other => Err(format!("Unknown scorer tier: {}. Valid tiers: bm25, embedding, hybrid", other)),
+	}
 }

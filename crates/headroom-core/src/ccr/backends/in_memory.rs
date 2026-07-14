@@ -32,16 +32,13 @@ use crate::ccr::{CcrStore, DEFAULT_CAPACITY, DEFAULT_TTL};
 
 /// Acquire the mutex guard, recovering from poison.
 fn lock_order(mtx: &Mutex<VecDeque<String>>) -> std::sync::MutexGuard<'_, VecDeque<String>> {
-    match mtx.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => {
-            tracing::warn!(
-                target = "ccr.in_memory",
-                "ccr_in_memory_order_mutex_poisoned_recovered"
-            );
-            poisoned.into_inner()
-        },
-    }
+	match mtx.lock() {
+		Ok(guard) => guard,
+		Err(poisoned) => {
+			tracing::warn!(target = "ccr.in_memory", "ccr_in_memory_order_mutex_poisoned_recovered");
+			poisoned.into_inner()
+		},
+	}
 }
 
 /// In-memory CCR store backed by [`DashMap`] for sharded concurrent
@@ -59,372 +56,363 @@ fn lock_order(mtx: &Mutex<VecDeque<String>>) -> std::sync::MutexGuard<'_, VecDeq
 ///   when the queue grows to more than twice the capacity, preventing
 ///   unbounded growth under high churn.
 pub struct InMemoryCcrStore {
-    map: DashMap<String, Entry>,
-    /// FIFO insertion order. Stale entries (already removed from `map`
-    /// via TTL expiry) are tolerated - `pop_front` + `map.remove` is a
-    /// no-op for missing keys, and capacity-bounded sweeps loop until
-    /// they actually evict a real entry.
-    ///
-    /// To prevent unbounded growth, `compact()` is called from `get()`
-    /// when `order.len() > capacity * 2`.
-    order: Mutex<VecDeque<String>>,
-    ttl: Duration,
-    capacity: usize,
+	map: DashMap<String, Entry>,
+	/// FIFO insertion order. Stale entries (already removed from `map`
+	/// via TTL expiry) are tolerated - `pop_front` + `map.remove` is a
+	/// no-op for missing keys, and capacity-bounded sweeps loop until
+	/// they actually evict a real entry.
+	///
+	/// To prevent unbounded growth, `compact()` is called from `get()`
+	/// when `order.len() > capacity * 2`.
+	order: Mutex<VecDeque<String>>,
+	ttl: Duration,
+	capacity: usize,
 }
 
 #[derive(Clone)]
 struct Entry {
-    payload: String,
-    inserted: Instant,
+	payload: String,
+	inserted: Instant,
 }
 
 impl InMemoryCcrStore {
-    /// Default: 1000 entries, 5-minute TTL.
-    pub fn new() -> Self {
-        Self::with_capacity_and_ttl(DEFAULT_CAPACITY, DEFAULT_TTL)
-    }
+	/// Default: 1000 entries, 5-minute TTL.
+	pub fn new() -> Self {
+		Self::with_capacity_and_ttl(DEFAULT_CAPACITY, DEFAULT_TTL)
+	}
 
-    pub fn with_capacity_and_ttl(capacity: usize, ttl: Duration) -> Self {
-        Self {
-            map: DashMap::with_capacity(capacity),
-            order: Mutex::new(VecDeque::with_capacity(capacity)),
-            ttl,
-            capacity,
-        }
-    }
+	pub fn with_capacity_and_ttl(capacity: usize, ttl: Duration) -> Self {
+		Self {
+			map: DashMap::with_capacity(capacity),
+			order: Mutex::new(VecDeque::with_capacity(capacity)),
+			ttl,
+			capacity,
+		}
+	}
 
-    /// Remove stale keys from the order queue whose entries no longer
-    /// exist in the DashMap (already expired or evicted).
-    ///
-    /// Called from `get()` when `order.len() > capacity * 2` to prevent
-    /// unbounded queue growth under sustained churn. Linear scan - safe
-    /// because the queue is only compacted when it's significantly
-    /// larger than the live map.
-    fn compact(&self) {
-        let mut guard = lock_order(&self.order);
-        guard.retain(|key| self.map.contains_key(key));
-    }
+	/// Remove stale keys from the order queue whose entries no longer
+	/// exist in the DashMap (already expired or evicted).
+	///
+	/// Called from `get()` when `order.len() > capacity * 2` to prevent
+	/// unbounded queue growth under sustained churn. Linear scan - safe
+	/// because the queue is only compacted when it's significantly
+	/// larger than the live map.
+	fn compact(&self) {
+		let mut guard = lock_order(&self.order);
+		guard.retain(|key| self.map.contains_key(key));
+	}
 
-    /// Sweep the order queue, dropping leading entries that no longer
-    /// exist in the map (already expired or evicted), then evict
-    /// real entries until `map.len() < capacity`. Called only from
-    /// `put` on a fresh-key insert path.
-    fn evict_until_under_capacity(&self) {
-        let mut guard = lock_order(&self.order);
-        let mut attempts = 0;
-        let max_attempts = self.capacity.max(1);
-        while self.map.len() >= self.capacity && attempts < max_attempts {
-            let Some(oldest) = guard.pop_front() else {
-                break;
-            };
-            self.map.remove(&oldest);
-            attempts += 1;
-        }
-    }
+	/// Sweep the order queue, dropping leading entries that no longer
+	/// exist in the map (already expired or evicted), then evict
+	/// real entries until `map.len() < capacity`. Called only from
+	/// `put` on a fresh-key insert path.
+	fn evict_until_under_capacity(&self) {
+		let mut guard = lock_order(&self.order);
+		let mut attempts = 0;
+		let max_attempts = self.capacity.max(1);
+		while self.map.len() >= self.capacity && attempts < max_attempts {
+			let Some(oldest) = guard.pop_front() else {
+				break;
+			};
+			self.map.remove(&oldest);
+			attempts += 1;
+		}
+	}
 }
 
 impl Default for InMemoryCcrStore {
-    fn default() -> Self {
-        Self::new()
-    }
+	fn default() -> Self {
+		Self::new()
+	}
 }
 
 impl CcrStore for InMemoryCcrStore {
-    fn put(&self, hash: &str, payload: &str) -> bool {
-        // Idempotent re-store fast-path: same hash → overwrite payload
-        // in place, leave the order queue alone. Common when the same
-        // tool output flows through multiple times in a session.
-        if let Some(mut existing) = self.map.get_mut(hash) {
-            existing.payload = payload.to_string();
-            existing.inserted = Instant::now();
-            return true;
-        }
+	fn put(&self, hash: &str, payload: &str) -> bool {
+		// Idempotent re-store fast-path: same hash → overwrite payload
+		// in place, leave the order queue alone. Common when the same
+		// tool output flows through multiple times in a session.
+		if let Some(mut existing) = self.map.get_mut(hash) {
+			existing.payload = payload.to_string();
+			existing.inserted = Instant::now();
+			return true;
+		}
 
-        // New entry. Cap-bound first (may sweep a few stale order
-        // entries), then insert and append to the FIFO queue.
-        if self.map.len() >= self.capacity {
-            self.evict_until_under_capacity();
-        }
-        let entry = Entry {
-            payload: payload.to_string(),
-            inserted: Instant::now(),
-        };
-        let prev = self.map.insert(hash.to_string(), entry);
-        if prev.is_none() {
-            // Truly new key - record in FIFO order. (If `prev.is_some()`
-            // it means another thread re-inserted between our get_mut
-            // miss and this insert; treat that as a fast-path overwrite
-            // and skip the queue append to avoid duplicates.)
-            lock_order(&self.order).push_back(hash.to_string());
-        }
-        true
-    }
+		// New entry. Cap-bound first (may sweep a few stale order
+		// entries), then insert and append to the FIFO queue.
+		if self.map.len() >= self.capacity {
+			self.evict_until_under_capacity();
+		}
+		let entry = Entry { payload: payload.to_string(), inserted: Instant::now() };
+		let prev = self.map.insert(hash.to_string(), entry);
+		if prev.is_none() {
+			// Truly new key - record in FIFO order. (If `prev.is_some()`
+			// it means another thread re-inserted between our get_mut
+			// miss and this insert; treat that as a fast-path overwrite
+			// and skip the queue append to avoid duplicates.)
+			lock_order(&self.order).push_back(hash.to_string());
+		}
+		true
+	}
 
-    fn get(&self, hash: &str) -> Option<String> {
-        // Compact the order queue when it has grown significantly
-        // beyond the live entry count, preventing unbounded memory
-        // growth from stale keys.
-        let should_compact = {
-            let guard = lock_order(&self.order);
-            guard.len() > self.capacity * 2
-        };
-        if should_compact {
-            self.compact();
-        }
+	fn get(&self, hash: &str) -> Option<String> {
+		// Compact the order queue when it has grown significantly
+		// beyond the live entry count, preventing unbounded memory
+		// growth from stale keys.
+		let should_compact = {
+			let guard = lock_order(&self.order);
+			guard.len() > self.capacity * 2
+		};
+		if should_compact {
+			self.compact();
+		}
 
-        // Read path: shard read-lock, check TTL, clone payload out.
-        // No global lock involvement at all - distinct hashes hash to
-        // distinct shards and never contend.
-        //
-        // Lazy expiry uses DashMap's `remove_if` so the check-and-remove
-        // is atomic on the shard. An earlier 2-step (drop read lock,
-        // then `remove`) had a TOCTOU race: between dropping the read
-        // lock and calling `remove`, a concurrent `put()` of the same
-        // hash with a fresh timestamp could land - and our `remove`
-        // would then wipe that fresh entry. Under multi-worker proxy
-        // load this manifested as "I just stored it; why is it gone?"
-        // `remove_if` closes the window because the shard write lock
-        // is held across both the predicate evaluation and the removal.
-        if let Some(entry) = self.map.get(hash) {
-            if entry.inserted.elapsed() <= self.ttl {
-                return Some(entry.payload.clone());
-            }
-        } else {
-            return None;
-        }
-        // Out-of-band path: the entry exists and looks expired. Re-check
-        // under the shard write lock; if it's still expired, evict.
-        // Otherwise (a concurrent `put` refreshed it) leave it alone
-        // and re-fetch its payload.
-        let was_removed = self
-            .map
-            .remove_if(hash, |_, entry| entry.inserted.elapsed() > self.ttl)
-            .is_some();
-        if was_removed {
-            None
-        } else {
-            // Concurrent refresh - return the fresh payload.
-            self.map.get(hash).map(|e| e.payload.clone())
-        }
-    }
+		// Read path: shard read-lock, check TTL, clone payload out.
+		// No global lock involvement at all - distinct hashes hash to
+		// distinct shards and never contend.
+		//
+		// Lazy expiry uses DashMap's `remove_if` so the check-and-remove
+		// is atomic on the shard. An earlier 2-step (drop read lock,
+		// then `remove`) had a TOCTOU race: between dropping the read
+		// lock and calling `remove`, a concurrent `put()` of the same
+		// hash with a fresh timestamp could land - and our `remove`
+		// would then wipe that fresh entry. Under multi-worker proxy
+		// load this manifested as "I just stored it; why is it gone?"
+		// `remove_if` closes the window because the shard write lock
+		// is held across both the predicate evaluation and the removal.
+		if let Some(entry) = self.map.get(hash) {
+			if entry.inserted.elapsed() <= self.ttl {
+				return Some(entry.payload.clone());
+			}
+		} else {
+			return None;
+		}
+		// Out-of-band path: the entry exists and looks expired. Re-check
+		// under the shard write lock; if it's still expired, evict.
+		// Otherwise (a concurrent `put` refreshed it) leave it alone
+		// and re-fetch its payload.
+		let was_removed = self
+			.map
+			.remove_if(hash, |_, entry| entry.inserted.elapsed() > self.ttl)
+			.is_some();
+		if was_removed {
+			None
+		} else {
+			// Concurrent refresh - return the fresh payload.
+			self.map.get(hash).map(|e| e.payload.clone())
+		}
+	}
 
-    fn len(&self) -> usize {
-        self.map.len()
-    }
+	fn len(&self) -> usize {
+		self.map.len()
+	}
 
-    fn del(&self, hash: &str) -> bool {
-        self.map.remove(hash).is_some()
-    }
+	fn del(&self, hash: &str) -> bool {
+		self.map.remove(hash).is_some()
+	}
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+	use super::*;
 
-    #[test]
-    fn put_then_get_returns_payload() {
-        let store = InMemoryCcrStore::new();
-        store.put("abc123", r#"[{"id":1}]"#);
-        assert_eq!(store.get("abc123"), Some(r#"[{"id":1}]"#.to_string()));
-    }
+	#[test]
+	fn put_then_get_returns_payload() {
+		let store = InMemoryCcrStore::new();
+		store.put("abc123", r#"[{"id":1}]"#);
+		assert_eq!(store.get("abc123"), Some(r#"[{"id":1}]"#.to_string()));
+	}
 
-    #[test]
-    fn missing_hash_returns_none() {
-        let store = InMemoryCcrStore::new();
-        assert_eq!(store.get("never_stored"), None);
-    }
+	#[test]
+	fn missing_hash_returns_none() {
+		let store = InMemoryCcrStore::new();
+		assert_eq!(store.get("never_stored"), None);
+	}
 
-    #[test]
-    fn put_overwrites_under_same_hash() {
-        let store = InMemoryCcrStore::new();
-        store.put("h", "first");
-        store.put("h", "second");
-        assert_eq!(store.get("h"), Some("second".to_string()));
-        assert_eq!(store.len(), 1);
-    }
+	#[test]
+	fn put_overwrites_under_same_hash() {
+		let store = InMemoryCcrStore::new();
+		store.put("h", "first");
+		store.put("h", "second");
+		assert_eq!(store.get("h"), Some("second".to_string()));
+		assert_eq!(store.len(), 1);
+	}
 
-    #[test]
-    fn capacity_evicts_oldest() {
-        let store = InMemoryCcrStore::with_capacity_and_ttl(2, DEFAULT_TTL);
-        store.put("a", "1");
-        store.put("b", "2");
-        store.put("c", "3");
-        assert_eq!(store.len(), 2);
-        assert_eq!(store.get("a"), None);
-        assert_eq!(store.get("b"), Some("2".to_string()));
-        assert_eq!(store.get("c"), Some("3".to_string()));
-    }
+	#[test]
+	fn capacity_evicts_oldest() {
+		let store = InMemoryCcrStore::with_capacity_and_ttl(2, DEFAULT_TTL);
+		store.put("a", "1");
+		store.put("b", "2");
+		store.put("c", "3");
+		assert_eq!(store.len(), 2);
+		assert_eq!(store.get("a"), None);
+		assert_eq!(store.get("b"), Some("2".to_string()));
+		assert_eq!(store.get("c"), Some("3".to_string()));
+	}
 
-    #[test]
-    fn expired_entries_are_dropped_on_get() {
-        let store = InMemoryCcrStore::with_capacity_and_ttl(10, Duration::from_millis(10));
-        store.put("a", "1");
-        std::thread::sleep(Duration::from_millis(25));
-        assert_eq!(store.get("a"), None);
-        assert_eq!(store.len(), 0);
-    }
+	#[test]
+	fn expired_entries_are_dropped_on_get() {
+		let store = InMemoryCcrStore::with_capacity_and_ttl(10, Duration::from_millis(10));
+		store.put("a", "1");
+		std::thread::sleep(Duration::from_millis(25));
+		assert_eq!(store.get("a"), None);
+		assert_eq!(store.len(), 0);
+	}
 
-    #[test]
-    fn store_is_send_sync() {
-        fn assert_send_sync<T: Send + Sync>() {}
-        assert_send_sync::<InMemoryCcrStore>();
-    }
+	#[test]
+	fn store_is_send_sync() {
+		fn assert_send_sync<T: Send + Sync>() {}
+		assert_send_sync::<InMemoryCcrStore>();
+	}
 
-    #[test]
-    fn trait_object_is_usable() {
-        let store: Box<dyn CcrStore> = Box::new(InMemoryCcrStore::new());
-        store.put("h", "v");
-        assert_eq!(store.get("h"), Some("v".to_string()));
-        assert!(!store.is_empty());
-    }
+	#[test]
+	fn trait_object_is_usable() {
+		let store: Box<dyn CcrStore> = Box::new(InMemoryCcrStore::new());
+		store.put("h", "v");
+		assert_eq!(store.get("h"), Some("v".to_string()));
+		assert!(!store.is_empty());
+	}
 
-    #[test]
-    fn concurrent_puts_and_gets_do_not_corrupt() {
-        // Smoke test for the concurrent design - N threads each do
-        // P puts and P gets against distinct keys. Every key written
-        // must be readable afterwards.
-        use std::sync::Arc;
-        use std::thread;
+	#[test]
+	fn concurrent_puts_and_gets_do_not_corrupt() {
+		// Smoke test for the concurrent design - N threads each do
+		// P puts and P gets against distinct keys. Every key written
+		// must be readable afterwards.
+		use std::sync::Arc;
+		use std::thread;
 
-        let store = Arc::new(InMemoryCcrStore::with_capacity_and_ttl(10_000, DEFAULT_TTL));
-        let n_threads = 8;
-        let per_thread = 200;
+		let store = Arc::new(InMemoryCcrStore::with_capacity_and_ttl(10_000, DEFAULT_TTL));
+		let n_threads = 8;
+		let per_thread = 200;
 
-        let mut handles = Vec::new();
-        for tid in 0..n_threads {
-            let s = store.clone();
-            handles.push(thread::spawn(move || {
-                for i in 0..per_thread {
-                    let key = format!("t{tid}_k{i}");
-                    let val = format!("v{tid}_{i}");
-                    s.put(&key, &val);
-                }
-                for i in 0..per_thread {
-                    let key = format!("t{tid}_k{i}");
-                    let got = s.get(&key);
-                    assert_eq!(got, Some(format!("v{tid}_{i}")));
-                }
-            }));
-        }
-        for h in handles {
-            h.join().unwrap();
-        }
-        assert_eq!(store.len(), n_threads * per_thread);
-    }
+		let mut handles = Vec::new();
+		for tid in 0..n_threads {
+			let s = store.clone();
+			handles.push(thread::spawn(move || {
+				for i in 0..per_thread {
+					let key = format!("t{tid}_k{i}");
+					let val = format!("v{tid}_{i}");
+					s.put(&key, &val);
+				}
+				for i in 0..per_thread {
+					let key = format!("t{tid}_k{i}");
+					let got = s.get(&key);
+					assert_eq!(got, Some(format!("v{tid}_{i}")));
+				}
+			}));
+		}
+		for h in handles {
+			h.join().unwrap();
+		}
+		assert_eq!(store.len(), n_threads * per_thread);
+	}
 
-    #[test]
-    fn expired_get_does_not_wipe_concurrent_refresh() {
-        // Regression for the TOCTOU race fixed in the audit-cleanup PR.
-        // Two threads contend on the SAME key:
-        //   - Thread A: stores fresh value, then `get` it many times.
-        //   - Thread B: keeps re-storing the same key with FRESH
-        //     timestamps in a tight loop (simulating a second worker
-        //     touching the same payload).
-        // With the old 2-step check-then-remove, A's `get` could see
-        // an "expired" entry, drop the read lock, and remove B's
-        // freshly-inserted entry between drop and remove. With
-        // `remove_if`, the predicate runs under the shard write lock,
-        // so the race window is closed.
-        use std::sync::Arc;
-        use std::thread;
+	#[test]
+	fn expired_get_does_not_wipe_concurrent_refresh() {
+		// Regression for the TOCTOU race fixed in the audit-cleanup PR.
+		// Two threads contend on the SAME key:
+		//   - Thread A: stores fresh value, then `get` it many times.
+		//   - Thread B: keeps re-storing the same key with FRESH
+		//     timestamps in a tight loop (simulating a second worker
+		//     touching the same payload).
+		// With the old 2-step check-then-remove, A's `get` could see
+		// an "expired" entry, drop the read lock, and remove B's
+		// freshly-inserted entry between drop and remove. With
+		// `remove_if`, the predicate runs under the shard write lock,
+		// so the race window is closed.
+		use std::sync::Arc;
+		use std::thread;
 
-        let store = Arc::new(InMemoryCcrStore::with_capacity_and_ttl(
-            64,
-            Duration::from_millis(20),
-        ));
-        let key = "shared_key";
-        let payload = "fresh";
+		let store = Arc::new(InMemoryCcrStore::with_capacity_and_ttl(64, Duration::from_millis(20)));
+		let key = "shared_key";
+		let payload = "fresh";
 
-        // Seed.
-        store.put(key, payload);
+		// Seed.
+		store.put(key, payload);
 
-        let writer = {
-            let s = store.clone();
-            thread::spawn(move || {
-                // 200 fresh re-stores, racing the reader.
-                for _ in 0..200 {
-                    s.put(key, payload);
-                }
-            })
-        };
+		let writer = {
+			let s = store.clone();
+			thread::spawn(move || {
+				// 200 fresh re-stores, racing the reader.
+				for _ in 0..200 {
+					s.put(key, payload);
+				}
+			})
+		};
 
-        let reader = {
-            let s = store.clone();
-            thread::spawn(move || {
-                let mut hits = 0;
-                for _ in 0..200 {
-                    if s.get(key).as_deref() == Some(payload) {
-                        hits += 1;
-                    }
-                }
-                hits
-            })
-        };
+		let reader = {
+			let s = store.clone();
+			thread::spawn(move || {
+				let mut hits = 0;
+				for _ in 0..200 {
+					if s.get(key).as_deref() == Some(payload) {
+						hits += 1;
+					}
+				}
+				hits
+			})
+		};
 
-        writer.join().unwrap();
-        let hits = reader.join().unwrap();
-        // The entry must be live at the end (writer's last put won).
-        assert_eq!(store.get(key).as_deref(), Some(payload));
-        // Reader should have observed the live entry the vast majority
-        // of the time. Allow some misses on first iterations / TTL
-        // transitions but require strong majority.
-        assert!(
-            hits > 100,
-            "reader should mostly observe live entry, hits={hits}"
-        );
-    }
+		writer.join().unwrap();
+		let hits = reader.join().unwrap();
+		// The entry must be live at the end (writer's last put won).
+		assert_eq!(store.get(key).as_deref(), Some(payload));
+		// Reader should have observed the live entry the vast majority
+		// of the time. Allow some misses on first iterations / TTL
+		// transitions but require strong majority.
+		assert!(hits > 100, "reader should mostly observe live entry, hits={hits}");
+	}
 
-    #[test]
-    fn compact_prevents_unbounded_queue_growth() {
-        // High-churn scenario: entries expire quickly, the DashMap
-        // stays small, but the order queue keeps growing because
-        // expired entries are only removed from the map (via remove_if
-        // in get()) but not from the order queue. Without compaction
-        // the queue would grow unboundedly.
-        //
-        // We simulate this with a tiny capacity and very short TTL,
-        // then exercise get() to trigger compaction.
-        let store = InMemoryCcrStore::with_capacity_and_ttl(4, Duration::from_millis(5));
+	#[test]
+	fn compact_prevents_unbounded_queue_growth() {
+		// High-churn scenario: entries expire quickly, the DashMap
+		// stays small, but the order queue keeps growing because
+		// expired entries are only removed from the map (via remove_if
+		// in get()) but not from the order queue. Without compaction
+		// the queue would grow unboundedly.
+		//
+		// We simulate this with a tiny capacity and very short TTL,
+		// then exercise get() to trigger compaction.
+		let store = InMemoryCcrStore::with_capacity_and_ttl(4, Duration::from_millis(5));
 
-        // Phase 1: pump many entries that rapidly expire.
-        for i in 0..500 {
-            let key = format!("k{i:04}");
-            store.put(&key, "payload");
-            // Give time for previous entries to expire.
-            if i % 10 == 0 {
-                std::thread::sleep(Duration::from_millis(6));
-            }
-            // Get a key that has very likely expired - this triggers
-            // remove_if (lazy expiry in the map) and, if the queue
-            // is large enough, compaction.
-            if i > 0 {
-                let stale_key = format!("k{:04}", i - 1);
-                store.get(&stale_key); // expire in map
-            }
-        }
+		// Phase 1: pump many entries that rapidly expire.
+		for i in 0..500 {
+			let key = format!("k{i:04}");
+			store.put(&key, "payload");
+			// Give time for previous entries to expire.
+			if i % 10 == 0 {
+				std::thread::sleep(Duration::from_millis(6));
+			}
+			// Get a key that has very likely expired - this triggers
+			// remove_if (lazy expiry in the map) and, if the queue
+			// is large enough, compaction.
+			if i > 0 {
+				let stale_key = format!("k{:04}", i - 1);
+				store.get(&stale_key); // expire in map
+			}
+		}
 
-        // Phase 2: verify the order queue is not pathologically large.
-        // A queue with 500 entries and only 2-4 live entries should
-        // have been compacted down to near the live count.
-        let queue_len = {
-            let guard = lock_order(&store.order);
-            guard.len()
-        };
-        let map_len = store.map.len();
+		// Phase 2: verify the order queue is not pathologically large.
+		// A queue with 500 entries and only 2-4 live entries should
+		// have been compacted down to near the live count.
+		let queue_len = {
+			let guard = lock_order(&store.order);
+			guard.len()
+		};
+		let map_len = store.map.len();
 
-        // The queue should be bounded - certainly less than the number
-        // of puts we did (500). A reasonable bound is capacity * 3
-        // (compaction triggers at capacity * 2 and may leave a small
-        // slack).
-        assert!(
-            queue_len <= store.capacity * 3,
-            "order queue grew unbounded: queue_len={queue_len}, map_len={map_len}, capacity={}",
-            store.capacity,
-        );
+		// The queue should be bounded - certainly less than the number
+		// of puts we did (500). A reasonable bound is capacity * 3
+		// (compaction triggers at capacity * 2 and may leave a small
+		// slack).
+		assert!(
+			queue_len <= store.capacity * 3,
+			"order queue grew unbounded: queue_len={queue_len}, map_len={map_len}, capacity={}",
+			store.capacity,
+		);
 
-        // Phase 3: verify the map is still functional.
-        // Put one more entry and confirm it survives.
-        store.put("final", "survivor");
-        assert_eq!(store.get("final").as_deref(), Some("survivor"));
-    }
+		// Phase 3: verify the map is still functional.
+		// Put one more entry and confirm it survives.
+		store.put("final", "survivor");
+		assert_eq!(store.get("final").as_deref(), Some("survivor"));
+	}
 }

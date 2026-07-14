@@ -36,9 +36,7 @@ mod tiktoken_impl;
 
 pub use estimator::EstimatingCounter;
 pub use hf_impl::{HfTokenizer, HfTokenizerError};
-pub use registry::{
-    clear_hf_registrations, detect_backend, get_tokenizer, register_hf, try_register_hf, Backend,
-};
+pub use registry::{clear_hf_registrations, detect_backend, get_tokenizer, register_hf, try_register_hf, Backend};
 pub use tiktoken_impl::{TiktokenCounter, TiktokenError};
 
 /// Counts tokens. Implementations must be thread-safe (`Send + Sync`).
@@ -48,9 +46,9 @@ pub use tiktoken_impl::{TiktokenCounter, TiktokenError};
 /// - Counts are deterministic for a given input and instance.
 /// - For non-empty input, counts are `>= 1`.
 pub trait Tokenizer: Send + Sync + std::fmt::Debug {
-    /// Number of tokens that this tokenizer assigns to `text`.
-    fn count_text(&self, text: &str) -> usize;
+	/// Number of tokens that this tokenizer assigns to `text`.
+	fn count_text(&self, text: &str) -> usize;
 
-    /// Which backend produced the count. Useful for logs and metrics.
-    fn backend(&self) -> Backend;
+	/// Which backend produced the count. Useful for logs and metrics.
+	fn backend(&self) -> Backend;
 }

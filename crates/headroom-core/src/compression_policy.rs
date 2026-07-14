@@ -147,39 +147,39 @@ pub const CACHE_READ_MULTIPLIER: f32 = 0.1;
 /// reference and the call sites all want owned copies anyway.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CompressionPolicy {
-    /// When `true`, transforms MUST NOT modify bytes outside the
-    /// post-cache-marker live zone. See module docs.
-    pub live_zone_only: bool,
+	/// When `true`, transforms MUST NOT modify bytes outside the
+	/// post-cache-marker live zone. See module docs.
+	pub live_zone_only: bool,
 
-    /// When `false`, the `CacheAligner` transform MUST be skipped.
-    /// See module docs.
-    pub cache_aligner_enabled: bool,
+	/// When `false`, the `CacheAligner` transform MUST be skipped.
+	/// See module docs.
+	pub cache_aligner_enabled: bool,
 
-    /// F2.2: per-mode threshold (in tokens) below which content is
-    /// treated as cache-stable. Subscription is conservative
-    /// (`32`); PAYG aggressive (`128`). See module docs.
-    ///
-    /// NOT consumed by any detector in F2.2 — plumbed through the
-    /// struct so the volatile detector refactor in a follow-up PR
-    /// has a stable hook to read from.
-    pub volatile_token_threshold: u32,
+	/// F2.2: per-mode threshold (in tokens) below which content is
+	/// treated as cache-stable. Subscription is conservative
+	/// (`32`); PAYG aggressive (`128`). See module docs.
+	///
+	/// NOT consumed by any detector in F2.2 — plumbed through the
+	/// struct so the volatile detector refactor in a follow-up PR
+	/// has a stable hook to read from.
+	pub volatile_token_threshold: u32,
 
-    /// F2.2: per-mode upper bound on lossy compression aggressiveness,
-    /// expressed as the fraction of original tokens that may be
-    /// dropped (`0.0`–`1.0`). Subscription `0.25`, PAYG `0.45`.
-    /// See module docs.
-    ///
-    /// NOT consumed by any compressor in F2.2 — plumbed through the
-    /// struct as a stable hook for a follow-up PR that gates lossy
-    /// paths on the cap. Distinct from the caller-driven
-    /// `target_ratio` kwarg in the Python ContentRouter.
-    pub max_lossy_ratio: f32,
+	/// F2.2: per-mode upper bound on lossy compression aggressiveness,
+	/// expressed as the fraction of original tokens that may be
+	/// dropped (`0.0`–`1.0`). Subscription `0.25`, PAYG `0.45`.
+	/// See module docs.
+	///
+	/// NOT consumed by any compressor in F2.2 — plumbed through the
+	/// struct as a stable hook for a follow-up PR that gates lossy
+	/// paths on the cap. Distinct from the caller-driven
+	/// `target_ratio` kwarg in the Python ContentRouter.
+	pub max_lossy_ratio: f32,
 
-    /// F2.2: when `true`, TOIN serves cached recommendations but
-    /// never writes new pattern observations from this request.
-    /// Subscription `true` (consistency over learning), PAYG/OAuth
-    /// `false` (network effect keeps growing).
-    pub toin_read_only: bool,
+	/// F2.2: when `true`, TOIN serves cached recommendations but
+	/// never writes new pattern observations from this request.
+	/// Subscription `true` (consistency over learning), PAYG/OAuth
+	/// `false` (network effect keeps growing).
+	pub toin_read_only: bool,
 }
 
 // `f32` doesn't impl `Eq`, so the derived `Eq` would be invalid. Two
@@ -188,318 +188,301 @@ pub struct CompressionPolicy {
 // The unit tests assert structural equality via `assert_eq!`.
 
 impl CompressionPolicy {
-    /// Resolve the F2.1+F2.2 policy for an auth mode. See module docs
-    /// for per-mode rationale.
-    pub fn for_mode(mode: AuthMode) -> Self {
-        match mode {
-            AuthMode::Payg => Self {
-                live_zone_only: false,
-                cache_aligner_enabled: true,
-                volatile_token_threshold: VOLATILE_TOKEN_THRESHOLD_PAYG,
-                max_lossy_ratio: MAX_LOSSY_RATIO_PAYG,
-                toin_read_only: false,
-            },
-            // OAuth identical to PAYG in F2.1+F2.2. F2.2-followup may
-            // diverge once telemetry shows what OAuth users actually
-            // need.
-            AuthMode::OAuth => Self {
-                live_zone_only: false,
-                cache_aligner_enabled: true,
-                volatile_token_threshold: VOLATILE_TOKEN_THRESHOLD_PAYG,
-                max_lossy_ratio: MAX_LOSSY_RATIO_PAYG,
-                toin_read_only: false,
-            },
-            // The user-visible win of F2.1: subscription users stop
-            // seeing cache instability because CacheAligner no longer
-            // touches their prefix. F2.2 extends that protection: the
-            // volatile threshold is tighter, the lossy cap is lower,
-            // and TOIN won't mutate the learning pool from these
-            // requests.
-            AuthMode::Subscription => Self {
-                live_zone_only: true,
-                cache_aligner_enabled: false,
-                volatile_token_threshold: VOLATILE_TOKEN_THRESHOLD_SUBSCRIPTION,
-                max_lossy_ratio: MAX_LOSSY_RATIO_SUBSCRIPTION,
-                toin_read_only: true,
-            },
-        }
-    }
+	/// Resolve the F2.1+F2.2 policy for an auth mode. See module docs
+	/// for per-mode rationale.
+	pub fn for_mode(mode: AuthMode) -> Self {
+		match mode {
+			AuthMode::Payg => Self {
+				live_zone_only: false,
+				cache_aligner_enabled: true,
+				volatile_token_threshold: VOLATILE_TOKEN_THRESHOLD_PAYG,
+				max_lossy_ratio: MAX_LOSSY_RATIO_PAYG,
+				toin_read_only: false,
+			},
+			// OAuth identical to PAYG in F2.1+F2.2. F2.2-followup may
+			// diverge once telemetry shows what OAuth users actually
+			// need.
+			AuthMode::OAuth => Self {
+				live_zone_only: false,
+				cache_aligner_enabled: true,
+				volatile_token_threshold: VOLATILE_TOKEN_THRESHOLD_PAYG,
+				max_lossy_ratio: MAX_LOSSY_RATIO_PAYG,
+				toin_read_only: false,
+			},
+			// The user-visible win of F2.1: subscription users stop
+			// seeing cache instability because CacheAligner no longer
+			// touches their prefix. F2.2 extends that protection: the
+			// volatile threshold is tighter, the lossy cap is lower,
+			// and TOIN won't mutate the learning pool from these
+			// requests.
+			AuthMode::Subscription => Self {
+				live_zone_only: true,
+				cache_aligner_enabled: false,
+				volatile_token_threshold: VOLATILE_TOKEN_THRESHOLD_SUBSCRIPTION,
+				max_lossy_ratio: MAX_LOSSY_RATIO_SUBSCRIPTION,
+				toin_read_only: true,
+			},
+		}
+	}
 
-    /// Whether the live-zone dispatcher should run at all for this
-    /// policy. Always `true` in F2.1 — every mode still gets live-zone
-    /// compression (closing #327/#388 requires Subscription to KEEP
-    /// compressing the live zone, just stop destabilising the cache).
-    /// F2.2 may flip Subscription to `false` if telemetry shows the
-    /// live-zone savings aren't worth the latency.
-    pub fn live_zone_compression_enabled(&self) -> bool {
-        true
-    }
+	/// Whether the live-zone dispatcher should run at all for this
+	/// policy. Always `true` in F2.1 — every mode still gets live-zone
+	/// compression (closing #327/#388 requires Subscription to KEEP
+	/// compressing the live zone, just stop destabilising the cache).
+	/// F2.2 may flip Subscription to `false` if telemetry shows the
+	/// live-zone savings aren't worth the latency.
+	pub fn live_zone_compression_enabled(&self) -> bool {
+		true
+	}
 
-    /// Net gain (in plain-input-token cost units) of a mutation that
-    /// removes `delta_t` tokens from a message whose cached suffix is
-    /// `suffix_tokens` long (#856).
-    ///
-    /// Mutating message K invalidates every cached token after it. When
-    /// the cache is warm the mutated ΔT tokens are themselves already
-    /// cache-written, so keeping them costs only reads (`ΔT · r · R`)
-    /// while mutating re-writes the suffix: alive-case saving is
-    /// `ΔT·r·R − (w−r)·S`. When the cache is dead there is no suffix
-    /// penalty and the full `ΔT·(w + r·(R−1))` is saved. Taking the
-    /// expectation over `P_alive`:
-    ///
-    ///   gain = ΔT · (w + r·(R − 1))  −  P_alive · (w − r) · (S + ΔT)
-    ///
-    /// Sanity anchors (Anthropic w=1.25, r=0.1), matching the unit
-    /// tests below: a 2K shave under a 50K warm suffix needs 287.5
-    /// remaining reads to pay off (rarely profitable); a 50K shave
-    /// under a 10K suffix breaks even at 2.3 reads (profitable in any
-    /// session with a few turns left); an edit with S = 0 is profitable
-    /// whenever at least one read remains. Callers gating not-yet-cached
-    /// content (live-zone edits) should bypass this formula — it prices
-    /// mutations of content the cache has already written.
-    ///
-    /// Takes `&self` so a follow-up can apply per-mode margins; today
-    /// the arithmetic is mode-independent. Inputs are clamped:
-    /// `expected_reads` to `>= 0` (NaN → 0), `p_alive` to `[0, 1]`
-    /// (NaN → 1, the conservative full-penalty assumption).
-    pub fn net_mutation_gain(
-        &self,
-        delta_t: u32,
-        suffix_tokens: u32,
-        expected_reads: f32,
-        p_alive: f32,
-    ) -> f32 {
-        let w = CACHE_WRITE_MULTIPLIER;
-        let r = CACHE_READ_MULTIPLIER;
-        // f32::max ignores NaN (returns the other operand), so NaN reads
-        // land on 0.0; clamp would propagate NaN, so guard alive explicitly.
-        let reads = expected_reads.max(0.0);
-        let alive = if p_alive.is_nan() {
-            1.0
-        } else {
-            p_alive.clamp(0.0, 1.0)
-        };
-        // Corrected warm-case penalty (#856 follow-up): when the cache is
-        // alive, the ΔT tokens are already cache-written, so keeping them
-        // costs only reads — a mutation can avoid at most ΔT·r·R, not a
-        // fresh write. Blending alive (ΔT·r·R − (w−r)·S) and dead
-        // (ΔT·(w + r·(R−1))) cases over P_alive gives a penalty over
-        // S + ΔT, not S alone. The looser ·S form overstated gain by
-        // P_alive·(w−r)·ΔT — always pro-mutation, largest for big shaves.
-        (delta_t as f32) * (w + r * (reads - 1.0))
-            - alive * (w - r) * ((suffix_tokens as f32) + (delta_t as f32))
-    }
+	/// Net gain (in plain-input-token cost units) of a mutation that
+	/// removes `delta_t` tokens from a message whose cached suffix is
+	/// `suffix_tokens` long (#856).
+	///
+	/// Mutating message K invalidates every cached token after it. When
+	/// the cache is warm the mutated ΔT tokens are themselves already
+	/// cache-written, so keeping them costs only reads (`ΔT · r · R`)
+	/// while mutating re-writes the suffix: alive-case saving is
+	/// `ΔT·r·R − (w−r)·S`. When the cache is dead there is no suffix
+	/// penalty and the full `ΔT·(w + r·(R−1))` is saved. Taking the
+	/// expectation over `P_alive`:
+	///
+	///   gain = ΔT · (w + r·(R − 1))  −  P_alive · (w − r) · (S + ΔT)
+	///
+	/// Sanity anchors (Anthropic w=1.25, r=0.1), matching the unit
+	/// tests below: a 2K shave under a 50K warm suffix needs 287.5
+	/// remaining reads to pay off (rarely profitable); a 50K shave
+	/// under a 10K suffix breaks even at 2.3 reads (profitable in any
+	/// session with a few turns left); an edit with S = 0 is profitable
+	/// whenever at least one read remains. Callers gating not-yet-cached
+	/// content (live-zone edits) should bypass this formula — it prices
+	/// mutations of content the cache has already written.
+	///
+	/// Takes `&self` so a follow-up can apply per-mode margins; today
+	/// the arithmetic is mode-independent. Inputs are clamped:
+	/// `expected_reads` to `>= 0` (NaN → 0), `p_alive` to `[0, 1]`
+	/// (NaN → 1, the conservative full-penalty assumption).
+	pub fn net_mutation_gain(&self, delta_t: u32, suffix_tokens: u32, expected_reads: f32, p_alive: f32) -> f32 {
+		let w = CACHE_WRITE_MULTIPLIER;
+		let r = CACHE_READ_MULTIPLIER;
+		// f32::max ignores NaN (returns the other operand), so NaN reads
+		// land on 0.0; clamp would propagate NaN, so guard alive explicitly.
+		let reads = expected_reads.max(0.0);
+		let alive = if p_alive.is_nan() { 1.0 } else { p_alive.clamp(0.0, 1.0) };
+		// Corrected warm-case penalty (#856 follow-up): when the cache is
+		// alive, the ΔT tokens are already cache-written, so keeping them
+		// costs only reads — a mutation can avoid at most ΔT·r·R, not a
+		// fresh write. Blending alive (ΔT·r·R − (w−r)·S) and dead
+		// (ΔT·(w + r·(R−1))) cases over P_alive gives a penalty over
+		// S + ΔT, not S alone. The looser ·S form overstated gain by
+		// P_alive·(w−r)·ΔT — always pro-mutation, largest for big shaves.
+		(delta_t as f32) * (w + r * (reads - 1.0)) - alive * (w - r) * ((suffix_tokens as f32) + (delta_t as f32))
+	}
 
-    /// Decision form of [`Self::net_mutation_gain`]: mutate iff the
-    /// gain is strictly positive.
-    pub fn should_mutate_deep(
-        &self,
-        delta_t: u32,
-        suffix_tokens: u32,
-        expected_reads: f32,
-        p_alive: f32,
-    ) -> bool {
-        self.net_mutation_gain(delta_t, suffix_tokens, expected_reads, p_alive) > 0.0
-    }
+	/// Decision form of [`Self::net_mutation_gain`]: mutate iff the
+	/// gain is strictly positive.
+	pub fn should_mutate_deep(&self, delta_t: u32, suffix_tokens: u32, expected_reads: f32, p_alive: f32) -> bool {
+		self.net_mutation_gain(delta_t, suffix_tokens, expected_reads, p_alive) > 0.0
+	}
 
-    /// Remaining-read count at which a warm-cache (P_alive = 1)
-    /// mutation breaks even. With the corrected penalty this is exactly
-    ///
-    ///   R = ((w − r) / r) · S/ΔT   = 11.5 · S/ΔT  (Anthropic 5-min)
-    ///
-    /// reproducing the #856 anchors precisely: 2K shave / 50K suffix →
-    /// 287.5 (~290 reads, rarely profitable); 50K shave / 10K suffix →
-    /// 2.3 (profitable in any session with a few turns left).
-    ///
-    /// Useful for decision telemetry ("this edit pays off if the
-    /// session lasts N more turns"). Returns 0 when `delta_t` is 0
-    /// (no savings — callers gate on `delta_t > 0`).
-    pub fn break_even_reads(&self, delta_t: u32, suffix_tokens: u32) -> f32 {
-        if delta_t == 0 {
-            return 0.0;
-        }
-        let w = CACHE_WRITE_MULTIPLIER;
-        let r = CACHE_READ_MULTIPLIER;
-        ((w - r) / r) * ((suffix_tokens as f32) / (delta_t as f32))
-    }
+	/// Remaining-read count at which a warm-cache (P_alive = 1)
+	/// mutation breaks even. With the corrected penalty this is exactly
+	///
+	///   R = ((w − r) / r) · S/ΔT   = 11.5 · S/ΔT  (Anthropic 5-min)
+	///
+	/// reproducing the #856 anchors precisely: 2K shave / 50K suffix →
+	/// 287.5 (~290 reads, rarely profitable); 50K shave / 10K suffix →
+	/// 2.3 (profitable in any session with a few turns left).
+	///
+	/// Useful for decision telemetry ("this edit pays off if the
+	/// session lasts N more turns"). Returns 0 when `delta_t` is 0
+	/// (no savings — callers gate on `delta_t > 0`).
+	pub fn break_even_reads(&self, delta_t: u32, suffix_tokens: u32) -> f32 {
+		if delta_t == 0 {
+			return 0.0;
+		}
+		let w = CACHE_WRITE_MULTIPLIER;
+		let r = CACHE_READ_MULTIPLIER;
+		((w - r) / r) * ((suffix_tokens as f32) / (delta_t as f32))
+	}
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+	use super::*;
 
-    #[test]
-    fn payg_is_aggressive() {
-        let p = CompressionPolicy::for_mode(AuthMode::Payg);
-        assert!(!p.live_zone_only, "PAYG can touch outside live zone");
-        assert!(p.cache_aligner_enabled, "PAYG runs cache aligner");
-        assert!(p.live_zone_compression_enabled());
-    }
+	#[test]
+	fn payg_is_aggressive() {
+		let p = CompressionPolicy::for_mode(AuthMode::Payg);
+		assert!(!p.live_zone_only, "PAYG can touch outside live zone");
+		assert!(p.cache_aligner_enabled, "PAYG runs cache aligner");
+		assert!(p.live_zone_compression_enabled());
+	}
 
-    #[test]
-    fn payg_tuning_fields_aggressive() {
-        // F2.2: per-mode tuning fields. PAYG values are the aggressive
-        // end of the conservative-defaults spectrum — F2.2-followup may
-        // raise them once bake telemetry confirms savings.
-        let p = CompressionPolicy::for_mode(AuthMode::Payg);
-        assert_eq!(
-            p.volatile_token_threshold, 256,
-            "PAYG volatile threshold is the relaxed default; F2.2-followup will tune"
-        );
-        assert!(
-            (p.max_lossy_ratio - 0.30).abs() < f32::EPSILON,
-            "PAYG max_lossy_ratio caps lossy paths at 0.30 (coding-tuned)"
-        );
-        assert!(
-            !p.toin_read_only,
-            "PAYG keeps TOIN write-enabled — network effect feeds on PAYG traffic"
-        );
-    }
+	#[test]
+	fn payg_tuning_fields_aggressive() {
+		// F2.2: per-mode tuning fields. PAYG values are the aggressive
+		// end of the conservative-defaults spectrum — F2.2-followup may
+		// raise them once bake telemetry confirms savings.
+		let p = CompressionPolicy::for_mode(AuthMode::Payg);
+		assert_eq!(
+			p.volatile_token_threshold, 256,
+			"PAYG volatile threshold is the relaxed default; F2.2-followup will tune"
+		);
+		assert!(
+			(p.max_lossy_ratio - 0.30).abs() < f32::EPSILON,
+			"PAYG max_lossy_ratio caps lossy paths at 0.30 (coding-tuned)"
+		);
+		assert!(
+			!p.toin_read_only,
+			"PAYG keeps TOIN write-enabled — network effect feeds on PAYG traffic"
+		);
+	}
 
-    #[test]
-    fn oauth_matches_payg_today() {
-        // Canary: when F2.2-followup diverges OAuth from PAYG, this test
-        // fails and forces a deliberate update — which is the point.
-        // Covers ALL fields (F2.1 + F2.2) so a future field-level
-        // divergence (e.g. OAuth gets stricter `max_lossy_ratio` than
-        // PAYG) trips the assertion just as loudly as a flag flip.
-        let oauth = CompressionPolicy::for_mode(AuthMode::OAuth);
-        let payg = CompressionPolicy::for_mode(AuthMode::Payg);
-        assert_eq!(
-            oauth, payg,
-            "F2.1+F2.2 ship OAuth=PAYG; F2.2-followup will diverge based on telemetry"
-        );
-    }
+	#[test]
+	fn oauth_matches_payg_today() {
+		// Canary: when F2.2-followup diverges OAuth from PAYG, this test
+		// fails and forces a deliberate update — which is the point.
+		// Covers ALL fields (F2.1 + F2.2) so a future field-level
+		// divergence (e.g. OAuth gets stricter `max_lossy_ratio` than
+		// PAYG) trips the assertion just as loudly as a flag flip.
+		let oauth = CompressionPolicy::for_mode(AuthMode::OAuth);
+		let payg = CompressionPolicy::for_mode(AuthMode::Payg);
+		assert_eq!(
+			oauth, payg,
+			"F2.1+F2.2 ship OAuth=PAYG; F2.2-followup will diverge based on telemetry"
+		);
+	}
 
-    #[test]
-    fn subscription_disables_cache_aligner() {
-        let p = CompressionPolicy::for_mode(AuthMode::Subscription);
-        assert!(p.live_zone_only, "Subscription is live-zone-only");
-        assert!(
-            !p.cache_aligner_enabled,
-            "Subscription MUST skip cache aligner — load-bearing for #327/#388"
-        );
-        assert!(
-            p.live_zone_compression_enabled(),
-            "Subscription still gets live-zone compression — closing the cache complaint must NOT mean shipping zero compression"
-        );
-    }
+	#[test]
+	fn subscription_disables_cache_aligner() {
+		let p = CompressionPolicy::for_mode(AuthMode::Subscription);
+		assert!(p.live_zone_only, "Subscription is live-zone-only");
+		assert!(
+			!p.cache_aligner_enabled,
+			"Subscription MUST skip cache aligner — load-bearing for #327/#388"
+		);
+		assert!(
+			p.live_zone_compression_enabled(),
+			"Subscription still gets live-zone compression — closing the cache complaint must NOT mean shipping zero compression"
+		);
+	}
 
-    #[test]
-    fn subscription_tuning_fields_conservative() {
-        // F2.2: per-mode tuning fields. Subscription is the conservative
-        // end — tighter threshold, lower lossy cap, TOIN read-only — so
-        // cache prefixes stay stable and the learning pool isn't
-        // mutated from cache-stability-sensitive traffic.
-        let p = CompressionPolicy::for_mode(AuthMode::Subscription);
-        assert_eq!(
-            p.volatile_token_threshold, 64,
-            "Subscription volatile threshold flags content earlier (cache stability)"
-        );
-        assert!(
-            (p.max_lossy_ratio - 0.20).abs() < f32::EPSILON,
-            "Subscription max_lossy_ratio caps lossy paths at 0.20 (conservative, coding-tuned)"
-        );
-        assert!(
-            p.toin_read_only,
-            "Subscription MUST be TOIN read-only — load-bearing for keeping the learning pool consistent across cache-sensitive traffic"
-        );
-    }
+	#[test]
+	fn subscription_tuning_fields_conservative() {
+		// F2.2: per-mode tuning fields. Subscription is the conservative
+		// end — tighter threshold, lower lossy cap, TOIN read-only — so
+		// cache prefixes stay stable and the learning pool isn't
+		// mutated from cache-stability-sensitive traffic.
+		let p = CompressionPolicy::for_mode(AuthMode::Subscription);
+		assert_eq!(
+			p.volatile_token_threshold, 64,
+			"Subscription volatile threshold flags content earlier (cache stability)"
+		);
+		assert!(
+			(p.max_lossy_ratio - 0.20).abs() < f32::EPSILON,
+			"Subscription max_lossy_ratio caps lossy paths at 0.20 (conservative, coding-tuned)"
+		);
+		assert!(
+			p.toin_read_only,
+			"Subscription MUST be TOIN read-only — load-bearing for keeping the learning pool consistent across cache-sensitive traffic"
+		);
+	}
 
-    #[test]
-    fn max_lossy_ratio_in_unit_interval() {
-        // Defensive: every per-mode `max_lossy_ratio` MUST be in `[0.0,
-        // 1.0]` because it expresses a fraction. A tune that drifts
-        // outside the unit interval is a bug — catch it cheaply here
-        // rather than at the eventual consumer site.
-        for mode in [AuthMode::Payg, AuthMode::OAuth, AuthMode::Subscription] {
-            let r = CompressionPolicy::for_mode(mode).max_lossy_ratio;
-            assert!(
-                (0.0..=1.0).contains(&r),
-                "max_lossy_ratio for {mode:?} = {r} is outside [0.0, 1.0]"
-            );
-        }
-    }
+	#[test]
+	fn max_lossy_ratio_in_unit_interval() {
+		// Defensive: every per-mode `max_lossy_ratio` MUST be in `[0.0,
+		// 1.0]` because it expresses a fraction. A tune that drifts
+		// outside the unit interval is a bug — catch it cheaply here
+		// rather than at the eventual consumer site.
+		for mode in [AuthMode::Payg, AuthMode::OAuth, AuthMode::Subscription] {
+			let r = CompressionPolicy::for_mode(mode).max_lossy_ratio;
+			assert!(
+				(0.0..=1.0).contains(&r),
+				"max_lossy_ratio for {mode:?} = {r} is outside [0.0, 1.0]"
+			);
+		}
+	}
 
-    // --- Net-cost mutation formula (#856). Scenario values are golden:
-    // tests/test_compression_policy.py asserts the identical numbers
-    // against the Python hand-mirror, so a drift in either side trips
-    // the parity pair loudly.
+	// --- Net-cost mutation formula (#856). Scenario values are golden:
+	// tests/test_compression_policy.py asserts the identical numbers
+	// against the Python hand-mirror, so a drift in either side trips
+	// the parity pair loudly.
 
-    #[test]
-    fn net_gain_small_shave_deep_suffix_is_loss() {
-        // Shave 2K under a 50K warm suffix at R=10 remaining reads:
-        // 2000·(1.25 + 0.1·9) − 1.0·1.15·52000 = 4300 − 59800 = −55500.
-        let p = CompressionPolicy::for_mode(AuthMode::Payg);
-        let gain = p.net_mutation_gain(2_000, 50_000, 10.0, 1.0);
-        assert!((gain - (-55_500.0)).abs() < 1.0, "gain = {gain}");
-        assert!(!p.should_mutate_deep(2_000, 50_000, 10.0, 1.0));
-    }
+	#[test]
+	fn net_gain_small_shave_deep_suffix_is_loss() {
+		// Shave 2K under a 50K warm suffix at R=10 remaining reads:
+		// 2000·(1.25 + 0.1·9) − 1.0·1.15·52000 = 4300 − 59800 = −55500.
+		let p = CompressionPolicy::for_mode(AuthMode::Payg);
+		let gain = p.net_mutation_gain(2_000, 50_000, 10.0, 1.0);
+		assert!((gain - (-55_500.0)).abs() < 1.0, "gain = {gain}");
+		assert!(!p.should_mutate_deep(2_000, 50_000, 10.0, 1.0));
+	}
 
-    #[test]
-    fn net_gain_big_shave_shallow_suffix_is_win() {
-        // Shave 50K under a 10K warm suffix at R=3:
-        // 50000·(1.25 + 0.1·2) − 1.0·1.15·60000 = 72500 − 69000 = 3500.
-        // Tight but positive — consistent with the 2.3-read break-even.
-        let p = CompressionPolicy::for_mode(AuthMode::Payg);
-        let gain = p.net_mutation_gain(50_000, 10_000, 3.0, 1.0);
-        assert!((gain - 3_500.0).abs() < 1.0, "gain = {gain}");
-        assert!(p.should_mutate_deep(50_000, 10_000, 3.0, 1.0));
-    }
+	#[test]
+	fn net_gain_big_shave_shallow_suffix_is_win() {
+		// Shave 50K under a 10K warm suffix at R=3:
+		// 50000·(1.25 + 0.1·2) − 1.0·1.15·60000 = 72500 − 69000 = 3500.
+		// Tight but positive — consistent with the 2.3-read break-even.
+		let p = CompressionPolicy::for_mode(AuthMode::Payg);
+		let gain = p.net_mutation_gain(50_000, 10_000, 3.0, 1.0);
+		assert!((gain - 3_500.0).abs() < 1.0, "gain = {gain}");
+		assert!(p.should_mutate_deep(50_000, 10_000, 3.0, 1.0));
+	}
 
-    #[test]
-    fn net_gain_no_suffix_edit_profitable_with_reads_remaining() {
-        // S = 0: nothing cached after the edit is invalidated. Warm-case
-        // saving is the avoided rereads, ΔT·r·R — positive whenever at
-        // least one read remains. At R=0 with a warm cache the gain is
-        // exactly 0 (already written, never read again): the boundary
-        // where mutating is pointless rather than harmful.
-        let p = CompressionPolicy::for_mode(AuthMode::Subscription);
-        assert!(p.should_mutate_deep(1, 0, 1.0, 1.0));
-        assert!(p.should_mutate_deep(2_000, 0, 1.0, 1.0));
-        let boundary = p.net_mutation_gain(2_000, 0, 0.0, 1.0);
-        assert!(boundary.abs() < f32::EPSILON, "boundary = {boundary}");
-    }
+	#[test]
+	fn net_gain_no_suffix_edit_profitable_with_reads_remaining() {
+		// S = 0: nothing cached after the edit is invalidated. Warm-case
+		// saving is the avoided rereads, ΔT·r·R — positive whenever at
+		// least one read remains. At R=0 with a warm cache the gain is
+		// exactly 0 (already written, never read again): the boundary
+		// where mutating is pointless rather than harmful.
+		let p = CompressionPolicy::for_mode(AuthMode::Subscription);
+		assert!(p.should_mutate_deep(1, 0, 1.0, 1.0));
+		assert!(p.should_mutate_deep(2_000, 0, 1.0, 1.0));
+		let boundary = p.net_mutation_gain(2_000, 0, 0.0, 1.0);
+		assert!(boundary.abs() < f32::EPSILON, "boundary = {boundary}");
+	}
 
-    #[test]
-    fn net_gain_cold_cache_ignores_suffix() {
-        // P_alive = 0 (TTL lapsed): no warm suffix to lose, so even the
-        // worst shave/suffix ratio is profitable. This is the idle-timer
-        // compaction window.
-        let p = CompressionPolicy::for_mode(AuthMode::Payg);
-        assert!(p.should_mutate_deep(2_000, 50_000, 0.0, 0.0));
-    }
+	#[test]
+	fn net_gain_cold_cache_ignores_suffix() {
+		// P_alive = 0 (TTL lapsed): no warm suffix to lose, so even the
+		// worst shave/suffix ratio is profitable. This is the idle-timer
+		// compaction window.
+		let p = CompressionPolicy::for_mode(AuthMode::Payg);
+		assert!(p.should_mutate_deep(2_000, 50_000, 0.0, 0.0));
+	}
 
-    #[test]
-    fn net_gain_clamps_out_of_range_inputs() {
-        let p = CompressionPolicy::for_mode(AuthMode::Payg);
-        // Negative reads clamp to 0; p_alive > 1 clamps to 1.
-        let clamped = p.net_mutation_gain(2_000, 50_000, -5.0, 7.0);
-        let reference = p.net_mutation_gain(2_000, 50_000, 0.0, 1.0);
-        assert!((clamped - reference).abs() < f32::EPSILON);
-    }
+	#[test]
+	fn net_gain_clamps_out_of_range_inputs() {
+		let p = CompressionPolicy::for_mode(AuthMode::Payg);
+		// Negative reads clamp to 0; p_alive > 1 clamps to 1.
+		let clamped = p.net_mutation_gain(2_000, 50_000, -5.0, 7.0);
+		let reference = p.net_mutation_gain(2_000, 50_000, 0.0, 1.0);
+		assert!((clamped - reference).abs() < f32::EPSILON);
+	}
 
-    #[test]
-    fn net_gain_guards_nan_inputs() {
-        // NaN reads → 0, NaN p_alive → 1: gain stays finite and matches
-        // the conservative reference instead of poisoning the decision.
-        let p = CompressionPolicy::for_mode(AuthMode::Payg);
-        let guarded = p.net_mutation_gain(2_000, 50_000, f32::NAN, f32::NAN);
-        assert!(guarded.is_finite());
-        let reference = p.net_mutation_gain(2_000, 50_000, 0.0, 1.0);
-        assert!((guarded - reference).abs() < f32::EPSILON);
-    }
+	#[test]
+	fn net_gain_guards_nan_inputs() {
+		// NaN reads → 0, NaN p_alive → 1: gain stays finite and matches
+		// the conservative reference instead of poisoning the decision.
+		let p = CompressionPolicy::for_mode(AuthMode::Payg);
+		let guarded = p.net_mutation_gain(2_000, 50_000, f32::NAN, f32::NAN);
+		assert!(guarded.is_finite());
+		let reference = p.net_mutation_gain(2_000, 50_000, 0.0, 1.0);
+		assert!((guarded - reference).abs() < f32::EPSILON);
+	}
 
-    #[test]
-    fn break_even_reads_matches_research_anchor() {
-        // R = 11.5·S/ΔT, the #856 anchors exactly: 2K shave / 50K
-        // suffix → 11.5·25 = 287.5 (rarely profitable); 50K shave /
-        // 10K suffix → 11.5·0.2 = 2.3 (profitable within a few turns).
-        let p = CompressionPolicy::for_mode(AuthMode::Payg);
-        let r = p.break_even_reads(2_000, 50_000);
-        assert!((r - 287.5).abs() < 0.5, "break-even = {r}");
-        let shallow = p.break_even_reads(50_000, 10_000);
-        assert!((shallow - 2.3).abs() < 0.05, "break-even = {shallow}");
-        assert_eq!(p.break_even_reads(0, 10_000), 0.0);
-    }
+	#[test]
+	fn break_even_reads_matches_research_anchor() {
+		// R = 11.5·S/ΔT, the #856 anchors exactly: 2K shave / 50K
+		// suffix → 11.5·25 = 287.5 (rarely profitable); 50K shave /
+		// 10K suffix → 11.5·0.2 = 2.3 (profitable within a few turns).
+		let p = CompressionPolicy::for_mode(AuthMode::Payg);
+		let r = p.break_even_reads(2_000, 50_000);
+		assert!((r - 287.5).abs() < 0.5, "break-even = {r}");
+		let shallow = p.break_even_reads(50_000, 10_000);
+		assert!((shallow - 2.3).abs() < 0.05, "break-even = {shallow}");
+		assert_eq!(p.break_even_reads(0, 10_000), 0.0);
+	}
 }

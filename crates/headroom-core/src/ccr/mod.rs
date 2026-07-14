@@ -38,39 +38,39 @@ pub use backends::{from_config, CcrBackendConfig, CcrBackendInitError, InMemoryC
 /// Pluggable CCR storage backend. `Send + Sync` so it can sit behind an
 /// `Arc` and be shared across threads in the proxy.
 pub trait CcrStore: Send + Sync {
-    /// Stash `payload` under `hash`. If the hash already exists, the
-    /// new payload overwrites - same hash should mean same content, so
-    /// re-storing is idempotent.
-    /// Returns `true` if the payload was stored, `false` if the backend
-    /// failed (e.g. SQLite/Redis connection error).
-    fn put(&self, hash: &str, payload: &str) -> bool;
+	/// Stash `payload` under `hash`. If the hash already exists, the
+	/// new payload overwrites - same hash should mean same content, so
+	/// re-storing is idempotent.
+	/// Returns `true` if the payload was stored, `false` if the backend
+	/// failed (e.g. SQLite/Redis connection error).
+	fn put(&self, hash: &str, payload: &str) -> bool;
 
-    /// Look up `hash`. Returns `None` if missing or expired.
-    fn get(&self, hash: &str) -> Option<String>;
+	/// Look up `hash`. Returns `None` if missing or expired.
+	fn get(&self, hash: &str) -> Option<String>;
 
-    /// Number of live entries. Informational; used by tests + telemetry.
-    /// Some backends (notably Redis) cannot answer this efficiently and
-    /// return 0 - see backend-specific docs.
-    fn len(&self) -> usize;
+	/// Number of live entries. Informational; used by tests + telemetry.
+	/// Some backends (notably Redis) cannot answer this efficiently and
+	/// return 0 - see backend-specific docs.
+	fn len(&self) -> usize;
 
-    /// Remove `hash` from the store. Returns `true` if the entry existed
-    /// and was removed, `false` if it was not found.
-    fn del(&self, hash: &str) -> bool;
+	/// Remove `hash` from the store. Returns `true` if the entry existed
+	/// and was removed, `false` if it was not found.
+	fn del(&self, hash: &str) -> bool;
 
-    /// Cumulative database-level stats for telemetry.
-    ///
-    /// Returns structured JSON with {total_entries, total_bytes_original,
-    /// total_bytes_compressed, oldest_entry_age_seconds, database_size_bytes}.
-    ///
-    /// Default impl returns `None` - override in backends that can answer
-    /// (e.g. [`SqliteCcrStore`](backends/sqlite/struct.SqliteCcrStore.html)).
-    fn stats_db(&self) -> Option<serde_json::Value> {
-        None
-    }
+	/// Cumulative database-level stats for telemetry.
+	///
+	/// Returns structured JSON with {total_entries, total_bytes_original,
+	/// total_bytes_compressed, oldest_entry_age_seconds, database_size_bytes}.
+	///
+	/// Default impl returns `None` - override in backends that can answer
+	/// (e.g. [`SqliteCcrStore`](backends/sqlite/struct.SqliteCcrStore.html)).
+	fn stats_db(&self) -> Option<serde_json::Value> {
+		None
+	}
 
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
+	fn is_empty(&self) -> bool {
+		self.len() == 0
+	}
 }
 
 /// Default capacity - matches Python's `CompressionStore` default.
@@ -84,9 +84,9 @@ pub const DEFAULT_TTL: Duration = Duration::from_secs(300);
 /// millions of entries). Centralized here so every call site hashes the
 /// same way.
 pub fn compute_key(payload: &[u8]) -> String {
-    let h = blake3::hash(payload);
-    let hex = h.to_hex();
-    hex.as_str()[..40].to_string()
+	let h = blake3::hash(payload);
+	let hex = h.to_hex();
+	hex.as_str()[..40].to_string()
 }
 
 /// Standard `<<ccr:HASH>>` marker injected into compressed block content
@@ -94,38 +94,36 @@ pub fn compute_key(payload: &[u8]) -> String {
 /// calls `headroom_retrieve`. Format is intentionally fixed across
 /// proxy code-paths and tests.
 pub fn marker_for(hash: &str) -> String {
-    format!("<<ccr:{hash}>>")
+	format!("<<ccr:{hash}>>")
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+	use super::*;
 
-    #[test]
-    fn compute_key_is_40_hex_chars() {
-        let k = compute_key(b"hello world");
-        assert_eq!(k.len(), 40);
-        assert!(k
-            .chars()
-            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
-    }
+	#[test]
+	fn compute_key_is_40_hex_chars() {
+		let k = compute_key(b"hello world");
+		assert_eq!(k.len(), 40);
+		assert!(k.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+	}
 
-    #[test]
-    fn compute_key_is_deterministic() {
-        let a = compute_key(b"the same payload");
-        let b = compute_key(b"the same payload");
-        assert_eq!(a, b);
-    }
+	#[test]
+	fn compute_key_is_deterministic() {
+		let a = compute_key(b"the same payload");
+		let b = compute_key(b"the same payload");
+		assert_eq!(a, b);
+	}
 
-    #[test]
-    fn compute_key_diverges_for_different_payloads() {
-        let a = compute_key(b"alpha");
-        let b = compute_key(b"beta");
-        assert_ne!(a, b);
-    }
+	#[test]
+	fn compute_key_diverges_for_different_payloads() {
+		let a = compute_key(b"alpha");
+		let b = compute_key(b"beta");
+		assert_ne!(a, b);
+	}
 
-    #[test]
-    fn marker_format_is_pinned() {
-        assert_eq!(marker_for("abc123"), "<<ccr:abc123>>");
-    }
+	#[test]
+	fn marker_format_is_pinned() {
+		assert_eq!(marker_for("abc123"), "<<ccr:abc123>>");
+	}
 }

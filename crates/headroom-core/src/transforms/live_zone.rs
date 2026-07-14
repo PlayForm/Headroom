@@ -174,15 +174,15 @@ const THRESHOLD_HTML: usize = 512;
 /// than an `Option` because every variant has a sensible default;
 /// `Html` is a no-op anyway so the threshold check never fires.
 fn threshold_for(content_type: ContentType) -> usize {
-    match content_type {
-        ContentType::JsonArray => THRESHOLD_JSON_ARRAY,
-        ContentType::BuildOutput => THRESHOLD_BUILD_OUTPUT,
-        ContentType::SearchResults => THRESHOLD_SEARCH_RESULTS,
-        ContentType::GitDiff => THRESHOLD_GIT_DIFF,
-        ContentType::SourceCode => THRESHOLD_SOURCE_CODE,
-        ContentType::PlainText => THRESHOLD_PLAIN_TEXT,
-        ContentType::Html => THRESHOLD_HTML,
-    }
+	match content_type {
+		ContentType::JsonArray => THRESHOLD_JSON_ARRAY,
+		ContentType::BuildOutput => THRESHOLD_BUILD_OUTPUT,
+		ContentType::SearchResults => THRESHOLD_SEARCH_RESULTS,
+		ContentType::GitDiff => THRESHOLD_GIT_DIFF,
+		ContentType::SourceCode => THRESHOLD_SOURCE_CODE,
+		ContentType::PlainText => THRESHOLD_PLAIN_TEXT,
+		ContentType::Html => THRESHOLD_HTML,
+	}
 }
 
 // ─── Public types ──────────────────────────────────────────────────────
@@ -196,35 +196,35 @@ fn threshold_for(content_type: ContentType) -> usize {
 /// dispatcher's auth slice and the published recommendations'.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AuthMode {
-    /// Pay-as-you-go API key. Most aggressive compression budget —
-    /// every saved token is real money for the customer.
-    Payg,
-    /// OAuth-bearing client (e.g. Anthropic.com OAuth). Compression
-    /// must not break the per-account routing the OAuth header pins;
-    /// otherwise behaves like PAYG.
-    OAuth,
-    /// Subscription seat (e.g. Claude.ai usage). The provider
-    /// already counts tokens against a fixed quota; aggressive
-    /// compression is less compelling and may interact badly with
-    /// rate-limit accounting.
-    Subscription,
-    /// Auth slice not yet detected. Matches the Python TOIN publish
-    /// CLI's "unknown" default. Used by the recommendations loader
-    /// (PR-B5) when an aggregation row didn't carry an auth tag.
-    Unknown,
+	/// Pay-as-you-go API key. Most aggressive compression budget —
+	/// every saved token is real money for the customer.
+	Payg,
+	/// OAuth-bearing client (e.g. Anthropic.com OAuth). Compression
+	/// must not break the per-account routing the OAuth header pins;
+	/// otherwise behaves like PAYG.
+	OAuth,
+	/// Subscription seat (e.g. Claude.ai usage). The provider
+	/// already counts tokens against a fixed quota; aggressive
+	/// compression is less compelling and may interact badly with
+	/// rate-limit accounting.
+	Subscription,
+	/// Auth slice not yet detected. Matches the Python TOIN publish
+	/// CLI's "unknown" default. Used by the recommendations loader
+	/// (PR-B5) when an aggregation row didn't carry an auth tag.
+	Unknown,
 }
 
 impl AuthMode {
-    /// String form used as the recommendations-store lookup key.
-    /// Mirrors the Python publish CLI tag values.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            AuthMode::Payg => "payg",
-            AuthMode::OAuth => "oauth",
-            AuthMode::Subscription => "subscription",
-            AuthMode::Unknown => "unknown",
-        }
-    }
+	/// String form used as the recommendations-store lookup key.
+	/// Mirrors the Python publish CLI tag values.
+	pub fn as_str(self) -> &'static str {
+		match self {
+			AuthMode::Payg => "payg",
+			AuthMode::OAuth => "oauth",
+			AuthMode::Subscription => "subscription",
+			AuthMode::Unknown => "unknown",
+		}
+	}
 }
 
 /// Map F1's classifier output (`crate::auth_mode::AuthMode`) to the
@@ -234,198 +234,196 @@ impl AuthMode {
 /// one of the three real classes, so this `From` is total and
 /// infallible.
 impl From<crate::auth_mode::AuthMode> for AuthMode {
-    fn from(mode: crate::auth_mode::AuthMode) -> Self {
-        match mode {
-            crate::auth_mode::AuthMode::Payg => AuthMode::Payg,
-            crate::auth_mode::AuthMode::OAuth => AuthMode::OAuth,
-            crate::auth_mode::AuthMode::Subscription => AuthMode::Subscription,
-        }
-    }
+	fn from(mode: crate::auth_mode::AuthMode) -> Self {
+		match mode {
+			crate::auth_mode::AuthMode::Payg => AuthMode::Payg,
+			crate::auth_mode::AuthMode::OAuth => AuthMode::OAuth,
+			crate::auth_mode::AuthMode::Subscription => AuthMode::Subscription,
+		}
+	}
 }
 
 /// Per-block decision recorded for observability. Independent of
 /// whether the body was actually rewritten.
 #[derive(Debug, Clone)]
 pub struct BlockOutcome {
-    /// Index into the `messages` array.
-    pub message_index: usize,
-    /// Index into the message's `content` array. `None` when the
-    /// content is a plain string (Anthropic accepts both shapes).
-    pub block_index: Option<usize>,
-    /// Block kind detected on this slot. `text`, `tool_result`,
-    /// `tool_use`, `image`, ... or `string_content` for the
-    /// string-shaped fallback.
-    pub block_type: String,
-    /// What the dispatcher decided.
-    pub action: BlockAction,
+	/// Index into the `messages` array.
+	pub message_index: usize,
+	/// Index into the message's `content` array. `None` when the
+	/// content is a plain string (Anthropic accepts both shapes).
+	pub block_index: Option<usize>,
+	/// Block kind detected on this slot. `text`, `tool_result`,
+	/// `tool_use`, `image`, ... or `string_content` for the
+	/// string-shaped fallback.
+	pub block_type: String,
+	/// What the dispatcher decided.
+	pub action: BlockAction,
 }
 
 /// Disposition of one block.
 #[derive(Debug, Clone)]
 pub enum BlockAction {
-    /// Content type was inspected, no compressor was applicable.
-    /// Examples: `PlainText` (Kompress wires in PR-B4), `SourceCode`
-    /// (Rust code-compressor port pending), `Html` (no compressor),
-    /// `Image` (binary), unknown shapes.
-    NoCompressionApplied {
-        /// String form of the detected content type — `"text"`,
-        /// `"source_code"`, `"html"`, `"image"`, `"unknown"`, etc.
-        content_type: String,
-    },
-    /// A compressor ran and produced a smaller output (in tokens, as
-    /// counted by the model's tokenizer) that was spliced into the
-    /// body. Both byte and token counts are reported so the proxy
-    /// can log the savings ratio in either currency.
-    Compressed {
-        /// Identifier of the compressor (`"smart_crusher"`,
-        /// `"log_compressor"`, ...). Static so the manifest is
-        /// allocation-light.
-        strategy: &'static str,
-        /// Bytes of the original block content (the JSON string
-        /// value, after unescaping).
-        original_bytes: usize,
-        /// Bytes of the replacement block content.
-        compressed_bytes: usize,
-        /// Tokens in the original block content (per the model's
-        /// tokenizer).
-        original_tokens: usize,
-        /// Tokens in the replacement block content. Always strictly
-        /// less than `original_tokens` for this variant — the
-        /// tokenizer-validated rejection gate (PR-B4) maps the
-        /// `>=` case to `RejectedNotSmaller`.
-        compressed_tokens: usize,
-    },
-    /// A compressor was tried but failed loudly. Per project memory
-    /// `feedback_no_silent_fallbacks.md`: surface the error in the
-    /// manifest; the proxy logs warn-level and forwards the original
-    /// bytes for that block (other blocks in the same body still get
-    /// compressed normally).
-    CompressorError {
-        /// Identifier of the compressor that failed.
-        strategy: &'static str,
-        /// Human-readable error string (from `Display`).
-        error: String,
-    },
-    /// A compressor ran but produced output that did not shrink the
-    /// token count. Cache safety + "don't make it worse" → keep the
-    /// original. PR-B4 wired the tokenizer-validated check; both
-    /// byte and token counts are reported for observability.
-    RejectedNotSmaller {
-        /// Identifier of the compressor that was rejected.
-        strategy: &'static str,
-        /// Original block-content size, bytes.
-        original_bytes: usize,
-        /// Would-be compressed-block-content size, bytes.
-        compressed_bytes: usize,
-        /// Original block-content size, tokens.
-        original_tokens: usize,
-        /// Would-be compressed-block-content size, tokens. Always
-        /// `>= original_tokens` (otherwise this would be
-        /// `Compressed`).
-        compressed_tokens: usize,
-    },
-    /// The block content was below the per-content-type byte
-    /// threshold; no compressor was invoked. The dispatcher does
-    /// not even spin up the tokenizer for these — they're below the
-    /// per-call overhead so the marginal savings are negative.
-    BelowByteThreshold {
-        /// Detected content type — string tag matches
-        /// `ContentType::as_str`.
-        content_type: &'static str,
-        /// Bytes in the block content.
-        byte_count: usize,
-        /// Threshold (in bytes) the content failed to clear.
-        threshold_bytes: usize,
-    },
-    /// Block type is intentionally outside the live zone (e.g.
-    /// `tool_use` → cache hot zone) and is excluded from dispatch.
-    Excluded { reason: ExclusionReason },
+	/// Content type was inspected, no compressor was applicable.
+	/// Examples: `PlainText` (Kompress wires in PR-B4), `SourceCode`
+	/// (Rust code-compressor port pending), `Html` (no compressor),
+	/// `Image` (binary), unknown shapes.
+	NoCompressionApplied {
+		/// String form of the detected content type — `"text"`,
+		/// `"source_code"`, `"html"`, `"image"`, `"unknown"`, etc.
+		content_type: String,
+	},
+	/// A compressor ran and produced a smaller output (in tokens, as
+	/// counted by the model's tokenizer) that was spliced into the
+	/// body. Both byte and token counts are reported so the proxy
+	/// can log the savings ratio in either currency.
+	Compressed {
+		/// Identifier of the compressor (`"smart_crusher"`,
+		/// `"log_compressor"`, ...). Static so the manifest is
+		/// allocation-light.
+		strategy: &'static str,
+		/// Bytes of the original block content (the JSON string
+		/// value, after unescaping).
+		original_bytes: usize,
+		/// Bytes of the replacement block content.
+		compressed_bytes: usize,
+		/// Tokens in the original block content (per the model's
+		/// tokenizer).
+		original_tokens: usize,
+		/// Tokens in the replacement block content. Always strictly
+		/// less than `original_tokens` for this variant — the
+		/// tokenizer-validated rejection gate (PR-B4) maps the
+		/// `>=` case to `RejectedNotSmaller`.
+		compressed_tokens: usize,
+	},
+	/// A compressor was tried but failed loudly. Per project memory
+	/// `feedback_no_silent_fallbacks.md`: surface the error in the
+	/// manifest; the proxy logs warn-level and forwards the original
+	/// bytes for that block (other blocks in the same body still get
+	/// compressed normally).
+	CompressorError {
+		/// Identifier of the compressor that failed.
+		strategy: &'static str,
+		/// Human-readable error string (from `Display`).
+		error: String,
+	},
+	/// A compressor ran but produced output that did not shrink the
+	/// token count. Cache safety + "don't make it worse" → keep the
+	/// original. PR-B4 wired the tokenizer-validated check; both
+	/// byte and token counts are reported for observability.
+	RejectedNotSmaller {
+		/// Identifier of the compressor that was rejected.
+		strategy: &'static str,
+		/// Original block-content size, bytes.
+		original_bytes: usize,
+		/// Would-be compressed-block-content size, bytes.
+		compressed_bytes: usize,
+		/// Original block-content size, tokens.
+		original_tokens: usize,
+		/// Would-be compressed-block-content size, tokens. Always
+		/// `>= original_tokens` (otherwise this would be
+		/// `Compressed`).
+		compressed_tokens: usize,
+	},
+	/// The block content was below the per-content-type byte
+	/// threshold; no compressor was invoked. The dispatcher does
+	/// not even spin up the tokenizer for these — they're below the
+	/// per-call overhead so the marginal savings are negative.
+	BelowByteThreshold {
+		/// Detected content type — string tag matches
+		/// `ContentType::as_str`.
+		content_type: &'static str,
+		/// Bytes in the block content.
+		byte_count: usize,
+		/// Threshold (in bytes) the content failed to clear.
+		threshold_bytes: usize,
+	},
+	/// Block type is intentionally outside the live zone (e.g.
+	/// `tool_use` → cache hot zone) and is excluded from dispatch.
+	Excluded { reason: ExclusionReason },
 }
 
 /// Why a block was not eligible for compression.
 #[derive(Debug, Clone, Copy)]
 pub enum ExclusionReason {
-    /// Block is in a message at index `< frozen_message_count`.
-    BelowFrozenFloor,
-    /// Block belongs to a message above the latest user message
-    /// boundary (e.g. an older assistant turn).
-    AboveLiveZone,
-    /// Block type is on the cache-hot list (e.g. `tool_use`,
-    /// `thinking`, `redacted_thinking`).
-    HotZoneBlockType,
+	/// Block is in a message at index `< frozen_message_count`.
+	BelowFrozenFloor,
+	/// Block belongs to a message above the latest user message
+	/// boundary (e.g. an older assistant turn).
+	AboveLiveZone,
+	/// Block type is on the cache-hot list (e.g. `tool_use`,
+	/// `thinking`, `redacted_thinking`).
+	HotZoneBlockType,
 }
 
 /// Aggregated per-request manifest. Always populated, regardless of
 /// whether any bytes were written.
 #[derive(Debug, Clone)]
 pub struct CompressionManifest {
-    /// Total messages in the input array. Matches
-    /// `body.messages.len()`.
-    pub messages_total: usize,
-    /// Messages with index `< frozen_message_count`. Untouched.
-    pub messages_below_frozen_floor: usize,
-    /// Index of the latest user message in the live zone, if any.
-    pub latest_user_message_index: Option<usize>,
-    /// Per-block outcomes for the latest user message. Empty when
-    /// the live zone has no eligible blocks (or the body has no
-    /// messages).
-    pub block_outcomes: Vec<BlockOutcome>,
+	/// Total messages in the input array. Matches
+	/// `body.messages.len()`.
+	pub messages_total: usize,
+	/// Messages with index `< frozen_message_count`. Untouched.
+	pub messages_below_frozen_floor: usize,
+	/// Index of the latest user message in the live zone, if any.
+	pub latest_user_message_index: Option<usize>,
+	/// Per-block outcomes for the latest user message. Empty when
+	/// the live zone has no eligible blocks (or the body has no
+	/// messages).
+	pub block_outcomes: Vec<BlockOutcome>,
 }
 
 impl CompressionManifest {
-    fn empty() -> Self {
-        Self {
-            messages_total: 0,
-            messages_below_frozen_floor: 0,
-            latest_user_message_index: None,
-            block_outcomes: Vec::new(),
-        }
-    }
+	fn empty() -> Self {
+		Self {
+			messages_total: 0,
+			messages_below_frozen_floor: 0,
+			latest_user_message_index: None,
+			block_outcomes: Vec::new(),
+		}
+	}
 
-    /// True when at least one block was actually rewritten by a
-    /// compressor (used to discriminate the `Modified` arm from
-    /// `NoChange`).
-    fn has_compressed_block(&self) -> bool {
-        self.block_outcomes
-            .iter()
-            .any(|b| matches!(b.action, BlockAction::Compressed { .. }))
-    }
+	/// True when at least one block was actually rewritten by a
+	/// compressor (used to discriminate the `Modified` arm from
+	/// `NoChange`).
+	fn has_compressed_block(&self) -> bool {
+		self.block_outcomes
+			.iter()
+			.any(|b| matches!(b.action, BlockAction::Compressed { .. }))
+	}
 
-    /// Aggregate `original_tokens − compressed_tokens` across every
-    /// `BlockAction::Compressed` outcome. Zero when no block was
-    /// rewritten. Saturating subtraction guards against the
-    /// theoretically-impossible case where a `Compressed` variant
-    /// reports compressed > original (the dispatcher's
-    /// `RejectedNotSmaller` gate should make this unreachable, but the
-    /// saturating arithmetic keeps callers panic-free).
-    pub fn tokens_saved(&self) -> usize {
-        self.block_outcomes
-            .iter()
-            .filter_map(|b| match &b.action {
-                BlockAction::Compressed {
-                    original_tokens,
-                    compressed_tokens,
-                    ..
-                } => Some(original_tokens.saturating_sub(*compressed_tokens)),
-                _ => None,
-            })
-            .sum()
-    }
+	/// Aggregate `original_tokens − compressed_tokens` across every
+	/// `BlockAction::Compressed` outcome. Zero when no block was
+	/// rewritten. Saturating subtraction guards against the
+	/// theoretically-impossible case where a `Compressed` variant
+	/// reports compressed > original (the dispatcher's
+	/// `RejectedNotSmaller` gate should make this unreachable, but the
+	/// saturating arithmetic keeps callers panic-free).
+	pub fn tokens_saved(&self) -> usize {
+		self.block_outcomes
+			.iter()
+			.filter_map(|b| match &b.action {
+				BlockAction::Compressed { original_tokens, compressed_tokens, .. } => {
+					Some(original_tokens.saturating_sub(*compressed_tokens))
+				},
+				_ => None,
+			})
+			.sum()
+	}
 
-    /// Distinct compressor strategies that actually produced rewritten
-    /// output, in first-seen order. Mirrors what the proxy logs as
-    /// `transforms_applied`. Empty when no block was rewritten.
-    pub fn transforms_applied(&self) -> Vec<&'static str> {
-        let mut seen: Vec<&'static str> = Vec::new();
-        for b in &self.block_outcomes {
-            if let BlockAction::Compressed { strategy, .. } = &b.action {
-                if !seen.contains(strategy) {
-                    seen.push(*strategy);
-                }
-            }
-        }
-        seen
-    }
+	/// Distinct compressor strategies that actually produced rewritten
+	/// output, in first-seen order. Mirrors what the proxy logs as
+	/// `transforms_applied`. Empty when no block was rewritten.
+	pub fn transforms_applied(&self) -> Vec<&'static str> {
+		let mut seen: Vec<&'static str> = Vec::new();
+		for b in &self.block_outcomes {
+			if let BlockAction::Compressed { strategy, .. } = &b.action {
+				if !seen.contains(strategy) {
+					seen.push(*strategy);
+				}
+			}
+		}
+		seen
+	}
 }
 
 /// Summarize why a Responses live-zone dispatch made no changes.
@@ -436,63 +434,60 @@ impl CompressionManifest {
 /// saw no eligible items, hit a size floor, rejected output as not
 /// smaller, or encountered a compressor error.
 pub fn summarize_openai_responses_no_change_reason(manifest: &CompressionManifest) -> &'static str {
-    if manifest.block_outcomes.is_empty() {
-        return "no_eligible_items";
-    }
+	if manifest.block_outcomes.is_empty() {
+		return "no_eligible_items";
+	}
 
-    let mut saw_no_compression_applied = false;
-    let mut saw_excluded = false;
-    let mut saw_below_output_floor = false;
-    let mut saw_below_plain_text_floor = false;
-    let mut saw_rejected_not_smaller = false;
-    let mut saw_compressor_error = false;
+	let mut saw_no_compression_applied = false;
+	let mut saw_excluded = false;
+	let mut saw_below_output_floor = false;
+	let mut saw_below_plain_text_floor = false;
+	let mut saw_rejected_not_smaller = false;
+	let mut saw_compressor_error = false;
 
-    for outcome in &manifest.block_outcomes {
-        match &outcome.action {
-            BlockAction::CompressorError { .. } => saw_compressor_error = true,
-            BlockAction::RejectedNotSmaller { .. } => saw_rejected_not_smaller = true,
-            BlockAction::BelowByteThreshold { content_type, .. } => {
-                if *content_type == "output_item" {
-                    saw_below_output_floor = true;
-                } else {
-                    saw_below_plain_text_floor = true;
-                }
-            },
-            BlockAction::NoCompressionApplied { .. } => saw_no_compression_applied = true,
-            BlockAction::Excluded { .. } => saw_excluded = true,
-            BlockAction::Compressed { .. } => {},
-        }
-    }
+	for outcome in &manifest.block_outcomes {
+		match &outcome.action {
+			BlockAction::CompressorError { .. } => saw_compressor_error = true,
+			BlockAction::RejectedNotSmaller { .. } => saw_rejected_not_smaller = true,
+			BlockAction::BelowByteThreshold { content_type, .. } => {
+				if *content_type == "output_item" {
+					saw_below_output_floor = true;
+				} else {
+					saw_below_plain_text_floor = true;
+				}
+			},
+			BlockAction::NoCompressionApplied { .. } => saw_no_compression_applied = true,
+			BlockAction::Excluded { .. } => saw_excluded = true,
+			BlockAction::Compressed { .. } => {},
+		}
+	}
 
-    if saw_compressor_error {
-        "compressor_error"
-    } else if saw_rejected_not_smaller {
-        "rejected_not_smaller"
-    } else if saw_below_output_floor {
-        "below_output_floor"
-    } else if saw_below_plain_text_floor {
-        "below_plain_text_floor"
-    } else if saw_excluded {
-        "excluded_live_zone"
-    } else if saw_no_compression_applied {
-        "no_compressible_content"
-    } else {
-        "no_change"
-    }
+	if saw_compressor_error {
+		"compressor_error"
+	} else if saw_rejected_not_smaller {
+		"rejected_not_smaller"
+	} else if saw_below_output_floor {
+		"below_output_floor"
+	} else if saw_below_plain_text_floor {
+		"below_plain_text_floor"
+	} else if saw_excluded {
+		"excluded_live_zone"
+	} else if saw_no_compression_applied {
+		"no_compressible_content"
+	} else {
+		"no_change"
+	}
 }
 
 /// Outcome of dispatching the live zone.
 #[derive(Debug)]
 pub enum LiveZoneOutcome {
-    /// No bytes were rewritten. The caller must forward the original
-    /// buffered request body byte-for-byte.
-    NoChange { manifest: CompressionManifest },
-    /// The dispatcher rewrote at least one block and emitted a fresh
-    /// body. The caller forwards `new_body` upstream.
-    Modified {
-        new_body: Box<RawValue>,
-        manifest: CompressionManifest,
-    },
+	/// No bytes were rewritten. The caller must forward the original
+	/// buffered request body byte-for-byte.
+	NoChange { manifest: CompressionManifest },
+	/// The dispatcher rewrote at least one block and emitted a fresh
+	/// body. The caller forwards `new_body` upstream.
+	Modified { new_body: Box<RawValue>, manifest: CompressionManifest },
 }
 
 /// Dispatcher errors. Every variant is recoverable by the caller —
@@ -500,12 +495,12 @@ pub enum LiveZoneOutcome {
 /// falls back to forwarding the original bytes.
 #[derive(Debug, Error)]
 pub enum LiveZoneError {
-    /// The request body is not valid JSON.
-    #[error("request body is not valid JSON: {0}")]
-    BodyNotJson(serde_json::Error),
-    /// `messages` field is missing or not a JSON array.
-    #[error("body has no `messages` array")]
-    NoMessagesArray,
+	/// The request body is not valid JSON.
+	#[error("request body is not valid JSON: {0}")]
+	BodyNotJson(serde_json::Error),
+	/// `messages` field is missing or not a JSON array.
+	#[error("body has no `messages` array")]
+	NoMessagesArray,
 }
 
 /// Block types the live-zone dispatcher considers "in the cache hot
@@ -513,12 +508,12 @@ pub enum LiveZoneError {
 /// explicitly (no string-prefix matching) so the cache-safety
 /// surface is grep-able.
 const HOT_ZONE_BLOCK_TYPES: &[&str] = &[
-    "tool_use",
-    "thinking",
-    "redacted_thinking",
-    // Anthropic compaction items — once injected they're sticky to
-    // the cache as much as `tool_use` is.
-    "compaction",
+	"tool_use",
+	"thinking",
+	"redacted_thinking",
+	// Anthropic compaction items — once injected they're sticky to
+	// the cache as much as `tool_use` is.
+	"compaction",
 ];
 
 // ─── Compressor singletons ─────────────────────────────────────────────
@@ -530,23 +525,23 @@ const HOT_ZONE_BLOCK_TYPES: &[&str] = &[
 // clone the &reference each call.
 
 fn smart_crusher() -> &'static SmartCrusher {
-    static INSTANCE: OnceLock<SmartCrusher> = OnceLock::new();
-    INSTANCE.get_or_init(|| SmartCrusher::new(SmartCrusherConfig::default()))
+	static INSTANCE: OnceLock<SmartCrusher> = OnceLock::new();
+	INSTANCE.get_or_init(|| SmartCrusher::new(SmartCrusherConfig::default()))
 }
 
 fn log_compressor() -> &'static LogCompressor {
-    static INSTANCE: OnceLock<LogCompressor> = OnceLock::new();
-    INSTANCE.get_or_init(|| LogCompressor::new(LogCompressorConfig::default()))
+	static INSTANCE: OnceLock<LogCompressor> = OnceLock::new();
+	INSTANCE.get_or_init(|| LogCompressor::new(LogCompressorConfig::default()))
 }
 
 fn search_compressor() -> &'static SearchCompressor {
-    static INSTANCE: OnceLock<SearchCompressor> = OnceLock::new();
-    INSTANCE.get_or_init(|| SearchCompressor::new(SearchCompressorConfig::default()))
+	static INSTANCE: OnceLock<SearchCompressor> = OnceLock::new();
+	INSTANCE.get_or_init(|| SearchCompressor::new(SearchCompressorConfig::default()))
 }
 
 fn diff_compressor() -> &'static DiffCompressor {
-    static INSTANCE: OnceLock<DiffCompressor> = OnceLock::new();
-    INSTANCE.get_or_init(|| DiffCompressor::new(DiffCompressorConfig::default()))
+	static INSTANCE: OnceLock<DiffCompressor> = OnceLock::new();
+	INSTANCE.get_or_init(|| DiffCompressor::new(DiffCompressorConfig::default()))
 }
 
 // ─── Public entry point ────────────────────────────────────────────────
@@ -616,12 +611,12 @@ fn diff_compressor() -> &'static DiffCompressor {
 /// - [`LiveZoneOutcome::Modified`] when at least one block was
 ///   rewritten — the proxy forwards the new body.
 pub fn compress_anthropic_live_zone(
-    body_raw: &[u8],
-    frozen_message_count: usize,
-    auth_mode: AuthMode,
-    model: &str,
+	body_raw: &[u8],
+	frozen_message_count: usize,
+	auth_mode: AuthMode,
+	model: &str,
 ) -> Result<LiveZoneOutcome, LiveZoneError> {
-    compress_anthropic_live_zone_with_ccr(body_raw, frozen_message_count, auth_mode, model, None)
+	compress_anthropic_live_zone_with_ccr(body_raw, frozen_message_count, auth_mode, model, None)
 }
 
 /// Same as [`compress_anthropic_live_zone`] but with an optional
@@ -641,168 +636,153 @@ pub fn compress_anthropic_live_zone(
 /// `compress_anthropic_live_zone` shim), the dispatcher behaves
 /// identically to PR-B4 — no markers, no put.
 pub fn compress_anthropic_live_zone_with_ccr(
-    body_raw: &[u8],
-    frozen_message_count: usize,
-    _auth_mode: AuthMode,
-    model: &str,
-    ccr_store: Option<&dyn CcrStore>,
+	body_raw: &[u8],
+	frozen_message_count: usize,
+	_auth_mode: AuthMode,
+	model: &str,
+	ccr_store: Option<&dyn CcrStore>,
 ) -> Result<LiveZoneOutcome, LiveZoneError> {
-    let parsed: Value = serde_json::from_slice(body_raw).map_err(LiveZoneError::BodyNotJson)?;
-    let messages = parsed
-        .get("messages")
-        .and_then(Value::as_array)
-        .ok_or(LiveZoneError::NoMessagesArray)?;
+	let parsed: Value = serde_json::from_slice(body_raw).map_err(LiveZoneError::BodyNotJson)?;
+	let messages = parsed
+		.get("messages")
+		.and_then(Value::as_array)
+		.ok_or(LiveZoneError::NoMessagesArray)?;
 
-    if messages.is_empty() {
-        return Ok(LiveZoneOutcome::NoChange {
-            manifest: CompressionManifest::empty(),
-        });
-    }
+	if messages.is_empty() {
+		return Ok(LiveZoneOutcome::NoChange { manifest: CompressionManifest::empty() });
+	}
 
-    let messages_total = messages.len();
-    let messages_below_frozen_floor = frozen_message_count.min(messages_total);
+	let messages_total = messages.len();
+	let messages_below_frozen_floor = frozen_message_count.min(messages_total);
 
-    // Latest user message index, restricted to the live zone (>= floor).
-    let latest_user_message_index = find_latest_user_message_index(messages, frozen_message_count);
+	// Latest user message index, restricted to the live zone (>= floor).
+	let latest_user_message_index = find_latest_user_message_index(messages, frozen_message_count);
 
-    let Some(target_idx) = latest_user_message_index else {
-        return Ok(LiveZoneOutcome::NoChange {
-            manifest: CompressionManifest {
-                messages_total,
-                messages_below_frozen_floor,
-                latest_user_message_index: None,
-                block_outcomes: Vec::new(),
-            },
-        });
-    };
+	let Some(target_idx) = latest_user_message_index else {
+		return Ok(LiveZoneOutcome::NoChange {
+			manifest: CompressionManifest {
+				messages_total,
+				messages_below_frozen_floor,
+				latest_user_message_index: None,
+				block_outcomes: Vec::new(),
+			},
+		});
+	};
 
-    // Resolve block ranges (byte offsets into `body_raw`) by walking
-    // the body via `RawValue` borrowed slices. The Vec<Replacement>
-    // produced here is the surgery plan; we do *not* mutate `body_raw`
-    // while computing it.
-    let plan = match plan_block_replacements(body_raw, target_idx) {
-        Ok(p) => p,
-        Err(_) => {
-            // Body shape doesn't match what we expect (e.g. content
-            // is not a string and not an array, or messages is shaped
-            // unexpectedly). Treat as no-change; the proxy forwards
-            // the original bytes verbatim.
-            let block_outcomes =
-                inspect_latest_user_blocks_value(&messages[target_idx], target_idx)
-                    .unwrap_or_default();
-            return Ok(LiveZoneOutcome::NoChange {
-                manifest: CompressionManifest {
-                    messages_total,
-                    messages_below_frozen_floor,
-                    latest_user_message_index: Some(target_idx),
-                    block_outcomes,
-                },
-            });
-        },
-    };
+	// Resolve block ranges (byte offsets into `body_raw`) by walking
+	// the body via `RawValue` borrowed slices. The Vec<Replacement>
+	// produced here is the surgery plan; we do *not* mutate `body_raw`
+	// while computing it.
+	let plan = match plan_block_replacements(body_raw, target_idx) {
+		Ok(p) => p,
+		Err(_) => {
+			// Body shape doesn't match what we expect (e.g. content
+			// is not a string and not an array, or messages is shaped
+			// unexpectedly). Treat as no-change; the proxy forwards
+			// the original bytes verbatim.
+			let block_outcomes =
+				inspect_latest_user_blocks_value(&messages[target_idx], target_idx).unwrap_or_default();
+			return Ok(LiveZoneOutcome::NoChange {
+				manifest: CompressionManifest {
+					messages_total,
+					messages_below_frozen_floor,
+					latest_user_message_index: Some(target_idx),
+					block_outcomes,
+				},
+			});
+		},
+	};
 
-    let mut block_outcomes: Vec<BlockOutcome> = Vec::with_capacity(plan.len());
-    let mut replacements: Vec<Replacement> = Vec::new();
-    // One tokenizer per request — `get_tokenizer` is cheap (it
-    // returns a `Box<dyn Tokenizer>` over either a tiktoken-rs handle
-    // or an estimator) but counting once per block is a hot path.
-    // PR-B4 only invokes the tokenizer on blocks that actually
-    // produced compressed output; the byte-threshold gate filters
-    // sub-threshold content first.
-    let tokenizer = get_tokenizer(model);
+	let mut block_outcomes: Vec<BlockOutcome> = Vec::with_capacity(plan.len());
+	let mut replacements: Vec<Replacement> = Vec::new();
+	// One tokenizer per request — `get_tokenizer` is cheap (it
+	// returns a `Box<dyn Tokenizer>` over either a tiktoken-rs handle
+	// or an estimator) but counting once per block is a hot path.
+	// PR-B4 only invokes the tokenizer on blocks that actually
+	// produced compressed output; the byte-threshold gate filters
+	// sub-threshold content first.
+	let tokenizer = get_tokenizer(model);
 
-    for slot in plan {
-        let outcome = match slot.kind {
-            SlotKind::HotZone(block_type) => BlockOutcome {
-                message_index: target_idx,
-                block_index: Some(slot.block_index),
-                block_type,
-                action: BlockAction::Excluded {
-                    reason: ExclusionReason::HotZoneBlockType,
-                },
-            },
-            SlotKind::Compressible {
-                block_type,
-                content_text,
-                content_byte_range,
-            } => {
-                let detected = detect_content_type(&content_text);
-                let outcome: BlockOutcome = compress_one_block(
-                    &content_text,
-                    detected.content_type,
-                    content_byte_range,
-                    target_idx,
-                    Some(slot.block_index),
-                    block_type,
-                    tokenizer.as_ref(),
-                    &mut replacements,
-                    ccr_store,
-                );
-                outcome
-            },
-            SlotKind::StringContent {
-                content_text,
-                content_byte_range,
-            } => {
-                let detected = detect_content_type(&content_text);
-                compress_one_block(
-                    &content_text,
-                    detected.content_type,
-                    content_byte_range,
-                    target_idx,
-                    None,
-                    "string_content".to_string(),
-                    tokenizer.as_ref(),
-                    &mut replacements,
-                    ccr_store,
-                )
-            },
-        };
-        block_outcomes.push(outcome);
-    }
+	for slot in plan {
+		let outcome = match slot.kind {
+			SlotKind::HotZone(block_type) => BlockOutcome {
+				message_index: target_idx,
+				block_index: Some(slot.block_index),
+				block_type,
+				action: BlockAction::Excluded { reason: ExclusionReason::HotZoneBlockType },
+			},
+			SlotKind::Compressible { block_type, content_text, content_byte_range } => {
+				let detected = detect_content_type(&content_text);
+				let outcome: BlockOutcome = compress_one_block(
+					&content_text,
+					detected.content_type,
+					content_byte_range,
+					target_idx,
+					Some(slot.block_index),
+					block_type,
+					tokenizer.as_ref(),
+					&mut replacements,
+					ccr_store,
+				);
+				outcome
+			},
+			SlotKind::StringContent { content_text, content_byte_range } => {
+				let detected = detect_content_type(&content_text);
+				compress_one_block(
+					&content_text,
+					detected.content_type,
+					content_byte_range,
+					target_idx,
+					None,
+					"string_content".to_string(),
+					tokenizer.as_ref(),
+					&mut replacements,
+					ccr_store,
+				)
+			},
+		};
+		block_outcomes.push(outcome);
+	}
 
-    let manifest = CompressionManifest {
-        messages_total,
-        messages_below_frozen_floor,
-        latest_user_message_index: Some(target_idx),
-        block_outcomes,
-    };
+	let manifest = CompressionManifest {
+		messages_total,
+		messages_below_frozen_floor,
+		latest_user_message_index: Some(target_idx),
+		block_outcomes,
+	};
 
-    if !manifest.has_compressed_block() || replacements.is_empty() {
-        return Ok(LiveZoneOutcome::NoChange { manifest });
-    }
+	if !manifest.has_compressed_block() || replacements.is_empty() {
+		return Ok(LiveZoneOutcome::NoChange { manifest });
+	}
 
-    // Build the new body via byte-range surgery. Replacements are
-    // produced in ascending block order; sort defensively.
-    let new_bytes = apply_replacements(body_raw, &mut replacements);
+	// Build the new body via byte-range surgery. Replacements are
+	// produced in ascending block order; sort defensively.
+	let new_bytes = apply_replacements(body_raw, &mut replacements);
 
-    // The output is always still valid JSON: every replacement is a
-    // JSON string slot replaced by another JSON string slot. We could
-    // round-trip-verify with `serde_json::from_slice` and bail out to
-    // NoChange on failure, but that doubles parse cost on the hot
-    // path. Rely on type discipline; the byte_fidelity test in
-    // `live_zone_dispatch.rs` pins correctness.
-    let new_body_str = match std::str::from_utf8(&new_bytes) {
-        Ok(s) => s,
-        Err(_) => {
-            // Should be impossible: input was valid JSON (UTF-8) and
-            // every replacement was a JSON-encoded string (also UTF-8).
-            // Fall back rather than risk shipping malformed bytes.
-            return Ok(LiveZoneOutcome::NoChange { manifest });
-        },
-    };
-    let raw = match RawValue::from_string(new_body_str.to_string()) {
-        Ok(r) => r,
-        Err(_) => {
-            // Same defensive bail-out; should not happen.
-            return Ok(LiveZoneOutcome::NoChange { manifest });
-        },
-    };
+	// The output is always still valid JSON: every replacement is a
+	// JSON string slot replaced by another JSON string slot. We could
+	// round-trip-verify with `serde_json::from_slice` and bail out to
+	// NoChange on failure, but that doubles parse cost on the hot
+	// path. Rely on type discipline; the byte_fidelity test in
+	// `live_zone_dispatch.rs` pins correctness.
+	let new_body_str = match std::str::from_utf8(&new_bytes) {
+		Ok(s) => s,
+		Err(_) => {
+			// Should be impossible: input was valid JSON (UTF-8) and
+			// every replacement was a JSON-encoded string (also UTF-8).
+			// Fall back rather than risk shipping malformed bytes.
+			return Ok(LiveZoneOutcome::NoChange { manifest });
+		},
+	};
+	let raw = match RawValue::from_string(new_body_str.to_string()) {
+		Ok(r) => r,
+		Err(_) => {
+			// Same defensive bail-out; should not happen.
+			return Ok(LiveZoneOutcome::NoChange { manifest });
+		},
+	};
 
-    Ok(LiveZoneOutcome::Modified {
-        new_body: raw,
-        manifest,
-    })
+	Ok(LiveZoneOutcome::Modified { new_body: raw, manifest })
 }
 
 // ─── Internal helpers ──────────────────────────────────────────────────
@@ -820,121 +800,113 @@ pub fn compress_anthropic_live_zone_with_ccr(
 /// 4. Otherwise record the replacement and tag `Compressed`.
 #[allow(clippy::too_many_arguments)]
 fn compress_one_block(
-    content_text: &str,
-    content_type: ContentType,
-    content_byte_range: (usize, usize),
-    message_index: usize,
-    block_index: Option<usize>,
-    block_type: String,
-    tokenizer: &dyn crate::tokenizer::Tokenizer,
-    replacements: &mut Vec<Replacement>,
-    ccr_store: Option<&dyn CcrStore>,
+	content_text: &str,
+	content_type: ContentType,
+	content_byte_range: (usize, usize),
+	message_index: usize,
+	block_index: Option<usize>,
+	block_type: String,
+	tokenizer: &dyn crate::tokenizer::Tokenizer,
+	replacements: &mut Vec<Replacement>,
+	ccr_store: Option<&dyn CcrStore>,
 ) -> BlockOutcome {
-    // 1. Byte-threshold gate. Empty content always falls through to
-    //    `dispatch_compressor` (which short-circuits on empty), so
-    //    only check when the slot has real bytes — this preserves
-    //    the existing "tool_result with no inner content" pathway.
-    if !content_text.is_empty() && content_text.len() < threshold_for(content_type) {
-        return BlockOutcome {
-            message_index,
-            block_index,
-            block_type,
-            action: BlockAction::BelowByteThreshold {
-                content_type: content_type.as_str(),
-                byte_count: content_text.len(),
-                threshold_bytes: threshold_for(content_type),
-            },
-        };
-    }
+	// 1. Byte-threshold gate. Empty content always falls through to
+	//    `dispatch_compressor` (which short-circuits on empty), so
+	//    only check when the slot has real bytes — this preserves
+	//    the existing "tool_result with no inner content" pathway.
+	if !content_text.is_empty() && content_text.len() < threshold_for(content_type) {
+		return BlockOutcome {
+			message_index,
+			block_index,
+			block_type,
+			action: BlockAction::BelowByteThreshold {
+				content_type: content_type.as_str(),
+				byte_count: content_text.len(),
+				threshold_bytes: threshold_for(content_type),
+			},
+		};
+	}
 
-    match dispatch_compressor(content_text, content_type) {
-        DispatchResult::NoOp { content_type } => BlockOutcome {
-            message_index,
-            block_index,
-            block_type,
-            action: BlockAction::NoCompressionApplied {
-                content_type: content_type.to_string(),
-            },
-        },
-        DispatchResult::Compressed {
-            strategy,
-            compressed,
-        } => {
-            let original_bytes = content_text.len();
-            // PR-B7: when a CCR store is wired, persist the original
-            // block content keyed by `BLAKE3(original)[..24]` and append
-            // the `<<ccr:HASH>>` marker to the compressed string. The
-            // marker stays on a fresh trailing line so it is easy for
-            // the model to spot and so that the per-content-type
-            // compressors (which already produce trailing summary
-            // lines) keep their final newline before the marker.
-            //
-            // The token-validation gate (step 3) is computed against
-            // the marker-augmented string so the saved-token check
-            // stays honest — the marker costs ~6 tokens and we'd
-            // rather forward the original than ship a bigger payload
-            // for a 5-byte block.
-            let (compressed_for_replacement, ccr_hash_emitted) =
-                maybe_inject_ccr_marker(content_text, &compressed, ccr_store);
-            let compressed_bytes = compressed_for_replacement.len();
-            // 3. Tokenizer-validated rejection. Per PR-B4 spec we
-            //    count both the original and compressed strings
-            //    using the model's tokenizer; the compression is
-            //    accepted only when it shrinks the token count.
-            //    Bytes-shrinking-but-tokens-growing happens for
-            //    pathological inputs (e.g. dense base64 → tokenizer
-            //    fragments more aggressively after a transform).
-            let original_tokens = tokenizer.count_text(content_text);
-            let compressed_tokens = tokenizer.count_text(&compressed_for_replacement);
-            if compressed_tokens >= original_tokens {
-                BlockOutcome {
-                    message_index,
-                    block_index,
-                    block_type,
-                    action: BlockAction::RejectedNotSmaller {
-                        strategy,
-                        original_bytes,
-                        compressed_bytes,
-                        original_tokens,
-                        compressed_tokens,
-                    },
-                }
-            } else {
-                // Only persist to the CCR store once the rejection
-                // gate has admitted the compression — otherwise we
-                // populate the store with hashes whose markers
-                // never reach the wire (still correct, but wastes
-                // storage capacity).
-                if let (Some(store), Some(hash)) = (ccr_store, ccr_hash_emitted.as_deref()) {
-                    store.put(hash, content_text);
-                }
-                let replacement_bytes = serde_json::to_vec(&compressed_for_replacement)
-                    .expect("string is always JSON-encodable");
-                replacements.push(Replacement {
-                    range: content_byte_range,
-                    replacement: replacement_bytes,
-                });
-                BlockOutcome {
-                    message_index,
-                    block_index,
-                    block_type,
-                    action: BlockAction::Compressed {
-                        strategy,
-                        original_bytes,
-                        compressed_bytes,
-                        original_tokens,
-                        compressed_tokens,
-                    },
-                }
-            }
-        },
-        DispatchResult::Error { strategy, error } => BlockOutcome {
-            message_index,
-            block_index,
-            block_type,
-            action: BlockAction::CompressorError { strategy, error },
-        },
-    }
+	match dispatch_compressor(content_text, content_type) {
+		DispatchResult::NoOp { content_type } => BlockOutcome {
+			message_index,
+			block_index,
+			block_type,
+			action: BlockAction::NoCompressionApplied { content_type: content_type.to_string() },
+		},
+		DispatchResult::Compressed { strategy, compressed } => {
+			let original_bytes = content_text.len();
+			// PR-B7: when a CCR store is wired, persist the original
+			// block content keyed by `BLAKE3(original)[..24]` and append
+			// the `<<ccr:HASH>>` marker to the compressed string. The
+			// marker stays on a fresh trailing line so it is easy for
+			// the model to spot and so that the per-content-type
+			// compressors (which already produce trailing summary
+			// lines) keep their final newline before the marker.
+			//
+			// The token-validation gate (step 3) is computed against
+			// the marker-augmented string so the saved-token check
+			// stays honest — the marker costs ~6 tokens and we'd
+			// rather forward the original than ship a bigger payload
+			// for a 5-byte block.
+			let (compressed_for_replacement, ccr_hash_emitted) =
+				maybe_inject_ccr_marker(content_text, &compressed, ccr_store);
+			let compressed_bytes = compressed_for_replacement.len();
+			// 3. Tokenizer-validated rejection. Per PR-B4 spec we
+			//    count both the original and compressed strings
+			//    using the model's tokenizer; the compression is
+			//    accepted only when it shrinks the token count.
+			//    Bytes-shrinking-but-tokens-growing happens for
+			//    pathological inputs (e.g. dense base64 → tokenizer
+			//    fragments more aggressively after a transform).
+			let original_tokens = tokenizer.count_text(content_text);
+			let compressed_tokens = tokenizer.count_text(&compressed_for_replacement);
+			if compressed_tokens >= original_tokens {
+				BlockOutcome {
+					message_index,
+					block_index,
+					block_type,
+					action: BlockAction::RejectedNotSmaller {
+						strategy,
+						original_bytes,
+						compressed_bytes,
+						original_tokens,
+						compressed_tokens,
+					},
+				}
+			} else {
+				// Only persist to the CCR store once the rejection
+				// gate has admitted the compression — otherwise we
+				// populate the store with hashes whose markers
+				// never reach the wire (still correct, but wastes
+				// storage capacity).
+				if let (Some(store), Some(hash)) = (ccr_store, ccr_hash_emitted.as_deref()) {
+					store.put(hash, content_text);
+				}
+				let replacement_bytes =
+					serde_json::to_vec(&compressed_for_replacement).expect("string is always JSON-encodable");
+				replacements.push(Replacement { range: content_byte_range, replacement: replacement_bytes });
+				BlockOutcome {
+					message_index,
+					block_index,
+					block_type,
+					action: BlockAction::Compressed {
+						strategy,
+						original_bytes,
+						compressed_bytes,
+						original_tokens,
+						compressed_tokens,
+					},
+				}
+			}
+		},
+		DispatchResult::Error { strategy, error } => BlockOutcome {
+			message_index,
+			block_index,
+			block_type,
+			action: BlockAction::CompressorError { strategy, error },
+		},
+	}
 }
 
 /// Walk `messages` from the back, returning the index of the latest
@@ -942,16 +914,16 @@ fn compress_one_block(
 /// the latest user message lies in the cache hot zone we return
 /// `None` (it's out of bounds for live-zone work).
 fn find_latest_user_message_index(messages: &[Value], floor: usize) -> Option<usize> {
-    let start = floor.min(messages.len());
-    for (offset, msg) in messages.iter().enumerate().rev() {
-        if offset < start {
-            return None;
-        }
-        if msg.get("role").and_then(Value::as_str) == Some("user") {
-            return Some(offset);
-        }
-    }
-    None
+	let start = floor.min(messages.len());
+	for (offset, msg) in messages.iter().enumerate().rev() {
+		if offset < start {
+			return None;
+		}
+		if msg.get("role").and_then(Value::as_str) == Some("user") {
+			return Some(offset);
+		}
+	}
+	None
 }
 
 /// Body-shape view used to find byte ranges.
@@ -962,232 +934,203 @@ fn find_latest_user_message_index(messages: &[Value], floor: usize) -> Option<us
 /// the path we need; everything else is left unparsed.
 #[derive(Deserialize)]
 struct BodyView<'a> {
-    #[serde(borrow)]
-    messages: Vec<&'a RawValue>,
+	#[serde(borrow)]
+	messages: Vec<&'a RawValue>,
 }
 
 #[derive(Deserialize)]
 struct MessageView<'a> {
-    #[serde(borrow, default)]
-    content: Option<&'a RawValue>,
+	#[serde(borrow, default)]
+	content: Option<&'a RawValue>,
 }
 
 #[derive(Deserialize)]
 struct BlockHeader<'a> {
-    #[serde(borrow, default)]
-    r#type: Option<&'a str>,
-    #[serde(borrow, default)]
-    content: Option<&'a RawValue>,
+	#[serde(borrow, default)]
+	r#type: Option<&'a str>,
+	#[serde(borrow, default)]
+	content: Option<&'a RawValue>,
 }
 
 /// Per-block dispatch slot the planner emits.
 struct PlanSlot {
-    block_index: usize,
-    kind: SlotKind,
+	block_index: usize,
+	kind: SlotKind,
 }
 
 enum SlotKind {
-    /// Content is a JSON string the dispatcher may compress in place.
-    Compressible {
-        block_type: String,
-        content_text: String,
-        content_byte_range: (usize, usize),
-    },
-    /// String-shaped message content (Anthropic legacy shape: the
-    /// whole message's `content` is a JSON string, no per-block
-    /// array).
-    StringContent {
-        content_text: String,
-        content_byte_range: (usize, usize),
-    },
-    /// Block type is on the cache-hot list — record but do not
-    /// dispatch.
-    HotZone(String),
+	/// Content is a JSON string the dispatcher may compress in place.
+	Compressible { block_type: String, content_text: String, content_byte_range: (usize, usize) },
+	/// String-shaped message content (Anthropic legacy shape: the
+	/// whole message's `content` is a JSON string, no per-block
+	/// array).
+	StringContent { content_text: String, content_byte_range: (usize, usize) },
+	/// Block type is on the cache-hot list — record but do not
+	/// dispatch.
+	HotZone(String),
 }
 
 /// Walk the buffered body, return one `PlanSlot` per block in the
 /// latest user message. Errors out on shapes the dispatcher does not
 /// support (e.g. structured-array `content` inside a tool_result —
 /// rare; we degrade to NoChange in that case).
-fn plan_block_replacements(
-    body_raw: &[u8],
-    target_msg_idx: usize,
-) -> Result<Vec<PlanSlot>, PlanError> {
-    // `serde_json::from_slice` requires UTF-8; we re-validate here
-    // explicitly so the pointer-arithmetic helper can take a `&str`
-    // without unsafe.
-    let body_str = std::str::from_utf8(body_raw).map_err(|_| PlanError::ParseFailed)?;
-    let body: BodyView<'_> = serde_json::from_str(body_str).map_err(|_| PlanError::ParseFailed)?;
-    let target_msg_raw = body
-        .messages
-        .get(target_msg_idx)
-        .ok_or(PlanError::TargetOutOfBounds)?;
+fn plan_block_replacements(body_raw: &[u8], target_msg_idx: usize) -> Result<Vec<PlanSlot>, PlanError> {
+	// `serde_json::from_slice` requires UTF-8; we re-validate here
+	// explicitly so the pointer-arithmetic helper can take a `&str`
+	// without unsafe.
+	let body_str = std::str::from_utf8(body_raw).map_err(|_| PlanError::ParseFailed)?;
+	let body: BodyView<'_> = serde_json::from_str(body_str).map_err(|_| PlanError::ParseFailed)?;
+	let target_msg_raw = body.messages.get(target_msg_idx).ok_or(PlanError::TargetOutOfBounds)?;
 
-    let msg_view: MessageView<'_> =
-        serde_json::from_str(target_msg_raw.get()).map_err(|_| PlanError::ParseFailed)?;
+	let msg_view: MessageView<'_> = serde_json::from_str(target_msg_raw.get()).map_err(|_| PlanError::ParseFailed)?;
 
-    let Some(content_raw) = msg_view.content else {
-        return Ok(Vec::new());
-    };
+	let Some(content_raw) = msg_view.content else {
+		return Ok(Vec::new());
+	};
 
-    // Compute the byte offset of the message's `content` value into
-    // `body_raw`. The target_msg_raw points into body_raw; content_raw
-    // points into target_msg_raw's bytes (which are the same backing
-    // memory).
-    let content_offset_in_msg =
-        bytes_offset_of(target_msg_raw.get(), content_raw.get()).ok_or(PlanError::OffsetMissing)?;
-    let msg_offset_in_body =
-        bytes_offset_of(body_str, target_msg_raw.get()).ok_or(PlanError::OffsetMissing)?;
-    let content_offset_in_body = msg_offset_in_body + content_offset_in_msg;
+	// Compute the byte offset of the message's `content` value into
+	// `body_raw`. The target_msg_raw points into body_raw; content_raw
+	// points into target_msg_raw's bytes (which are the same backing
+	// memory).
+	let content_offset_in_msg =
+		bytes_offset_of(target_msg_raw.get(), content_raw.get()).ok_or(PlanError::OffsetMissing)?;
+	let msg_offset_in_body = bytes_offset_of(body_str, target_msg_raw.get()).ok_or(PlanError::OffsetMissing)?;
+	let content_offset_in_body = msg_offset_in_body + content_offset_in_msg;
 
-    let content_str = content_raw.get();
+	let content_str = content_raw.get();
 
-    // Case 1: content is a JSON string (Anthropic legacy shape for
-    // user messages).
-    if content_str.starts_with('"') {
-        let unescaped: String =
-            serde_json::from_str(content_str).map_err(|_| PlanError::ParseFailed)?;
-        return Ok(vec![PlanSlot {
-            block_index: 0,
-            kind: SlotKind::StringContent {
-                content_text: unescaped,
-                content_byte_range: (
-                    content_offset_in_body,
-                    content_offset_in_body + content_str.len(),
-                ),
-            },
-        }]);
-    }
+	// Case 1: content is a JSON string (Anthropic legacy shape for
+	// user messages).
+	if content_str.starts_with('"') {
+		let unescaped: String = serde_json::from_str(content_str).map_err(|_| PlanError::ParseFailed)?;
+		return Ok(vec![PlanSlot {
+			block_index: 0,
+			kind: SlotKind::StringContent {
+				content_text: unescaped,
+				content_byte_range: (content_offset_in_body, content_offset_in_body + content_str.len()),
+			},
+		}]);
+	}
 
-    // Case 2: content is an array of blocks. Borrow each block as a
-    // &RawValue so we can compute its byte range too.
-    let blocks: Vec<&RawValue> =
-        serde_json::from_str(content_str).map_err(|_| PlanError::ParseFailed)?;
+	// Case 2: content is an array of blocks. Borrow each block as a
+	// &RawValue so we can compute its byte range too.
+	let blocks: Vec<&RawValue> = serde_json::from_str(content_str).map_err(|_| PlanError::ParseFailed)?;
 
-    let mut slots = Vec::with_capacity(blocks.len());
-    for (block_idx, block_raw) in blocks.iter().enumerate() {
-        let block_offset_in_content =
-            bytes_offset_of(content_str, block_raw.get()).ok_or(PlanError::OffsetMissing)?;
-        let block_offset_in_body = content_offset_in_body + block_offset_in_content;
+	let mut slots = Vec::with_capacity(blocks.len());
+	for (block_idx, block_raw) in blocks.iter().enumerate() {
+		let block_offset_in_content = bytes_offset_of(content_str, block_raw.get()).ok_or(PlanError::OffsetMissing)?;
+		let block_offset_in_body = content_offset_in_body + block_offset_in_content;
 
-        let header: BlockHeader<'_> =
-            serde_json::from_str(block_raw.get()).map_err(|_| PlanError::ParseFailed)?;
-        let block_type = header.r#type.unwrap_or("unknown").to_string();
+		let header: BlockHeader<'_> = serde_json::from_str(block_raw.get()).map_err(|_| PlanError::ParseFailed)?;
+		let block_type = header.r#type.unwrap_or("unknown").to_string();
 
-        if HOT_ZONE_BLOCK_TYPES.iter().any(|t| *t == block_type) {
-            slots.push(PlanSlot {
-                block_index: block_idx,
-                kind: SlotKind::HotZone(block_type),
-            });
-            continue;
-        }
+		if HOT_ZONE_BLOCK_TYPES.iter().any(|t| *t == block_type) {
+			slots.push(PlanSlot { block_index: block_idx, kind: SlotKind::HotZone(block_type) });
+			continue;
+		}
 
-        // Find the inner `content` field's byte range. For tool_result
-        // blocks this is the field we'd compress. For text blocks
-        // it's a `text` field — we read that instead.
-        let (inner_field_str, inner_field_offset_in_block) = match block_type.as_str() {
-            "tool_result" => {
-                let Some(field_raw) = header.content else {
-                    // tool_result with no content — skip dispatch.
-                    slots.push(PlanSlot {
-                        block_index: block_idx,
-                        kind: SlotKind::Compressible {
-                            block_type,
-                            content_text: String::new(),
-                            content_byte_range: (block_offset_in_body, block_offset_in_body),
-                        },
-                    });
-                    continue;
-                };
-                let off = bytes_offset_of(block_raw.get(), field_raw.get())
-                    .ok_or(PlanError::OffsetMissing)?;
-                (field_raw.get(), off)
-            },
-            "text" => {
-                #[derive(Deserialize)]
-                struct TextHeader<'a> {
-                    #[serde(borrow, default)]
-                    text: Option<&'a RawValue>,
-                }
-                let h: TextHeader<'_> =
-                    serde_json::from_str(block_raw.get()).map_err(|_| PlanError::ParseFailed)?;
-                let Some(text_raw) = h.text else {
-                    slots.push(PlanSlot {
-                        block_index: block_idx,
-                        kind: SlotKind::Compressible {
-                            block_type,
-                            content_text: String::new(),
-                            content_byte_range: (block_offset_in_body, block_offset_in_body),
-                        },
-                    });
-                    continue;
-                };
-                let off = bytes_offset_of(block_raw.get(), text_raw.get())
-                    .ok_or(PlanError::OffsetMissing)?;
-                (text_raw.get(), off)
-            },
-            _ => {
-                // image, document, etc. — record as compressible
-                // block-type but with empty content so no compressor
-                // runs.
-                slots.push(PlanSlot {
-                    block_index: block_idx,
-                    kind: SlotKind::Compressible {
-                        block_type,
-                        content_text: String::new(),
-                        content_byte_range: (block_offset_in_body, block_offset_in_body),
-                    },
-                });
-                continue;
-            },
-        };
+		// Find the inner `content` field's byte range. For tool_result
+		// blocks this is the field we'd compress. For text blocks
+		// it's a `text` field — we read that instead.
+		let (inner_field_str, inner_field_offset_in_block) = match block_type.as_str() {
+			"tool_result" => {
+				let Some(field_raw) = header.content else {
+					// tool_result with no content — skip dispatch.
+					slots.push(PlanSlot {
+						block_index: block_idx,
+						kind: SlotKind::Compressible {
+							block_type,
+							content_text: String::new(),
+							content_byte_range: (block_offset_in_body, block_offset_in_body),
+						},
+					});
+					continue;
+				};
+				let off = bytes_offset_of(block_raw.get(), field_raw.get()).ok_or(PlanError::OffsetMissing)?;
+				(field_raw.get(), off)
+			},
+			"text" => {
+				#[derive(Deserialize)]
+				struct TextHeader<'a> {
+					#[serde(borrow, default)]
+					text: Option<&'a RawValue>,
+				}
+				let h: TextHeader<'_> = serde_json::from_str(block_raw.get()).map_err(|_| PlanError::ParseFailed)?;
+				let Some(text_raw) = h.text else {
+					slots.push(PlanSlot {
+						block_index: block_idx,
+						kind: SlotKind::Compressible {
+							block_type,
+							content_text: String::new(),
+							content_byte_range: (block_offset_in_body, block_offset_in_body),
+						},
+					});
+					continue;
+				};
+				let off = bytes_offset_of(block_raw.get(), text_raw.get()).ok_or(PlanError::OffsetMissing)?;
+				(text_raw.get(), off)
+			},
+			_ => {
+				// image, document, etc. — record as compressible
+				// block-type but with empty content so no compressor
+				// runs.
+				slots.push(PlanSlot {
+					block_index: block_idx,
+					kind: SlotKind::Compressible {
+						block_type,
+						content_text: String::new(),
+						content_byte_range: (block_offset_in_body, block_offset_in_body),
+					},
+				});
+				continue;
+			},
+		};
 
-        // The compressors expect a plain string, not a JSON-quoted
-        // string. `tool_result.content` and `text.text` are
-        // either a JSON string or a structured array; we only
-        // compress the string shape (B3). Structured-array shape
-        // falls through to no-op.
-        if !inner_field_str.starts_with('"') {
-            slots.push(PlanSlot {
-                block_index: block_idx,
-                kind: SlotKind::Compressible {
-                    block_type,
-                    content_text: String::new(),
-                    content_byte_range: (block_offset_in_body, block_offset_in_body),
-                },
-            });
-            continue;
-        }
-        let unescaped: String =
-            serde_json::from_str(inner_field_str).map_err(|_| PlanError::ParseFailed)?;
+		// The compressors expect a plain string, not a JSON-quoted
+		// string. `tool_result.content` and `text.text` are
+		// either a JSON string or a structured array; we only
+		// compress the string shape (B3). Structured-array shape
+		// falls through to no-op.
+		if !inner_field_str.starts_with('"') {
+			slots.push(PlanSlot {
+				block_index: block_idx,
+				kind: SlotKind::Compressible {
+					block_type,
+					content_text: String::new(),
+					content_byte_range: (block_offset_in_body, block_offset_in_body),
+				},
+			});
+			continue;
+		}
+		let unescaped: String = serde_json::from_str(inner_field_str).map_err(|_| PlanError::ParseFailed)?;
 
-        let inner_field_start_in_body = block_offset_in_body + inner_field_offset_in_block;
-        let inner_field_end_in_body = inner_field_start_in_body + inner_field_str.len();
+		let inner_field_start_in_body = block_offset_in_body + inner_field_offset_in_block;
+		let inner_field_end_in_body = inner_field_start_in_body + inner_field_str.len();
 
-        slots.push(PlanSlot {
-            block_index: block_idx,
-            kind: SlotKind::Compressible {
-                block_type,
-                content_text: unescaped,
-                content_byte_range: (inner_field_start_in_body, inner_field_end_in_body),
-            },
-        });
-    }
+		slots.push(PlanSlot {
+			block_index: block_idx,
+			kind: SlotKind::Compressible {
+				block_type,
+				content_text: unescaped,
+				content_byte_range: (inner_field_start_in_body, inner_field_end_in_body),
+			},
+		});
+	}
 
-    Ok(slots)
+	Ok(slots)
 }
 
 #[derive(Debug)]
 enum PlanError {
-    /// JSON parse failure on a body-shape view we expected to succeed.
-    ParseFailed,
-    /// Pointer-arithmetic could not locate a sub-slice's offset.
-    /// Should not happen for valid JSON; surfacing rather than
-    /// silently degrading.
-    OffsetMissing,
-    /// Latest-user-message index points past the end of `messages`.
-    /// The caller already validated this — surfacing for safety.
-    TargetOutOfBounds,
+	/// JSON parse failure on a body-shape view we expected to succeed.
+	ParseFailed,
+	/// Pointer-arithmetic could not locate a sub-slice's offset.
+	/// Should not happen for valid JSON; surfacing rather than
+	/// silently degrading.
+	OffsetMissing,
+	/// Latest-user-message index points past the end of `messages`.
+	/// The caller already validated this — surfacing for safety.
+	TargetOutOfBounds,
 }
 
 /// Compute the byte offset of `child` within `parent` when both are
@@ -1199,41 +1142,41 @@ enum PlanError {
 /// into the input buffer when `from_slice` / `from_str` was used,
 /// so pointer arithmetic recovers it.
 fn bytes_offset_of(parent: &str, child: &str) -> Option<usize> {
-    let parent_start = parent.as_ptr() as usize;
-    let parent_end = parent_start + parent.len();
-    let child_start = child.as_ptr() as usize;
-    if child_start < parent_start || child_start + child.len() > parent_end {
-        return None;
-    }
-    Some(child_start - parent_start)
+	let parent_start = parent.as_ptr() as usize;
+	let parent_end = parent_start + parent.len();
+	let child_start = child.as_ptr() as usize;
+	if child_start < parent_start || child_start + child.len() > parent_end {
+		return None;
+	}
+	Some(child_start - parent_start)
 }
 
 /// One byte-range replacement to apply. Sorted in ascending `range.0`
 /// before splicing.
 struct Replacement {
-    range: (usize, usize),
-    replacement: Vec<u8>,
+	range: (usize, usize),
+	replacement: Vec<u8>,
 }
 
 /// Apply all `replacements` to `original`, returning the new buffer.
 /// `replacements` are sorted in-place by ascending start offset; the
 /// caller may inspect them post-call (they remain valid).
 fn apply_replacements(original: &[u8], replacements: &mut [Replacement]) -> Vec<u8> {
-    replacements.sort_by_key(|r| r.range.0);
+	replacements.sort_by_key(|r| r.range.0);
 
-    // Pre-size: original_len - sum(removed) + sum(replacement_len).
-    let removed: usize = replacements.iter().map(|r| r.range.1 - r.range.0).sum();
-    let added: usize = replacements.iter().map(|r| r.replacement.len()).sum();
-    let mut out = Vec::with_capacity(original.len().saturating_sub(removed) + added);
+	// Pre-size: original_len - sum(removed) + sum(replacement_len).
+	let removed: usize = replacements.iter().map(|r| r.range.1 - r.range.0).sum();
+	let added: usize = replacements.iter().map(|r| r.replacement.len()).sum();
+	let mut out = Vec::with_capacity(original.len().saturating_sub(removed) + added);
 
-    let mut cursor = 0usize;
-    for r in replacements.iter() {
-        out.extend_from_slice(&original[cursor..r.range.0]);
-        out.extend_from_slice(&r.replacement);
-        cursor = r.range.1;
-    }
-    out.extend_from_slice(&original[cursor..]);
-    out
+	let mut cursor = 0usize;
+	for r in replacements.iter() {
+		out.extend_from_slice(&original[cursor..r.range.0]);
+		out.extend_from_slice(&r.replacement);
+		cursor = r.range.1;
+	}
+	out.extend_from_slice(&original[cursor..]);
+	out
 }
 
 /// PR-B7: append a `<<ccr:HASH>>` retrieval marker to the compressed
@@ -1252,40 +1195,34 @@ fn apply_replacements(original: &[u8], replacements: &mut [Replacement]) -> Vec<
 ///    `headroom/ccr/tool_injection.py` keeps working — it matches
 ///    `[a-f0-9]{24}` anywhere in the text.
 fn maybe_inject_ccr_marker(
-    original: &str,
-    compressed: &str,
-    ccr_store: Option<&dyn CcrStore>,
+	original: &str,
+	compressed: &str,
+	ccr_store: Option<&dyn CcrStore>,
 ) -> (String, Option<String>) {
-    if ccr_store.is_none() {
-        return (compressed.to_string(), None);
-    }
-    let hash = compute_key(original.as_bytes());
-    let marker = marker_for(&hash);
-    let augmented = if compressed.ends_with('\n') {
-        format!("{compressed}{marker}")
-    } else {
-        format!("{compressed}\n{marker}")
-    };
-    (augmented, Some(hash))
+	if ccr_store.is_none() {
+		return (compressed.to_string(), None);
+	}
+	let hash = compute_key(original.as_bytes());
+	let marker = marker_for(&hash);
+	let augmented = if compressed.ends_with('\n') {
+		format!("{compressed}{marker}")
+	} else {
+		format!("{compressed}\n{marker}")
+	};
+	(augmented, Some(hash))
 }
 
 /// Per-block dispatch result — whether any compressor ran and what
 /// it produced.
 enum DispatchResult {
-    /// No compressor was applicable for this content type.
-    NoOp { content_type: &'static str },
-    /// A compressor ran and produced a candidate replacement string.
-    Compressed {
-        strategy: &'static str,
-        compressed: String,
-    },
-    /// A compressor ran and failed loudly. The error string is
-    /// surfaced via the manifest; the proxy logs it.
-    #[allow(dead_code)]
-    Error {
-        strategy: &'static str,
-        error: String,
-    },
+	/// No compressor was applicable for this content type.
+	NoOp { content_type: &'static str },
+	/// A compressor ran and produced a candidate replacement string.
+	Compressed { strategy: &'static str, compressed: String },
+	/// A compressor ran and failed loudly. The error string is
+	/// surfaced via the manifest; the proxy logs it.
+	#[allow(dead_code)]
+	Error { strategy: &'static str, error: String },
 }
 
 /// Map `(text, content_type)` to the compressor result.
@@ -1300,454 +1237,395 @@ enum DispatchResult {
 /// - `PlainText` → no-op (PR-B4 wires Kompress)
 /// - `Html` → no-op (no compressor)
 fn dispatch_compressor(text: &str, content_type: ContentType) -> DispatchResult {
-    if text.is_empty() {
-        return DispatchResult::NoOp {
-            content_type: content_type.as_str(),
-        };
-    }
+	if text.is_empty() {
+		return DispatchResult::NoOp { content_type: content_type.as_str() };
+	}
 
-    match content_type {
-        ContentType::JsonArray => {
-            // The detector classifies arrays-of-scalars as JsonArray
-            // too (confidence 0.8). SmartCrusher's `crush` is safe to
-            // call on those — it parses, finds no compressible
-            // arrays, and returns the input.
-            let result = smart_crusher().crush(text, EMPTY_QUERY, DEFAULT_BIAS);
-            if !result.was_modified {
-                return DispatchResult::NoOp {
-                    content_type: content_type.as_str(),
-                };
-            }
-            DispatchResult::Compressed {
-                strategy: STRATEGY_SMART_CRUSHER,
-                compressed: result.compressed,
-            }
-        },
-        ContentType::BuildOutput => {
-            let (result, _stats) = log_compressor().compress(text, DEFAULT_BIAS);
-            if result.compressed == result.original {
-                return DispatchResult::NoOp {
-                    content_type: content_type.as_str(),
-                };
-            }
-            DispatchResult::Compressed {
-                strategy: STRATEGY_LOG_COMPRESSOR,
-                compressed: result.compressed,
-            }
-        },
-        ContentType::SearchResults => {
-            let (result, _stats) = search_compressor().compress(text, EMPTY_QUERY, DEFAULT_BIAS);
-            if result.compressed == result.original {
-                return DispatchResult::NoOp {
-                    content_type: content_type.as_str(),
-                };
-            }
-            DispatchResult::Compressed {
-                strategy: STRATEGY_SEARCH_COMPRESSOR,
-                compressed: result.compressed,
-            }
-        },
-        ContentType::GitDiff => {
-            let result = diff_compressor().compress(text, EMPTY_QUERY);
-            if result.compressed == text {
-                return DispatchResult::NoOp {
-                    content_type: content_type.as_str(),
-                };
-            }
-            DispatchResult::Compressed {
-                strategy: STRATEGY_DIFF_COMPRESSOR,
-                compressed: result.compressed,
-            }
-        },
-        // TODO(PR-B4 / Rust code-compressor port): Python has a
-        // CodeAwareCompressor; the Rust port is not yet shipped. Once
-        // that crate lands, `ContentType::SourceCode` routes here
-        // exactly as the others above.
-        ContentType::SourceCode => DispatchResult::NoOp {
-            content_type: content_type.as_str(),
-        },
-        // TODO(PR-B4): wire Kompress (lossless prose compressor) for
-        // PlainText. For now, leave untouched.
-        ContentType::PlainText => DispatchResult::NoOp {
-            content_type: content_type.as_str(),
-        },
-        // No HTML compressor on the Rust side; pages are handled by
-        // upstream extractors, not the proxy.
-        ContentType::Html => DispatchResult::NoOp {
-            content_type: content_type.as_str(),
-        },
-    }
+	match content_type {
+		ContentType::JsonArray => {
+			// The detector classifies arrays-of-scalars as JsonArray
+			// too (confidence 0.8). SmartCrusher's `crush` is safe to
+			// call on those — it parses, finds no compressible
+			// arrays, and returns the input.
+			let result = smart_crusher().crush(text, EMPTY_QUERY, DEFAULT_BIAS);
+			if !result.was_modified {
+				return DispatchResult::NoOp { content_type: content_type.as_str() };
+			}
+			DispatchResult::Compressed { strategy: STRATEGY_SMART_CRUSHER, compressed: result.compressed }
+		},
+		ContentType::BuildOutput => {
+			let (result, _stats) = log_compressor().compress(text, DEFAULT_BIAS);
+			if result.compressed == result.original {
+				return DispatchResult::NoOp { content_type: content_type.as_str() };
+			}
+			DispatchResult::Compressed { strategy: STRATEGY_LOG_COMPRESSOR, compressed: result.compressed }
+		},
+		ContentType::SearchResults => {
+			let (result, _stats) = search_compressor().compress(text, EMPTY_QUERY, DEFAULT_BIAS);
+			if result.compressed == result.original {
+				return DispatchResult::NoOp { content_type: content_type.as_str() };
+			}
+			DispatchResult::Compressed { strategy: STRATEGY_SEARCH_COMPRESSOR, compressed: result.compressed }
+		},
+		ContentType::GitDiff => {
+			let result = diff_compressor().compress(text, EMPTY_QUERY);
+			if result.compressed == text {
+				return DispatchResult::NoOp { content_type: content_type.as_str() };
+			}
+			DispatchResult::Compressed { strategy: STRATEGY_DIFF_COMPRESSOR, compressed: result.compressed }
+		},
+		// TODO(PR-B4 / Rust code-compressor port): Python has a
+		// CodeAwareCompressor; the Rust port is not yet shipped. Once
+		// that crate lands, `ContentType::SourceCode` routes here
+		// exactly as the others above.
+		ContentType::SourceCode => DispatchResult::NoOp { content_type: content_type.as_str() },
+		// TODO(PR-B4): wire Kompress (lossless prose compressor) for
+		// PlainText. For now, leave untouched.
+		ContentType::PlainText => DispatchResult::NoOp { content_type: content_type.as_str() },
+		// No HTML compressor on the Rust side; pages are handled by
+		// upstream extractors, not the proxy.
+		ContentType::Html => DispatchResult::NoOp { content_type: content_type.as_str() },
+	}
 }
 
 /// Fallback when byte-range planning fails: still record per-block
 /// outcomes so observability covers the request. Mirrors PR-B2's
 /// observation-only path.
-fn inspect_latest_user_blocks_value(
-    message: &Value,
-    message_index: usize,
-) -> Option<Vec<BlockOutcome>> {
-    let content = message.get("content")?;
+fn inspect_latest_user_blocks_value(message: &Value, message_index: usize) -> Option<Vec<BlockOutcome>> {
+	let content = message.get("content")?;
 
-    if content.as_str().is_some() {
-        return Some(vec![BlockOutcome {
-            message_index,
-            block_index: None,
-            block_type: "string_content".to_string(),
-            action: BlockAction::NoCompressionApplied {
-                content_type: "text".to_string(),
-            },
-        }]);
-    }
+	if content.as_str().is_some() {
+		return Some(vec![BlockOutcome {
+			message_index,
+			block_index: None,
+			block_type: "string_content".to_string(),
+			action: BlockAction::NoCompressionApplied { content_type: "text".to_string() },
+		}]);
+	}
 
-    let blocks = content.as_array()?;
-    let mut outcomes = Vec::with_capacity(blocks.len());
-    for (idx, block) in blocks.iter().enumerate() {
-        let block_type = block
-            .get("type")
-            .and_then(Value::as_str)
-            .unwrap_or("unknown")
-            .to_string();
-        let action = if HOT_ZONE_BLOCK_TYPES.iter().any(|t| *t == block_type) {
-            BlockAction::Excluded {
-                reason: ExclusionReason::HotZoneBlockType,
-            }
-        } else {
-            BlockAction::NoCompressionApplied {
-                content_type: "unknown".to_string(),
-            }
-        };
-        outcomes.push(BlockOutcome {
-            message_index,
-            block_index: Some(idx),
-            block_type,
-            action,
-        });
-    }
-    Some(outcomes)
+	let blocks = content.as_array()?;
+	let mut outcomes = Vec::with_capacity(blocks.len());
+	for (idx, block) in blocks.iter().enumerate() {
+		let block_type = block.get("type").and_then(Value::as_str).unwrap_or("unknown").to_string();
+		let action = if HOT_ZONE_BLOCK_TYPES.iter().any(|t| *t == block_type) {
+			BlockAction::Excluded { reason: ExclusionReason::HotZoneBlockType }
+		} else {
+			BlockAction::NoCompressionApplied { content_type: "unknown".to_string() }
+		};
+		outcomes.push(BlockOutcome { message_index, block_index: Some(idx), block_type, action });
+	}
+	Some(outcomes)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use serde_json::json;
+	use super::*;
+	use serde_json::json;
 
-    fn body(value: Value) -> Vec<u8> {
-        serde_json::to_vec(&value).unwrap()
-    }
+	fn body(value: Value) -> Vec<u8> {
+		serde_json::to_vec(&value).unwrap()
+	}
 
-    fn outcome_block_actions(o: &LiveZoneOutcome) -> Vec<&BlockAction> {
-        let manifest = match o {
-            LiveZoneOutcome::NoChange { manifest } => manifest,
-            LiveZoneOutcome::Modified { manifest, .. } => manifest,
-        };
-        manifest.block_outcomes.iter().map(|b| &b.action).collect()
-    }
+	fn outcome_block_actions(o: &LiveZoneOutcome) -> Vec<&BlockAction> {
+		let manifest = match o {
+			LiveZoneOutcome::NoChange { manifest } => manifest,
+			LiveZoneOutcome::Modified { manifest, .. } => manifest,
+		};
+		manifest.block_outcomes.iter().map(|b| &b.action).collect()
+	}
 
-    #[test]
-    fn empty_messages_yields_no_change() {
-        let b = body(json!({"model": "claude", "messages": []}));
-        let out = compress_anthropic_live_zone(&b, 0, AuthMode::Payg, DEFAULT_MODEL).unwrap();
-        match out {
-            LiveZoneOutcome::NoChange { manifest } => {
-                assert_eq!(manifest.messages_total, 0);
-                assert_eq!(manifest.latest_user_message_index, None);
-                assert!(manifest.block_outcomes.is_empty());
-            },
-            _ => panic!("expected NoChange"),
-        }
-    }
+	#[test]
+	fn empty_messages_yields_no_change() {
+		let b = body(json!({"model": "claude", "messages": []}));
+		let out = compress_anthropic_live_zone(&b, 0, AuthMode::Payg, DEFAULT_MODEL).unwrap();
+		match out {
+			LiveZoneOutcome::NoChange { manifest } => {
+				assert_eq!(manifest.messages_total, 0);
+				assert_eq!(manifest.latest_user_message_index, None);
+				assert!(manifest.block_outcomes.is_empty());
+			},
+			_ => panic!("expected NoChange"),
+		}
+	}
 
-    #[test]
-    fn no_messages_field_errors() {
-        let b = body(json!({"model": "claude"}));
-        let err = compress_anthropic_live_zone(&b, 0, AuthMode::Payg, DEFAULT_MODEL).unwrap_err();
-        assert!(matches!(err, LiveZoneError::NoMessagesArray));
-    }
+	#[test]
+	fn no_messages_field_errors() {
+		let b = body(json!({"model": "claude"}));
+		let err = compress_anthropic_live_zone(&b, 0, AuthMode::Payg, DEFAULT_MODEL).unwrap_err();
+		assert!(matches!(err, LiveZoneError::NoMessagesArray));
+	}
 
-    #[test]
-    fn invalid_json_errors() {
-        let err = compress_anthropic_live_zone(b"not json", 0, AuthMode::Payg, DEFAULT_MODEL)
-            .unwrap_err();
-        assert!(matches!(err, LiveZoneError::BodyNotJson(_)));
-    }
+	#[test]
+	fn invalid_json_errors() {
+		let err = compress_anthropic_live_zone(b"not json", 0, AuthMode::Payg, DEFAULT_MODEL).unwrap_err();
+		assert!(matches!(err, LiveZoneError::BodyNotJson(_)));
+	}
 
-    #[test]
-    fn dispatches_only_to_latest_user_message() {
-        // Two user messages; the dispatcher must pick the second (index 2).
-        let b = body(json!({
-            "messages": [
-                {"role": "user", "content": "first user"},
-                {"role": "assistant", "content": "first asst"},
-                {"role": "user", "content": [
-                    {"type": "tool_result", "tool_use_id": "t1", "content": "result"},
-                    {"type": "text", "text": "summarize"}
-                ]},
-            ]
-        }));
-        let out = compress_anthropic_live_zone(&b, 0, AuthMode::Payg, DEFAULT_MODEL).unwrap();
-        let manifest = match &out {
-            LiveZoneOutcome::NoChange { manifest } => manifest,
-            LiveZoneOutcome::Modified { manifest, .. } => manifest,
-        };
-        assert_eq!(manifest.latest_user_message_index, Some(2));
-        let block_msg_indices: Vec<usize> = manifest
-            .block_outcomes
-            .iter()
-            .map(|b| b.message_index)
-            .collect();
-        assert!(
-            block_msg_indices.iter().all(|i| *i == 2),
-            "all block outcomes must reference the latest user message; got {block_msg_indices:?}"
-        );
-    }
+	#[test]
+	fn dispatches_only_to_latest_user_message() {
+		// Two user messages; the dispatcher must pick the second (index 2).
+		let b = body(json!({
+			"messages": [
+				{"role": "user", "content": "first user"},
+				{"role": "assistant", "content": "first asst"},
+				{"role": "user", "content": [
+					{"type": "tool_result", "tool_use_id": "t1", "content": "result"},
+					{"type": "text", "text": "summarize"}
+				]},
+			]
+		}));
+		let out = compress_anthropic_live_zone(&b, 0, AuthMode::Payg, DEFAULT_MODEL).unwrap();
+		let manifest = match &out {
+			LiveZoneOutcome::NoChange { manifest } => manifest,
+			LiveZoneOutcome::Modified { manifest, .. } => manifest,
+		};
+		assert_eq!(manifest.latest_user_message_index, Some(2));
+		let block_msg_indices: Vec<usize> = manifest.block_outcomes.iter().map(|b| b.message_index).collect();
+		assert!(
+			block_msg_indices.iter().all(|i| *i == 2),
+			"all block outcomes must reference the latest user message; got {block_msg_indices:?}"
+		);
+	}
 
-    #[test]
-    fn respects_frozen_message_count() {
-        // Latest user message is at index 1; floor is 2 → live zone is empty.
-        let b = body(json!({
-            "messages": [
-                {"role": "user", "content": "first"},
-                {"role": "user", "content": [{"type": "text", "text": "second"}]},
-            ]
-        }));
-        let out = compress_anthropic_live_zone(&b, 2, AuthMode::Payg, DEFAULT_MODEL).unwrap();
-        let manifest = match &out {
-            LiveZoneOutcome::NoChange { manifest } => manifest,
-            _ => panic!("expected NoChange"),
-        };
-        assert_eq!(manifest.latest_user_message_index, None);
-        assert!(manifest.block_outcomes.is_empty());
-        assert_eq!(manifest.messages_below_frozen_floor, 2);
-    }
+	#[test]
+	fn respects_frozen_message_count() {
+		// Latest user message is at index 1; floor is 2 → live zone is empty.
+		let b = body(json!({
+			"messages": [
+				{"role": "user", "content": "first"},
+				{"role": "user", "content": [{"type": "text", "text": "second"}]},
+			]
+		}));
+		let out = compress_anthropic_live_zone(&b, 2, AuthMode::Payg, DEFAULT_MODEL).unwrap();
+		let manifest = match &out {
+			LiveZoneOutcome::NoChange { manifest } => manifest,
+			_ => panic!("expected NoChange"),
+		};
+		assert_eq!(manifest.latest_user_message_index, None);
+		assert!(manifest.block_outcomes.is_empty());
+		assert_eq!(manifest.messages_below_frozen_floor, 2);
+	}
 
-    #[test]
-    fn excludes_hot_zone_block_types() {
-        let b = body(json!({
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {"type": "tool_result", "tool_use_id": "t", "content": "x"},
-                    {"type": "thinking", "thinking": "...", "signature": "sig"},
-                    {"type": "text", "text": "ok"},
-                ]
-            }]
-        }));
-        let out = compress_anthropic_live_zone(&b, 0, AuthMode::Payg, DEFAULT_MODEL).unwrap();
-        let actions = outcome_block_actions(&out);
-        assert_eq!(actions.len(), 3);
-        // tool_result with tiny content → BelowByteThreshold.
-        assert!(matches!(actions[0], BlockAction::BelowByteThreshold { .. }));
-        assert!(matches!(
-            actions[1],
-            BlockAction::Excluded {
-                reason: ExclusionReason::HotZoneBlockType
-            }
-        ));
-        // text block with "ok" → BelowByteThreshold.
-        assert!(matches!(actions[2], BlockAction::BelowByteThreshold { .. }));
-    }
+	#[test]
+	fn excludes_hot_zone_block_types() {
+		let b = body(json!({
+			"messages": [{
+				"role": "user",
+				"content": [
+					{"type": "tool_result", "tool_use_id": "t", "content": "x"},
+					{"type": "thinking", "thinking": "...", "signature": "sig"},
+					{"type": "text", "text": "ok"},
+				]
+			}]
+		}));
+		let out = compress_anthropic_live_zone(&b, 0, AuthMode::Payg, DEFAULT_MODEL).unwrap();
+		let actions = outcome_block_actions(&out);
+		assert_eq!(actions.len(), 3);
+		// tool_result with tiny content → BelowByteThreshold.
+		assert!(matches!(actions[0], BlockAction::BelowByteThreshold { .. }));
+		assert!(matches!(
+			actions[1],
+			BlockAction::Excluded { reason: ExclusionReason::HotZoneBlockType }
+		));
+		// text block with "ok" → BelowByteThreshold.
+		assert!(matches!(actions[2], BlockAction::BelowByteThreshold { .. }));
+	}
 
-    #[test]
-    fn string_content_message_records_synthetic_block() {
-        let b = body(json!({
-            "messages": [{"role": "user", "content": "just a string"}]
-        }));
-        let out = compress_anthropic_live_zone(&b, 0, AuthMode::Payg, DEFAULT_MODEL).unwrap();
-        let manifest = match &out {
-            LiveZoneOutcome::NoChange { manifest } => manifest,
-            LiveZoneOutcome::Modified { manifest, .. } => manifest,
-        };
-        assert_eq!(manifest.block_outcomes.len(), 1);
-        assert_eq!(manifest.block_outcomes[0].block_type, "string_content");
-        // 13 bytes of plain text is well below the plain-text threshold.
-        assert!(matches!(
-            manifest.block_outcomes[0].action,
-            BlockAction::BelowByteThreshold { .. }
-        ));
-    }
+	#[test]
+	fn string_content_message_records_synthetic_block() {
+		let b = body(json!({
+			"messages": [{"role": "user", "content": "just a string"}]
+		}));
+		let out = compress_anthropic_live_zone(&b, 0, AuthMode::Payg, DEFAULT_MODEL).unwrap();
+		let manifest = match &out {
+			LiveZoneOutcome::NoChange { manifest } => manifest,
+			LiveZoneOutcome::Modified { manifest, .. } => manifest,
+		};
+		assert_eq!(manifest.block_outcomes.len(), 1);
+		assert_eq!(manifest.block_outcomes[0].block_type, "string_content");
+		// 13 bytes of plain text is well below the plain-text threshold.
+		assert!(matches!(
+			manifest.block_outcomes[0].action,
+			BlockAction::BelowByteThreshold { .. }
+		));
+	}
 
-    #[test]
-    fn no_user_message_in_live_zone_returns_no_blocks() {
-        let b = body(json!({
-            "messages": [{"role": "assistant", "content": "hi"}]
-        }));
-        let out = compress_anthropic_live_zone(&b, 0, AuthMode::Payg, DEFAULT_MODEL).unwrap();
-        let manifest = match &out {
-            LiveZoneOutcome::NoChange { manifest } => manifest,
-            _ => panic!("expected NoChange"),
-        };
-        assert_eq!(manifest.latest_user_message_index, None);
-        assert!(manifest.block_outcomes.is_empty());
-    }
+	#[test]
+	fn no_user_message_in_live_zone_returns_no_blocks() {
+		let b = body(json!({
+			"messages": [{"role": "assistant", "content": "hi"}]
+		}));
+		let out = compress_anthropic_live_zone(&b, 0, AuthMode::Payg, DEFAULT_MODEL).unwrap();
+		let manifest = match &out {
+			LiveZoneOutcome::NoChange { manifest } => manifest,
+			_ => panic!("expected NoChange"),
+		};
+		assert_eq!(manifest.latest_user_message_index, None);
+		assert!(manifest.block_outcomes.is_empty());
+	}
 
-    #[test]
-    fn auth_mode_does_not_affect_b3_outcome_for_short_input() {
-        // Trivial input → every mode behaves identically.
-        let b = body(json!({
-            "messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}]
-        }));
-        let payg = compress_anthropic_live_zone(&b, 0, AuthMode::Payg, DEFAULT_MODEL).unwrap();
-        let oauth = compress_anthropic_live_zone(&b, 0, AuthMode::OAuth, DEFAULT_MODEL).unwrap();
-        let sub =
-            compress_anthropic_live_zone(&b, 0, AuthMode::Subscription, DEFAULT_MODEL).unwrap();
-        for o in [&payg, &oauth, &sub] {
-            assert!(matches!(o, LiveZoneOutcome::NoChange { .. }));
-        }
-    }
+	#[test]
+	fn auth_mode_does_not_affect_b3_outcome_for_short_input() {
+		// Trivial input → every mode behaves identically.
+		let b = body(json!({
+			"messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}]
+		}));
+		let payg = compress_anthropic_live_zone(&b, 0, AuthMode::Payg, DEFAULT_MODEL).unwrap();
+		let oauth = compress_anthropic_live_zone(&b, 0, AuthMode::OAuth, DEFAULT_MODEL).unwrap();
+		let sub = compress_anthropic_live_zone(&b, 0, AuthMode::Subscription, DEFAULT_MODEL).unwrap();
+		for o in [&payg, &oauth, &sub] {
+			assert!(matches!(o, LiveZoneOutcome::NoChange { .. }));
+		}
+	}
 
-    #[test]
-    fn no_change_when_input_already_minimal_returns_original_semantics() {
-        // tiny tool_result → detected as plain text, no-op
-        // dispatch → NoChange.
-        let b = body(json!({
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {"type": "tool_result", "tool_use_id": "t", "content": "x"},
-                ]
-            }]
-        }));
-        let out = compress_anthropic_live_zone(&b, 0, AuthMode::Payg, DEFAULT_MODEL).unwrap();
-        assert!(matches!(out, LiveZoneOutcome::NoChange { .. }));
-    }
+	#[test]
+	fn no_change_when_input_already_minimal_returns_original_semantics() {
+		// tiny tool_result → detected as plain text, no-op
+		// dispatch → NoChange.
+		let b = body(json!({
+			"messages": [{
+				"role": "user",
+				"content": [
+					{"type": "tool_result", "tool_use_id": "t", "content": "x"},
+				]
+			}]
+		}));
+		let out = compress_anthropic_live_zone(&b, 0, AuthMode::Payg, DEFAULT_MODEL).unwrap();
+		assert!(matches!(out, LiveZoneOutcome::NoChange { .. }));
+	}
 
-    #[test]
-    fn manifest_records_messages_below_floor() {
-        let b = body(json!({
-            "messages": [
-                {"role": "user", "content": "frozen"},
-                {"role": "assistant", "content": "frozen"},
-                {"role": "user", "content": "live"},
-            ]
-        }));
-        let out = compress_anthropic_live_zone(&b, 2, AuthMode::Payg, DEFAULT_MODEL).unwrap();
-        let manifest = match &out {
-            LiveZoneOutcome::NoChange { manifest } => manifest,
-            LiveZoneOutcome::Modified { manifest, .. } => manifest,
-        };
-        assert_eq!(manifest.messages_total, 3);
-        assert_eq!(manifest.messages_below_frozen_floor, 2);
-        assert_eq!(manifest.latest_user_message_index, Some(2));
-    }
+	#[test]
+	fn manifest_records_messages_below_floor() {
+		let b = body(json!({
+			"messages": [
+				{"role": "user", "content": "frozen"},
+				{"role": "assistant", "content": "frozen"},
+				{"role": "user", "content": "live"},
+			]
+		}));
+		let out = compress_anthropic_live_zone(&b, 2, AuthMode::Payg, DEFAULT_MODEL).unwrap();
+		let manifest = match &out {
+			LiveZoneOutcome::NoChange { manifest } => manifest,
+			LiveZoneOutcome::Modified { manifest, .. } => manifest,
+		};
+		assert_eq!(manifest.messages_total, 3);
+		assert_eq!(manifest.messages_below_frozen_floor, 2);
+		assert_eq!(manifest.latest_user_message_index, Some(2));
+	}
 
-    #[test]
-    fn frozen_count_above_messages_clamps() {
-        let b = body(json!({
-            "messages": [{"role": "user", "content": "x"}]
-        }));
-        let out = compress_anthropic_live_zone(&b, 99, AuthMode::Payg, DEFAULT_MODEL).unwrap();
-        let manifest = match &out {
-            LiveZoneOutcome::NoChange { manifest } => manifest,
-            _ => panic!("expected NoChange"),
-        };
-        assert_eq!(manifest.messages_below_frozen_floor, 1);
-        assert_eq!(manifest.latest_user_message_index, None);
-    }
+	#[test]
+	fn frozen_count_above_messages_clamps() {
+		let b = body(json!({
+			"messages": [{"role": "user", "content": "x"}]
+		}));
+		let out = compress_anthropic_live_zone(&b, 99, AuthMode::Payg, DEFAULT_MODEL).unwrap();
+		let manifest = match &out {
+			LiveZoneOutcome::NoChange { manifest } => manifest,
+			_ => panic!("expected NoChange"),
+		};
+		assert_eq!(manifest.messages_below_frozen_floor, 1);
+		assert_eq!(manifest.latest_user_message_index, None);
+	}
 
-    // ─── Manifest accessor helpers (consumed by PyO3 binding) ─────────
+	// ─── Manifest accessor helpers (consumed by PyO3 binding) ─────────
 
-    fn make_manifest(actions: Vec<BlockAction>) -> CompressionManifest {
-        CompressionManifest {
-            messages_total: actions.len(),
-            messages_below_frozen_floor: 0,
-            latest_user_message_index: None,
-            block_outcomes: actions
-                .into_iter()
-                .enumerate()
-                .map(|(i, a)| BlockOutcome {
-                    message_index: i,
-                    block_index: None,
-                    block_type: "test".to_string(),
-                    action: a,
-                })
-                .collect(),
-        }
-    }
+	fn make_manifest(actions: Vec<BlockAction>) -> CompressionManifest {
+		CompressionManifest {
+			messages_total: actions.len(),
+			messages_below_frozen_floor: 0,
+			latest_user_message_index: None,
+			block_outcomes: actions
+				.into_iter()
+				.enumerate()
+				.map(|(i, a)| BlockOutcome {
+					message_index: i,
+					block_index: None,
+					block_type: "test".to_string(),
+					action: a,
+				})
+				.collect(),
+		}
+	}
 
-    #[test]
-    fn tokens_saved_zero_for_empty_manifest() {
-        let m = CompressionManifest::empty();
-        assert_eq!(m.tokens_saved(), 0);
-        assert!(m.transforms_applied().is_empty());
-    }
+	#[test]
+	fn tokens_saved_zero_for_empty_manifest() {
+		let m = CompressionManifest::empty();
+		assert_eq!(m.tokens_saved(), 0);
+		assert!(m.transforms_applied().is_empty());
+	}
 
-    #[test]
-    fn tokens_saved_sums_compressed_outcomes_only() {
-        let m = make_manifest(vec![
-            BlockAction::Compressed {
-                strategy: "smart_crusher",
-                original_bytes: 0,
-                compressed_bytes: 0,
-                original_tokens: 100,
-                compressed_tokens: 30,
-            },
-            BlockAction::NoCompressionApplied {
-                content_type: "image".to_string(),
-            },
-            BlockAction::Compressed {
-                strategy: "log_compressor",
-                original_bytes: 0,
-                compressed_bytes: 0,
-                original_tokens: 200,
-                compressed_tokens: 50,
-            },
-            BlockAction::RejectedNotSmaller {
-                strategy: "smart_crusher",
-                original_bytes: 0,
-                compressed_bytes: 0,
-                original_tokens: 80,
-                compressed_tokens: 90,
-            },
-        ]);
-        // 70 + 150 = 220; rejected variant must not contribute.
-        assert_eq!(m.tokens_saved(), 220);
-    }
+	#[test]
+	fn tokens_saved_sums_compressed_outcomes_only() {
+		let m = make_manifest(vec![
+			BlockAction::Compressed {
+				strategy: "smart_crusher",
+				original_bytes: 0,
+				compressed_bytes: 0,
+				original_tokens: 100,
+				compressed_tokens: 30,
+			},
+			BlockAction::NoCompressionApplied { content_type: "image".to_string() },
+			BlockAction::Compressed {
+				strategy: "log_compressor",
+				original_bytes: 0,
+				compressed_bytes: 0,
+				original_tokens: 200,
+				compressed_tokens: 50,
+			},
+			BlockAction::RejectedNotSmaller {
+				strategy: "smart_crusher",
+				original_bytes: 0,
+				compressed_bytes: 0,
+				original_tokens: 80,
+				compressed_tokens: 90,
+			},
+		]);
+		// 70 + 150 = 220; rejected variant must not contribute.
+		assert_eq!(m.tokens_saved(), 220);
+	}
 
-    #[test]
-    fn transforms_applied_dedup_first_seen_order() {
-        let m = make_manifest(vec![
-            BlockAction::Compressed {
-                strategy: "log_compressor",
-                original_bytes: 0,
-                compressed_bytes: 0,
-                original_tokens: 50,
-                compressed_tokens: 10,
-            },
-            BlockAction::Compressed {
-                strategy: "smart_crusher",
-                original_bytes: 0,
-                compressed_bytes: 0,
-                original_tokens: 50,
-                compressed_tokens: 10,
-            },
-            BlockAction::Compressed {
-                strategy: "log_compressor",
-                original_bytes: 0,
-                compressed_bytes: 0,
-                original_tokens: 50,
-                compressed_tokens: 10,
-            },
-        ]);
-        assert_eq!(
-            m.transforms_applied(),
-            vec!["log_compressor", "smart_crusher"]
-        );
-    }
+	#[test]
+	fn transforms_applied_dedup_first_seen_order() {
+		let m = make_manifest(vec![
+			BlockAction::Compressed {
+				strategy: "log_compressor",
+				original_bytes: 0,
+				compressed_bytes: 0,
+				original_tokens: 50,
+				compressed_tokens: 10,
+			},
+			BlockAction::Compressed {
+				strategy: "smart_crusher",
+				original_bytes: 0,
+				compressed_bytes: 0,
+				original_tokens: 50,
+				compressed_tokens: 10,
+			},
+			BlockAction::Compressed {
+				strategy: "log_compressor",
+				original_bytes: 0,
+				compressed_bytes: 0,
+				original_tokens: 50,
+				compressed_tokens: 10,
+			},
+		]);
+		assert_eq!(m.transforms_applied(), vec!["log_compressor", "smart_crusher"]);
+	}
 
-    #[test]
-    fn tokens_saved_saturates_when_compressed_exceeds_original() {
-        // Defensive — the dispatcher's RejectedNotSmaller gate should
-        // make this unreachable, but the helper must not panic if a
-        // future caller hand-constructs such a manifest.
-        let m = make_manifest(vec![BlockAction::Compressed {
-            strategy: "smart_crusher",
-            original_bytes: 0,
-            compressed_bytes: 0,
-            original_tokens: 10,
-            compressed_tokens: 50,
-        }]);
-        assert_eq!(m.tokens_saved(), 0);
-    }
+	#[test]
+	fn tokens_saved_saturates_when_compressed_exceeds_original() {
+		// Defensive — the dispatcher's RejectedNotSmaller gate should
+		// make this unreachable, but the helper must not panic if a
+		// future caller hand-constructs such a manifest.
+		let m = make_manifest(vec![BlockAction::Compressed {
+			strategy: "smart_crusher",
+			original_bytes: 0,
+			compressed_bytes: 0,
+			original_tokens: 10,
+			compressed_tokens: 50,
+		}]);
+		assert_eq!(m.tokens_saved(), 0);
+	}
 }
 
 // ─── OpenAI Chat Completions live-zone dispatcher (Phase C PR-C2) ────────
@@ -1790,179 +1668,164 @@ mod tests {
 /// never re-serialized. PR-C2 integration tests pin SHA-256 byte
 /// equality on the prefix and suffix.
 pub fn compress_openai_chat_live_zone(
-    body_raw: &[u8],
-    _auth_mode: AuthMode,
-    model: &str,
+	body_raw: &[u8],
+	_auth_mode: AuthMode,
+	model: &str,
 ) -> Result<LiveZoneOutcome, LiveZoneError> {
-    let parsed: Value = serde_json::from_slice(body_raw).map_err(LiveZoneError::BodyNotJson)?;
-    let messages = parsed
-        .get("messages")
-        .and_then(Value::as_array)
-        .ok_or(LiveZoneError::NoMessagesArray)?;
+	let parsed: Value = serde_json::from_slice(body_raw).map_err(LiveZoneError::BodyNotJson)?;
+	let messages = parsed
+		.get("messages")
+		.and_then(Value::as_array)
+		.ok_or(LiveZoneError::NoMessagesArray)?;
 
-    if messages.is_empty() {
-        return Ok(LiveZoneOutcome::NoChange {
-            manifest: CompressionManifest::empty(),
-        });
-    }
+	if messages.is_empty() {
+		return Ok(LiveZoneOutcome::NoChange { manifest: CompressionManifest::empty() });
+	}
 
-    let messages_total = messages.len();
+	let messages_total = messages.len();
 
-    // Latest tool / user message indices in the live zone.
-    let latest_tool_idx = find_latest_role_index(messages, "tool");
-    let latest_user_idx = find_latest_role_index(messages, "user");
+	// Latest tool / user message indices in the live zone.
+	let latest_tool_idx = find_latest_role_index(messages, "tool");
+	let latest_user_idx = find_latest_role_index(messages, "user");
 
-    // No live-zone candidates → NoChange.
-    if latest_tool_idx.is_none() && latest_user_idx.is_none() {
-        return Ok(LiveZoneOutcome::NoChange {
-            manifest: CompressionManifest {
-                messages_total,
-                messages_below_frozen_floor: 0,
-                latest_user_message_index: latest_user_idx,
-                block_outcomes: Vec::new(),
-            },
-        });
-    }
+	// No live-zone candidates → NoChange.
+	if latest_tool_idx.is_none() && latest_user_idx.is_none() {
+		return Ok(LiveZoneOutcome::NoChange {
+			manifest: CompressionManifest {
+				messages_total,
+				messages_below_frozen_floor: 0,
+				latest_user_message_index: latest_user_idx,
+				block_outcomes: Vec::new(),
+			},
+		});
+	}
 
-    // Plan replacements for both targets. Each plan returns slots for
-    // its own message; we stitch them together into a single
-    // replacement vec keyed by ascending byte offset (apply_replacements
-    // sorts defensively too).
-    let mut all_slots: Vec<(usize, OpenAiPlanSlot)> = Vec::new();
-    if let Some(idx) = latest_tool_idx {
-        // Body shape doesn't match what we expect → skip planning
-        // for the tool message but keep going for the user message.
-        if let Ok(slot) = plan_openai_tool_message(body_raw, idx) {
-            all_slots.push((idx, slot));
-        }
-    }
-    if let Some(idx) = latest_user_idx {
-        if let Ok(slots) = plan_openai_user_message(body_raw, idx) {
-            for s in slots {
-                all_slots.push((idx, s));
-            }
-        }
-    }
+	// Plan replacements for both targets. Each plan returns slots for
+	// its own message; we stitch them together into a single
+	// replacement vec keyed by ascending byte offset (apply_replacements
+	// sorts defensively too).
+	let mut all_slots: Vec<(usize, OpenAiPlanSlot)> = Vec::new();
+	if let Some(idx) = latest_tool_idx {
+		// Body shape doesn't match what we expect → skip planning
+		// for the tool message but keep going for the user message.
+		if let Ok(slot) = plan_openai_tool_message(body_raw, idx) {
+			all_slots.push((idx, slot));
+		}
+	}
+	if let Some(idx) = latest_user_idx {
+		if let Ok(slots) = plan_openai_user_message(body_raw, idx) {
+			for s in slots {
+				all_slots.push((idx, s));
+			}
+		}
+	}
 
-    if all_slots.is_empty() {
-        return Ok(LiveZoneOutcome::NoChange {
-            manifest: CompressionManifest {
-                messages_total,
-                messages_below_frozen_floor: 0,
-                latest_user_message_index: latest_user_idx,
-                block_outcomes: Vec::new(),
-            },
-        });
-    }
+	if all_slots.is_empty() {
+		return Ok(LiveZoneOutcome::NoChange {
+			manifest: CompressionManifest {
+				messages_total,
+				messages_below_frozen_floor: 0,
+				latest_user_message_index: latest_user_idx,
+				block_outcomes: Vec::new(),
+			},
+		});
+	}
 
-    let tokenizer = get_tokenizer(model);
-    let mut block_outcomes: Vec<BlockOutcome> = Vec::with_capacity(all_slots.len());
-    let mut replacements: Vec<Replacement> = Vec::new();
+	let tokenizer = get_tokenizer(model);
+	let mut block_outcomes: Vec<BlockOutcome> = Vec::with_capacity(all_slots.len());
+	let mut replacements: Vec<Replacement> = Vec::new();
 
-    for (msg_idx, slot) in all_slots {
-        let detected = detect_content_type(&slot.content_text);
-        let outcome = compress_one_block(
-            &slot.content_text,
-            detected.content_type,
-            slot.content_byte_range,
-            msg_idx,
-            slot.block_index,
-            slot.block_type,
-            tokenizer.as_ref(),
-            &mut replacements,
-            None, // PR-C2: no CCR store yet on the OpenAI path.
-        );
-        block_outcomes.push(outcome);
-    }
+	for (msg_idx, slot) in all_slots {
+		let detected = detect_content_type(&slot.content_text);
+		let outcome = compress_one_block(
+			&slot.content_text,
+			detected.content_type,
+			slot.content_byte_range,
+			msg_idx,
+			slot.block_index,
+			slot.block_type,
+			tokenizer.as_ref(),
+			&mut replacements,
+			None, // PR-C2: no CCR store yet on the OpenAI path.
+		);
+		block_outcomes.push(outcome);
+	}
 
-    let manifest = CompressionManifest {
-        messages_total,
-        messages_below_frozen_floor: 0,
-        latest_user_message_index: latest_user_idx,
-        block_outcomes,
-    };
+	let manifest = CompressionManifest {
+		messages_total,
+		messages_below_frozen_floor: 0,
+		latest_user_message_index: latest_user_idx,
+		block_outcomes,
+	};
 
-    if !manifest.has_compressed_block() || replacements.is_empty() {
-        return Ok(LiveZoneOutcome::NoChange { manifest });
-    }
+	if !manifest.has_compressed_block() || replacements.is_empty() {
+		return Ok(LiveZoneOutcome::NoChange { manifest });
+	}
 
-    let new_bytes = apply_replacements(body_raw, &mut replacements);
-    let new_body_str = match std::str::from_utf8(&new_bytes) {
-        Ok(s) => s,
-        Err(_) => return Ok(LiveZoneOutcome::NoChange { manifest }),
-    };
-    let raw = match RawValue::from_string(new_body_str.to_string()) {
-        Ok(r) => r,
-        Err(_) => return Ok(LiveZoneOutcome::NoChange { manifest }),
-    };
+	let new_bytes = apply_replacements(body_raw, &mut replacements);
+	let new_body_str = match std::str::from_utf8(&new_bytes) {
+		Ok(s) => s,
+		Err(_) => return Ok(LiveZoneOutcome::NoChange { manifest }),
+	};
+	let raw = match RawValue::from_string(new_body_str.to_string()) {
+		Ok(r) => r,
+		Err(_) => return Ok(LiveZoneOutcome::NoChange { manifest }),
+	};
 
-    Ok(LiveZoneOutcome::Modified {
-        new_body: raw,
-        manifest,
-    })
+	Ok(LiveZoneOutcome::Modified { new_body: raw, manifest })
 }
 
 /// Find the highest index of a message with `role == role`. `None` if
 /// no such message exists.
 fn find_latest_role_index(messages: &[Value], role: &str) -> Option<usize> {
-    for (idx, msg) in messages.iter().enumerate().rev() {
-        if msg.get("role").and_then(Value::as_str) == Some(role) {
-            return Some(idx);
-        }
-    }
-    None
+	for (idx, msg) in messages.iter().enumerate().rev() {
+		if msg.get("role").and_then(Value::as_str) == Some(role) {
+			return Some(idx);
+		}
+	}
+	None
 }
 
 /// One OpenAI live-zone plan slot. Mirrors `PlanSlot` but emits the
 /// `block_index` and `block_type` shape `compress_one_block` expects.
 struct OpenAiPlanSlot {
-    block_index: Option<usize>,
-    block_type: String,
-    content_text: String,
-    content_byte_range: (usize, usize),
+	block_index: Option<usize>,
+	block_type: String,
+	content_text: String,
+	content_byte_range: (usize, usize),
 }
 
 /// Plan a replacement slot for the tool message at `msg_idx`. Tool
 /// messages carry `content` as either a string (compressible) or an
 /// array of parts (rare; not compressed in PR-C2 — falls through).
 fn plan_openai_tool_message(body_raw: &[u8], msg_idx: usize) -> Result<OpenAiPlanSlot, PlanError> {
-    let body_str = std::str::from_utf8(body_raw).map_err(|_| PlanError::ParseFailed)?;
-    let body: BodyView<'_> = serde_json::from_str(body_str).map_err(|_| PlanError::ParseFailed)?;
-    let msg_raw = body
-        .messages
-        .get(msg_idx)
-        .ok_or(PlanError::TargetOutOfBounds)?;
+	let body_str = std::str::from_utf8(body_raw).map_err(|_| PlanError::ParseFailed)?;
+	let body: BodyView<'_> = serde_json::from_str(body_str).map_err(|_| PlanError::ParseFailed)?;
+	let msg_raw = body.messages.get(msg_idx).ok_or(PlanError::TargetOutOfBounds)?;
 
-    let msg_view: MessageView<'_> =
-        serde_json::from_str(msg_raw.get()).map_err(|_| PlanError::ParseFailed)?;
-    let content_raw = msg_view.content.ok_or(PlanError::ParseFailed)?;
+	let msg_view: MessageView<'_> = serde_json::from_str(msg_raw.get()).map_err(|_| PlanError::ParseFailed)?;
+	let content_raw = msg_view.content.ok_or(PlanError::ParseFailed)?;
 
-    let content_offset_in_msg =
-        bytes_offset_of(msg_raw.get(), content_raw.get()).ok_or(PlanError::OffsetMissing)?;
-    let msg_offset_in_body =
-        bytes_offset_of(body_str, msg_raw.get()).ok_or(PlanError::OffsetMissing)?;
-    let content_offset_in_body = msg_offset_in_body + content_offset_in_msg;
+	let content_offset_in_msg = bytes_offset_of(msg_raw.get(), content_raw.get()).ok_or(PlanError::OffsetMissing)?;
+	let msg_offset_in_body = bytes_offset_of(body_str, msg_raw.get()).ok_or(PlanError::OffsetMissing)?;
+	let content_offset_in_body = msg_offset_in_body + content_offset_in_msg;
 
-    let content_str = content_raw.get();
-    if !content_str.starts_with('"') {
-        // Non-string content (array of parts). PR-C2 doesn't walk
-        // these — treat as not-planned and let the dispatcher record
-        // no slot. This is a planner-level skip, not a parse error.
-        return Err(PlanError::ParseFailed);
-    }
+	let content_str = content_raw.get();
+	if !content_str.starts_with('"') {
+		// Non-string content (array of parts). PR-C2 doesn't walk
+		// these — treat as not-planned and let the dispatcher record
+		// no slot. This is a planner-level skip, not a parse error.
+		return Err(PlanError::ParseFailed);
+	}
 
-    let unescaped: String =
-        serde_json::from_str(content_str).map_err(|_| PlanError::ParseFailed)?;
+	let unescaped: String = serde_json::from_str(content_str).map_err(|_| PlanError::ParseFailed)?;
 
-    Ok(OpenAiPlanSlot {
-        block_index: None,
-        block_type: "tool_content".to_string(),
-        content_text: unescaped,
-        content_byte_range: (
-            content_offset_in_body,
-            content_offset_in_body + content_str.len(),
-        ),
-    })
+	Ok(OpenAiPlanSlot {
+		block_index: None,
+		block_type: "tool_content".to_string(),
+		content_text: unescaped,
+		content_byte_range: (content_offset_in_body, content_offset_in_body + content_str.len()),
+	})
 }
 
 /// Plan replacement slots for the user message at `msg_idx`. User
@@ -1972,215 +1835,197 @@ fn plan_openai_tool_message(body_raw: &[u8], msg_idx: usize) -> Result<OpenAiPla
 /// - An array of parts where each `{type: "text", text}` is a
 ///   compressible slot. `{type: "image_url", ...}` and other
 ///   non-text parts are skipped.
-fn plan_openai_user_message(
-    body_raw: &[u8],
-    msg_idx: usize,
-) -> Result<Vec<OpenAiPlanSlot>, PlanError> {
-    let body_str = std::str::from_utf8(body_raw).map_err(|_| PlanError::ParseFailed)?;
-    let body: BodyView<'_> = serde_json::from_str(body_str).map_err(|_| PlanError::ParseFailed)?;
-    let msg_raw = body
-        .messages
-        .get(msg_idx)
-        .ok_or(PlanError::TargetOutOfBounds)?;
+fn plan_openai_user_message(body_raw: &[u8], msg_idx: usize) -> Result<Vec<OpenAiPlanSlot>, PlanError> {
+	let body_str = std::str::from_utf8(body_raw).map_err(|_| PlanError::ParseFailed)?;
+	let body: BodyView<'_> = serde_json::from_str(body_str).map_err(|_| PlanError::ParseFailed)?;
+	let msg_raw = body.messages.get(msg_idx).ok_or(PlanError::TargetOutOfBounds)?;
 
-    let msg_view: MessageView<'_> =
-        serde_json::from_str(msg_raw.get()).map_err(|_| PlanError::ParseFailed)?;
-    let Some(content_raw) = msg_view.content else {
-        return Ok(Vec::new());
-    };
+	let msg_view: MessageView<'_> = serde_json::from_str(msg_raw.get()).map_err(|_| PlanError::ParseFailed)?;
+	let Some(content_raw) = msg_view.content else {
+		return Ok(Vec::new());
+	};
 
-    let content_offset_in_msg =
-        bytes_offset_of(msg_raw.get(), content_raw.get()).ok_or(PlanError::OffsetMissing)?;
-    let msg_offset_in_body =
-        bytes_offset_of(body_str, msg_raw.get()).ok_or(PlanError::OffsetMissing)?;
-    let content_offset_in_body = msg_offset_in_body + content_offset_in_msg;
+	let content_offset_in_msg = bytes_offset_of(msg_raw.get(), content_raw.get()).ok_or(PlanError::OffsetMissing)?;
+	let msg_offset_in_body = bytes_offset_of(body_str, msg_raw.get()).ok_or(PlanError::OffsetMissing)?;
+	let content_offset_in_body = msg_offset_in_body + content_offset_in_msg;
 
-    let content_str = content_raw.get();
+	let content_str = content_raw.get();
 
-    // Case 1: content is a JSON string.
-    if content_str.starts_with('"') {
-        let unescaped: String =
-            serde_json::from_str(content_str).map_err(|_| PlanError::ParseFailed)?;
-        return Ok(vec![OpenAiPlanSlot {
-            block_index: None,
-            block_type: "user_string".to_string(),
-            content_text: unescaped,
-            content_byte_range: (
-                content_offset_in_body,
-                content_offset_in_body + content_str.len(),
-            ),
-        }]);
-    }
+	// Case 1: content is a JSON string.
+	if content_str.starts_with('"') {
+		let unescaped: String = serde_json::from_str(content_str).map_err(|_| PlanError::ParseFailed)?;
+		return Ok(vec![OpenAiPlanSlot {
+			block_index: None,
+			block_type: "user_string".to_string(),
+			content_text: unescaped,
+			content_byte_range: (content_offset_in_body, content_offset_in_body + content_str.len()),
+		}]);
+	}
 
-    // Case 2: content is an array of typed parts.
-    let parts: Vec<&RawValue> =
-        serde_json::from_str(content_str).map_err(|_| PlanError::ParseFailed)?;
+	// Case 2: content is an array of typed parts.
+	let parts: Vec<&RawValue> = serde_json::from_str(content_str).map_err(|_| PlanError::ParseFailed)?;
 
-    let mut slots = Vec::with_capacity(parts.len());
-    for (part_idx, part_raw) in parts.iter().enumerate() {
-        let header: BlockHeader<'_> =
-            serde_json::from_str(part_raw.get()).map_err(|_| PlanError::ParseFailed)?;
-        let block_type = header.r#type.unwrap_or("unknown").to_string();
-        if block_type != "text" {
-            // Skip image_url / other non-text parts.
-            continue;
-        }
+	let mut slots = Vec::with_capacity(parts.len());
+	for (part_idx, part_raw) in parts.iter().enumerate() {
+		let header: BlockHeader<'_> = serde_json::from_str(part_raw.get()).map_err(|_| PlanError::ParseFailed)?;
+		let block_type = header.r#type.unwrap_or("unknown").to_string();
+		if block_type != "text" {
+			// Skip image_url / other non-text parts.
+			continue;
+		}
 
-        // Extract the `text` field byte range.
-        #[derive(Deserialize)]
-        struct TextHeader<'a> {
-            #[serde(borrow, default)]
-            text: Option<&'a RawValue>,
-        }
-        let h: TextHeader<'_> =
-            serde_json::from_str(part_raw.get()).map_err(|_| PlanError::ParseFailed)?;
-        let Some(text_raw) = h.text else {
-            continue;
-        };
+		// Extract the `text` field byte range.
+		#[derive(Deserialize)]
+		struct TextHeader<'a> {
+			#[serde(borrow, default)]
+			text: Option<&'a RawValue>,
+		}
+		let h: TextHeader<'_> = serde_json::from_str(part_raw.get()).map_err(|_| PlanError::ParseFailed)?;
+		let Some(text_raw) = h.text else {
+			continue;
+		};
 
-        let part_offset_in_content =
-            bytes_offset_of(content_str, part_raw.get()).ok_or(PlanError::OffsetMissing)?;
-        let part_offset_in_body = content_offset_in_body + part_offset_in_content;
-        let text_offset_in_part =
-            bytes_offset_of(part_raw.get(), text_raw.get()).ok_or(PlanError::OffsetMissing)?;
+		let part_offset_in_content = bytes_offset_of(content_str, part_raw.get()).ok_or(PlanError::OffsetMissing)?;
+		let part_offset_in_body = content_offset_in_body + part_offset_in_content;
+		let text_offset_in_part = bytes_offset_of(part_raw.get(), text_raw.get()).ok_or(PlanError::OffsetMissing)?;
 
-        let text_str = text_raw.get();
-        if !text_str.starts_with('"') {
-            continue;
-        }
-        let unescaped: String =
-            serde_json::from_str(text_str).map_err(|_| PlanError::ParseFailed)?;
+		let text_str = text_raw.get();
+		if !text_str.starts_with('"') {
+			continue;
+		}
+		let unescaped: String = serde_json::from_str(text_str).map_err(|_| PlanError::ParseFailed)?;
 
-        let text_start_in_body = part_offset_in_body + text_offset_in_part;
-        let text_end_in_body = text_start_in_body + text_str.len();
+		let text_start_in_body = part_offset_in_body + text_offset_in_part;
+		let text_end_in_body = text_start_in_body + text_str.len();
 
-        slots.push(OpenAiPlanSlot {
-            block_index: Some(part_idx),
-            block_type: "user_text".to_string(),
-            content_text: unescaped,
-            content_byte_range: (text_start_in_body, text_end_in_body),
-        });
-    }
+		slots.push(OpenAiPlanSlot {
+			block_index: Some(part_idx),
+			block_type: "user_text".to_string(),
+			content_text: unescaped,
+			content_byte_range: (text_start_in_body, text_end_in_body),
+		});
+	}
 
-    Ok(slots)
+	Ok(slots)
 }
 
 #[cfg(test)]
 mod openai_chat_tests {
-    use super::*;
-    use serde_json::json;
+	use super::*;
+	use serde_json::json;
 
-    fn body(value: Value) -> Vec<u8> {
-        serde_json::to_vec(&value).unwrap()
-    }
+	fn body(value: Value) -> Vec<u8> {
+		serde_json::to_vec(&value).unwrap()
+	}
 
-    #[test]
-    fn empty_messages_yields_no_change() {
-        let b = body(json!({"model": "gpt-4o", "messages": []}));
-        let out = compress_openai_chat_live_zone(&b, AuthMode::Payg, DEFAULT_MODEL).unwrap();
-        assert!(matches!(out, LiveZoneOutcome::NoChange { .. }));
-    }
+	#[test]
+	fn empty_messages_yields_no_change() {
+		let b = body(json!({"model": "gpt-4o", "messages": []}));
+		let out = compress_openai_chat_live_zone(&b, AuthMode::Payg, DEFAULT_MODEL).unwrap();
+		assert!(matches!(out, LiveZoneOutcome::NoChange { .. }));
+	}
 
-    #[test]
-    fn no_messages_field_errors() {
-        let b = body(json!({"model": "gpt-4o"}));
-        let err = compress_openai_chat_live_zone(&b, AuthMode::Payg, DEFAULT_MODEL).unwrap_err();
-        assert!(matches!(err, LiveZoneError::NoMessagesArray));
-    }
+	#[test]
+	fn no_messages_field_errors() {
+		let b = body(json!({"model": "gpt-4o"}));
+		let err = compress_openai_chat_live_zone(&b, AuthMode::Payg, DEFAULT_MODEL).unwrap_err();
+		assert!(matches!(err, LiveZoneError::NoMessagesArray));
+	}
 
-    #[test]
-    fn invalid_json_errors() {
-        let err =
-            compress_openai_chat_live_zone(b"not json", AuthMode::Payg, DEFAULT_MODEL).unwrap_err();
-        assert!(matches!(err, LiveZoneError::BodyNotJson(_)));
-    }
+	#[test]
+	fn invalid_json_errors() {
+		let err = compress_openai_chat_live_zone(b"not json", AuthMode::Payg, DEFAULT_MODEL).unwrap_err();
+		assert!(matches!(err, LiveZoneError::BodyNotJson(_)));
+	}
 
-    #[test]
-    fn no_user_or_tool_yields_no_change() {
-        let b = body(json!({
-            "messages": [{"role": "system", "content": "you are helpful"}]
-        }));
-        let out = compress_openai_chat_live_zone(&b, AuthMode::Payg, "gpt-4o").unwrap();
-        assert!(matches!(out, LiveZoneOutcome::NoChange { .. }));
-    }
+	#[test]
+	fn no_user_or_tool_yields_no_change() {
+		let b = body(json!({
+			"messages": [{"role": "system", "content": "you are helpful"}]
+		}));
+		let out = compress_openai_chat_live_zone(&b, AuthMode::Payg, "gpt-4o").unwrap();
+		assert!(matches!(out, LiveZoneOutcome::NoChange { .. }));
+	}
 
-    #[test]
-    fn tiny_tool_content_below_threshold_no_change() {
-        let b = body(json!({
-            "messages": [
-                {"role": "user", "content": "hi"},
-                {"role": "assistant", "content": "doing tool"},
-                {"role": "tool", "tool_call_id": "t1", "content": "ok"},
-            ]
-        }));
-        let out = compress_openai_chat_live_zone(&b, AuthMode::Payg, "gpt-4o").unwrap();
-        match &out {
-            LiveZoneOutcome::NoChange { manifest } => {
-                // Both latest tool (idx 2) and latest user (idx 0)
-                // contributed a slot; both below threshold.
-                assert!(manifest
-                    .block_outcomes
-                    .iter()
-                    .all(|b| matches!(b.action, BlockAction::BelowByteThreshold { .. })));
-            },
-            _ => panic!("expected NoChange"),
-        }
-    }
+	#[test]
+	fn tiny_tool_content_below_threshold_no_change() {
+		let b = body(json!({
+			"messages": [
+				{"role": "user", "content": "hi"},
+				{"role": "assistant", "content": "doing tool"},
+				{"role": "tool", "tool_call_id": "t1", "content": "ok"},
+			]
+		}));
+		let out = compress_openai_chat_live_zone(&b, AuthMode::Payg, "gpt-4o").unwrap();
+		match &out {
+			LiveZoneOutcome::NoChange { manifest } => {
+				// Both latest tool (idx 2) and latest user (idx 0)
+				// contributed a slot; both below threshold.
+				assert!(
+					manifest
+						.block_outcomes
+						.iter()
+						.all(|b| matches!(b.action, BlockAction::BelowByteThreshold { .. }))
+				);
+			},
+			_ => panic!("expected NoChange"),
+		}
+	}
 
-    #[test]
-    fn user_array_text_parts_planned() {
-        // User content as array of {type: text} + {type: image_url}.
-        // Only the text part is planned.
-        let b = body(json!({
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "describe this"},
-                    {"type": "image_url", "image_url": {"url": "data:..."}},
-                ]
-            }]
-        }));
-        let out = compress_openai_chat_live_zone(&b, AuthMode::Payg, "gpt-4o").unwrap();
-        match &out {
-            LiveZoneOutcome::NoChange { manifest } => {
-                assert_eq!(manifest.block_outcomes.len(), 1);
-                assert_eq!(manifest.block_outcomes[0].block_type, "user_text");
-            },
-            _ => panic!("expected NoChange"),
-        }
-    }
+	#[test]
+	fn user_array_text_parts_planned() {
+		// User content as array of {type: text} + {type: image_url}.
+		// Only the text part is planned.
+		let b = body(json!({
+			"messages": [{
+				"role": "user",
+				"content": [
+					{"type": "text", "text": "describe this"},
+					{"type": "image_url", "image_url": {"url": "data:..."}},
+				]
+			}]
+		}));
+		let out = compress_openai_chat_live_zone(&b, AuthMode::Payg, "gpt-4o").unwrap();
+		match &out {
+			LiveZoneOutcome::NoChange { manifest } => {
+				assert_eq!(manifest.block_outcomes.len(), 1);
+				assert_eq!(manifest.block_outcomes[0].block_type, "user_text");
+			},
+			_ => panic!("expected NoChange"),
+		}
+	}
 
-    #[test]
-    fn picks_latest_tool_only() {
-        // Two tool messages; only the latest is in the live zone.
-        let b = body(json!({
-            "messages": [
-                {"role": "user", "content": "hi"},
-                {"role": "tool", "tool_call_id": "t1", "content": "early"},
-                {"role": "user", "content": "again"},
-                {"role": "tool", "tool_call_id": "t2", "content": "late"},
-            ]
-        }));
-        let out = compress_openai_chat_live_zone(&b, AuthMode::Payg, "gpt-4o").unwrap();
-        let manifest = match &out {
-            LiveZoneOutcome::NoChange { manifest } => manifest,
-            LiveZoneOutcome::Modified { manifest, .. } => manifest,
-        };
-        // Tool block should reference message index 3 (latest tool),
-        // user block index 2 (latest user).
-        let tool_block = manifest
-            .block_outcomes
-            .iter()
-            .find(|b| b.block_type == "tool_content")
-            .expect("tool block recorded");
-        assert_eq!(tool_block.message_index, 3);
-        let user_block = manifest
-            .block_outcomes
-            .iter()
-            .find(|b| b.block_type == "user_string")
-            .expect("user block recorded");
-        assert_eq!(user_block.message_index, 2);
-    }
+	#[test]
+	fn picks_latest_tool_only() {
+		// Two tool messages; only the latest is in the live zone.
+		let b = body(json!({
+			"messages": [
+				{"role": "user", "content": "hi"},
+				{"role": "tool", "tool_call_id": "t1", "content": "early"},
+				{"role": "user", "content": "again"},
+				{"role": "tool", "tool_call_id": "t2", "content": "late"},
+			]
+		}));
+		let out = compress_openai_chat_live_zone(&b, AuthMode::Payg, "gpt-4o").unwrap();
+		let manifest = match &out {
+			LiveZoneOutcome::NoChange { manifest } => manifest,
+			LiveZoneOutcome::Modified { manifest, .. } => manifest,
+		};
+		// Tool block should reference message index 3 (latest tool),
+		// user block index 2 (latest user).
+		let tool_block = manifest
+			.block_outcomes
+			.iter()
+			.find(|b| b.block_type == "tool_content")
+			.expect("tool block recorded");
+		assert_eq!(tool_block.message_index, 3);
+		let user_block = manifest
+			.block_outcomes
+			.iter()
+			.find(|b| b.block_type == "user_string")
+			.expect("user block recorded");
+		assert_eq!(user_block.message_index, 2);
+	}
 }
 
 // ─── OpenAI Responses live-zone dispatcher (Phase C PR-C3) ────────────
@@ -2247,211 +2092,206 @@ const RESPONSES_OUTPUT_MIN_BYTES: usize = 512;
 /// bytes outside the rewritten ranges are *literally copied* from the
 /// input, never re-serialized.
 pub fn compress_openai_responses_live_zone(
-    body_raw: &[u8],
-    _auth_mode: AuthMode,
-    model: &str,
+	body_raw: &[u8],
+	_auth_mode: AuthMode,
+	model: &str,
 ) -> Result<LiveZoneOutcome, LiveZoneError> {
-    let parsed: Value = serde_json::from_slice(body_raw).map_err(LiveZoneError::BodyNotJson)?;
+	let parsed: Value = serde_json::from_slice(body_raw).map_err(LiveZoneError::BodyNotJson)?;
 
-    // Responses uses `input`. We accept both `input` and `messages`
-    // for forward-compat (some clients alias) — but `input` is the
-    // canonical name. If neither field is present, surface
-    // `NoMessagesArray` so the proxy can passthrough with a named
-    // reason.
-    let items = parsed
-        .get("input")
-        .or_else(|| parsed.get("messages"))
-        .and_then(Value::as_array)
-        .ok_or(LiveZoneError::NoMessagesArray)?;
+	// Responses uses `input`. We accept both `input` and `messages`
+	// for forward-compat (some clients alias) — but `input` is the
+	// canonical name. If neither field is present, surface
+	// `NoMessagesArray` so the proxy can passthrough with a named
+	// reason.
+	let items = parsed
+		.get("input")
+		.or_else(|| parsed.get("messages"))
+		.and_then(Value::as_array)
+		.ok_or(LiveZoneError::NoMessagesArray)?;
 
-    if items.is_empty() {
-        return Ok(LiveZoneOutcome::NoChange {
-            manifest: CompressionManifest::empty(),
-        });
-    }
+	if items.is_empty() {
+		return Ok(LiveZoneOutcome::NoChange { manifest: CompressionManifest::empty() });
+	}
 
-    let items_total = items.len();
+	let items_total = items.len();
 
-    // Output items in the current Responses frame are live deltas, not
-    // cached history. Codex often sends several sibling tool outputs
-    // after parallel local commands; compressing only the last one
-    // leaves large same-frame payloads untouched.
-    let mut headroom_retrieve_call_ids: HashSet<&str> = HashSet::new();
-    for item in items {
-        if item.get("type").and_then(Value::as_str) != Some("function_call") {
-            continue;
-        }
-        let name = item.get("name").and_then(Value::as_str).unwrap_or("");
-        if name == "headroom_retrieve" || name.ends_with("__headroom_retrieve") {
-            if let Some(call_id) = item.get("call_id").and_then(Value::as_str) {
-                headroom_retrieve_call_ids.insert(call_id);
-            }
-        }
-    }
+	// Output items in the current Responses frame are live deltas, not
+	// cached history. Codex often sends several sibling tool outputs
+	// after parallel local commands; compressing only the last one
+	// leaves large same-frame payloads untouched.
+	let mut headroom_retrieve_call_ids: HashSet<&str> = HashSet::new();
+	for item in items {
+		if item.get("type").and_then(Value::as_str) != Some("function_call") {
+			continue;
+		}
+		let name = item.get("name").and_then(Value::as_str).unwrap_or("");
+		if name == "headroom_retrieve" || name.ends_with("__headroom_retrieve") {
+			if let Some(call_id) = item.get("call_id").and_then(Value::as_str) {
+				headroom_retrieve_call_ids.insert(call_id);
+			}
+		}
+	}
 
-    let mut output_candidates: Vec<(usize, &str)> = Vec::new();
-    let latest_message: Option<usize> = None;
+	let mut output_candidates: Vec<(usize, &str)> = Vec::new();
+	let latest_message: Option<usize> = None;
 
-    for (idx, item) in items.iter().enumerate() {
-        let type_tag = item.get("type").and_then(Value::as_str).unwrap_or("");
-        match type_tag {
-            "function_call_output" | "local_shell_call_output" | "apply_patch_call_output" => {
-                let call_id = item.get("call_id").and_then(Value::as_str);
-                if call_id.is_some_and(|id| headroom_retrieve_call_ids.contains(id)) {
-                    continue;
-                }
-                output_candidates.push((idx, type_tag));
-            },
-            _ => {},
-        }
-    }
+	for (idx, item) in items.iter().enumerate() {
+		let type_tag = item.get("type").and_then(Value::as_str).unwrap_or("");
+		match type_tag {
+			"function_call_output" | "local_shell_call_output" | "apply_patch_call_output" => {
+				let call_id = item.get("call_id").and_then(Value::as_str);
+				if call_id.is_some_and(|id| headroom_retrieve_call_ids.contains(id)) {
+					continue;
+				}
+				output_candidates.push((idx, type_tag));
+			},
+			_ => {},
+		}
+	}
 
-    let mut candidates = output_candidates;
-    if let Some(idx) = latest_message {
-        candidates.push((idx, "message"));
-    }
+	let mut candidates = output_candidates;
+	if let Some(idx) = latest_message {
+		candidates.push((idx, "message"));
+	}
 
-    if candidates.is_empty() {
-        return Ok(LiveZoneOutcome::NoChange {
-            manifest: CompressionManifest {
-                messages_total: items_total,
-                messages_below_frozen_floor: 0,
-                latest_user_message_index: latest_message,
-                block_outcomes: Vec::new(),
-            },
-        });
-    }
+	if candidates.is_empty() {
+		return Ok(LiveZoneOutcome::NoChange {
+			manifest: CompressionManifest {
+				messages_total: items_total,
+				messages_below_frozen_floor: 0,
+				latest_user_message_index: latest_message,
+				block_outcomes: Vec::new(),
+			},
+		});
+	}
 
-    // Plan replacements per candidate kind. Each plan returns at most
-    // one slot (output items have a single string field; messages
-    // have a single text content slot).
-    let mut all_slots: Vec<(usize, ResponsesPlanSlot)> = Vec::new();
-    for (idx, kind_tag) in candidates {
-        match plan_responses_item(body_raw, idx, kind_tag) {
-            Ok(Some(slot)) => all_slots.push((idx, slot)),
-            Ok(None) => {},
-            Err(_) => {
-                // Body shape doesn't match what we expect for this
-                // item — skip it but keep going for the others.
-                continue;
-            },
-        }
-    }
+	// Plan replacements per candidate kind. Each plan returns at most
+	// one slot (output items have a single string field; messages
+	// have a single text content slot).
+	let mut all_slots: Vec<(usize, ResponsesPlanSlot)> = Vec::new();
+	for (idx, kind_tag) in candidates {
+		match plan_responses_item(body_raw, idx, kind_tag) {
+			Ok(Some(slot)) => all_slots.push((idx, slot)),
+			Ok(None) => {},
+			Err(_) => {
+				// Body shape doesn't match what we expect for this
+				// item — skip it but keep going for the others.
+				continue;
+			},
+		}
+	}
 
-    if all_slots.is_empty() {
-        return Ok(LiveZoneOutcome::NoChange {
-            manifest: CompressionManifest {
-                messages_total: items_total,
-                messages_below_frozen_floor: 0,
-                latest_user_message_index: latest_message,
-                block_outcomes: Vec::new(),
-            },
-        });
-    }
+	if all_slots.is_empty() {
+		return Ok(LiveZoneOutcome::NoChange {
+			manifest: CompressionManifest {
+				messages_total: items_total,
+				messages_below_frozen_floor: 0,
+				latest_user_message_index: latest_message,
+				block_outcomes: Vec::new(),
+			},
+		});
+	}
 
-    let tokenizer = get_tokenizer(model);
-    let mut block_outcomes: Vec<BlockOutcome> = Vec::with_capacity(all_slots.len());
-    let mut replacements: Vec<Replacement> = Vec::new();
+	let tokenizer = get_tokenizer(model);
+	let mut block_outcomes: Vec<BlockOutcome> = Vec::with_capacity(all_slots.len());
+	let mut replacements: Vec<Replacement> = Vec::new();
 
-    for (msg_idx, slot) in all_slots {
-        // Output items must clear the response-output floor BEFORE the
-        // per-content-type threshold even runs. This is on top of the
-        // existing per-block byte-threshold gate.
-        if slot.is_output_item && slot.content_text.len() < RESPONSES_OUTPUT_MIN_BYTES {
-            block_outcomes.push(BlockOutcome {
-                message_index: msg_idx,
-                block_index: slot.block_index,
-                block_type: slot.block_type.clone(),
-                action: BlockAction::BelowByteThreshold {
-                    content_type: "output_item",
-                    byte_count: slot.content_text.len(),
-                    threshold_bytes: RESPONSES_OUTPUT_MIN_BYTES,
-                },
-            });
-            continue;
-        }
-        let detected = detect_content_type(&slot.content_text);
-        let outcome = compress_one_block(
-            &slot.content_text,
-            detected.content_type,
-            slot.content_byte_range,
-            msg_idx,
-            slot.block_index,
-            slot.block_type,
-            tokenizer.as_ref(),
-            &mut replacements,
-            None, // PR-C3: no CCR store on the Responses path yet.
-        );
-        block_outcomes.push(outcome);
-    }
+	for (msg_idx, slot) in all_slots {
+		// Output items must clear the response-output floor BEFORE the
+		// per-content-type threshold even runs. This is on top of the
+		// existing per-block byte-threshold gate.
+		if slot.is_output_item && slot.content_text.len() < RESPONSES_OUTPUT_MIN_BYTES {
+			block_outcomes.push(BlockOutcome {
+				message_index: msg_idx,
+				block_index: slot.block_index,
+				block_type: slot.block_type.clone(),
+				action: BlockAction::BelowByteThreshold {
+					content_type: "output_item",
+					byte_count: slot.content_text.len(),
+					threshold_bytes: RESPONSES_OUTPUT_MIN_BYTES,
+				},
+			});
+			continue;
+		}
+		let detected = detect_content_type(&slot.content_text);
+		let outcome = compress_one_block(
+			&slot.content_text,
+			detected.content_type,
+			slot.content_byte_range,
+			msg_idx,
+			slot.block_index,
+			slot.block_type,
+			tokenizer.as_ref(),
+			&mut replacements,
+			None, // PR-C3: no CCR store on the Responses path yet.
+		);
+		block_outcomes.push(outcome);
+	}
 
-    let manifest = CompressionManifest {
-        messages_total: items_total,
-        messages_below_frozen_floor: 0,
-        latest_user_message_index: latest_message,
-        block_outcomes,
-    };
+	let manifest = CompressionManifest {
+		messages_total: items_total,
+		messages_below_frozen_floor: 0,
+		latest_user_message_index: latest_message,
+		block_outcomes,
+	};
 
-    if !manifest.has_compressed_block() || replacements.is_empty() {
-        return Ok(LiveZoneOutcome::NoChange { manifest });
-    }
+	if !manifest.has_compressed_block() || replacements.is_empty() {
+		return Ok(LiveZoneOutcome::NoChange { manifest });
+	}
 
-    let new_bytes = apply_replacements(body_raw, &mut replacements);
-    let new_body_str = match std::str::from_utf8(&new_bytes) {
-        Ok(s) => s,
-        Err(_) => return Ok(LiveZoneOutcome::NoChange { manifest }),
-    };
-    let raw = match RawValue::from_string(new_body_str.to_string()) {
-        Ok(r) => r,
-        Err(_) => return Ok(LiveZoneOutcome::NoChange { manifest }),
-    };
+	let new_bytes = apply_replacements(body_raw, &mut replacements);
+	let new_body_str = match std::str::from_utf8(&new_bytes) {
+		Ok(s) => s,
+		Err(_) => return Ok(LiveZoneOutcome::NoChange { manifest }),
+	};
+	let raw = match RawValue::from_string(new_body_str.to_string()) {
+		Ok(r) => r,
+		Err(_) => return Ok(LiveZoneOutcome::NoChange { manifest }),
+	};
 
-    Ok(LiveZoneOutcome::Modified {
-        new_body: raw,
-        manifest,
-    })
+	Ok(LiveZoneOutcome::Modified { new_body: raw, manifest })
 }
 
 /// Per-kind plan slot for the Responses dispatcher. Mirrors
 /// `OpenAiPlanSlot` but tracks whether the slot is an `*_output` item
 /// (so the response-output floor only applies there, not to `message` text).
 struct ResponsesPlanSlot {
-    block_index: Option<usize>,
-    block_type: String,
-    content_text: String,
-    content_byte_range: (usize, usize),
-    /// True when the slot is one of `function_call_output`,
-    /// `local_shell_call_output`, `apply_patch_call_output`. Used to
-    /// gate the response-output floor.
-    is_output_item: bool,
+	block_index: Option<usize>,
+	block_type: String,
+	content_text: String,
+	content_byte_range: (usize, usize),
+	/// True when the slot is one of `function_call_output`,
+	/// `local_shell_call_output`, `apply_patch_call_output`. Used to
+	/// gate the response-output floor.
+	is_output_item: bool,
 }
 
 /// Body view for the Responses request; accepts both `input` (canonical)
 /// and `messages` (alias).
 #[derive(Deserialize)]
 struct ResponsesBodyView<'a> {
-    #[serde(borrow, default)]
-    input: Option<Vec<&'a RawValue>>,
-    #[serde(borrow, default)]
-    messages: Option<Vec<&'a RawValue>>,
+	#[serde(borrow, default)]
+	input: Option<Vec<&'a RawValue>>,
+	#[serde(borrow, default)]
+	messages: Option<Vec<&'a RawValue>>,
 }
 
 impl<'a> ResponsesBodyView<'a> {
-    fn items(&self) -> Option<&Vec<&'a RawValue>> {
-        self.input.as_ref().or(self.messages.as_ref())
-    }
+	fn items(&self) -> Option<&Vec<&'a RawValue>> {
+		self.input.as_ref().or(self.messages.as_ref())
+	}
 }
 
 #[derive(Deserialize)]
 struct OutputItemView<'a> {
-    #[serde(borrow, default)]
-    output: Option<&'a RawValue>,
+	#[serde(borrow, default)]
+	output: Option<&'a RawValue>,
 }
 
 #[derive(Deserialize)]
 struct MessageItemView<'a> {
-    #[serde(borrow, default)]
-    content: Option<&'a RawValue>,
+	#[serde(borrow, default)]
+	content: Option<&'a RawValue>,
 }
 
 /// Plan a single replacement slot for a Responses item at index
@@ -2459,426 +2299,392 @@ struct MessageItemView<'a> {
 /// compressible payload (e.g. message with array content where every
 /// part is non-text).
 fn plan_responses_item(
-    body_raw: &[u8],
-    item_idx: usize,
-    kind_tag: &str,
+	body_raw: &[u8],
+	item_idx: usize,
+	kind_tag: &str,
 ) -> Result<Option<ResponsesPlanSlot>, PlanError> {
-    let body_str = std::str::from_utf8(body_raw).map_err(|_| PlanError::ParseFailed)?;
-    let body: ResponsesBodyView<'_> =
-        serde_json::from_str(body_str).map_err(|_| PlanError::ParseFailed)?;
-    let items = body.items().ok_or(PlanError::ParseFailed)?;
-    let item_raw = items.get(item_idx).ok_or(PlanError::TargetOutOfBounds)?;
-    let item_offset_in_body =
-        bytes_offset_of(body_str, item_raw.get()).ok_or(PlanError::OffsetMissing)?;
+	let body_str = std::str::from_utf8(body_raw).map_err(|_| PlanError::ParseFailed)?;
+	let body: ResponsesBodyView<'_> = serde_json::from_str(body_str).map_err(|_| PlanError::ParseFailed)?;
+	let items = body.items().ok_or(PlanError::ParseFailed)?;
+	let item_raw = items.get(item_idx).ok_or(PlanError::TargetOutOfBounds)?;
+	let item_offset_in_body = bytes_offset_of(body_str, item_raw.get()).ok_or(PlanError::OffsetMissing)?;
 
-    match kind_tag {
-        "function_call_output" | "local_shell_call_output" | "apply_patch_call_output" => {
-            let view: OutputItemView<'_> =
-                serde_json::from_str(item_raw.get()).map_err(|_| PlanError::ParseFailed)?;
-            let Some(output_raw) = view.output else {
-                return Ok(None);
-            };
-            let output_offset_in_item = bytes_offset_of(item_raw.get(), output_raw.get())
-                .ok_or(PlanError::OffsetMissing)?;
-            let output_offset_in_body = item_offset_in_body + output_offset_in_item;
-            let output_str = output_raw.get();
-            // `output` must be a JSON string for compression to apply.
-            // Nested-object `output` (rare) falls through.
-            if !output_str.starts_with('"') {
-                return Ok(None);
-            }
-            let unescaped: String =
-                serde_json::from_str(output_str).map_err(|_| PlanError::ParseFailed)?;
-            Ok(Some(ResponsesPlanSlot {
-                block_index: None,
-                block_type: kind_tag.to_string(),
-                content_text: unescaped,
-                content_byte_range: (
-                    output_offset_in_body,
-                    output_offset_in_body + output_str.len(),
-                ),
-                is_output_item: true,
-            }))
-        },
-        "message" => {
-            let view: MessageItemView<'_> =
-                serde_json::from_str(item_raw.get()).map_err(|_| PlanError::ParseFailed)?;
-            let Some(content_raw) = view.content else {
-                return Ok(None);
-            };
-            let content_offset_in_item = bytes_offset_of(item_raw.get(), content_raw.get())
-                .ok_or(PlanError::OffsetMissing)?;
-            let content_offset_in_body = item_offset_in_body + content_offset_in_item;
-            let content_str = content_raw.get();
+	match kind_tag {
+		"function_call_output" | "local_shell_call_output" | "apply_patch_call_output" => {
+			let view: OutputItemView<'_> = serde_json::from_str(item_raw.get()).map_err(|_| PlanError::ParseFailed)?;
+			let Some(output_raw) = view.output else {
+				return Ok(None);
+			};
+			let output_offset_in_item =
+				bytes_offset_of(item_raw.get(), output_raw.get()).ok_or(PlanError::OffsetMissing)?;
+			let output_offset_in_body = item_offset_in_body + output_offset_in_item;
+			let output_str = output_raw.get();
+			// `output` must be a JSON string for compression to apply.
+			// Nested-object `output` (rare) falls through.
+			if !output_str.starts_with('"') {
+				return Ok(None);
+			}
+			let unescaped: String = serde_json::from_str(output_str).map_err(|_| PlanError::ParseFailed)?;
+			Ok(Some(ResponsesPlanSlot {
+				block_index: None,
+				block_type: kind_tag.to_string(),
+				content_text: unescaped,
+				content_byte_range: (output_offset_in_body, output_offset_in_body + output_str.len()),
+				is_output_item: true,
+			}))
+		},
+		"message" => {
+			let view: MessageItemView<'_> = serde_json::from_str(item_raw.get()).map_err(|_| PlanError::ParseFailed)?;
+			let Some(content_raw) = view.content else {
+				return Ok(None);
+			};
+			let content_offset_in_item =
+				bytes_offset_of(item_raw.get(), content_raw.get()).ok_or(PlanError::OffsetMissing)?;
+			let content_offset_in_body = item_offset_in_body + content_offset_in_item;
+			let content_str = content_raw.get();
 
-            // Case A: stringly-typed content.
-            if content_str.starts_with('"') {
-                let unescaped: String =
-                    serde_json::from_str(content_str).map_err(|_| PlanError::ParseFailed)?;
-                return Ok(Some(ResponsesPlanSlot {
-                    block_index: None,
-                    block_type: "message_string".to_string(),
-                    content_text: unescaped,
-                    content_byte_range: (
-                        content_offset_in_body,
-                        content_offset_in_body + content_str.len(),
-                    ),
-                    is_output_item: false,
-                }));
-            }
+			// Case A: stringly-typed content.
+			if content_str.starts_with('"') {
+				let unescaped: String = serde_json::from_str(content_str).map_err(|_| PlanError::ParseFailed)?;
+				return Ok(Some(ResponsesPlanSlot {
+					block_index: None,
+					block_type: "message_string".to_string(),
+					content_text: unescaped,
+					content_byte_range: (content_offset_in_body, content_offset_in_body + content_str.len()),
+					is_output_item: false,
+				}));
+			}
 
-            // Case B: array of typed content parts. The Responses
-            // spec uses `{type: "input_text", text: "..."}` and
-            // `{type: "output_text", text: "..."}`. Both are
-            // compressible. Anything else (image, file, etc.) is
-            // skipped.
-            let parts: Vec<&RawValue> =
-                serde_json::from_str(content_str).map_err(|_| PlanError::ParseFailed)?;
+			// Case B: array of typed content parts. The Responses
+			// spec uses `{type: "input_text", text: "..."}` and
+			// `{type: "output_text", text: "..."}`. Both are
+			// compressible. Anything else (image, file, etc.) is
+			// skipped.
+			let parts: Vec<&RawValue> = serde_json::from_str(content_str).map_err(|_| PlanError::ParseFailed)?;
 
-            // Pick the first text-shaped part for compression. The
-            // common Codex shape has exactly one input_text per
-            // user message; the assistant final-answer shape has
-            // exactly one output_text. If a future shape carries
-            // multiple, we compress the first only — the rest still
-            // round-trip byte-equal because we never plan a second
-            // slot.
-            for (part_idx, part_raw) in parts.iter().enumerate() {
-                let header: BlockHeader<'_> =
-                    serde_json::from_str(part_raw.get()).map_err(|_| PlanError::ParseFailed)?;
-                let block_type = header.r#type.unwrap_or("unknown");
-                let is_text = block_type == "input_text"
-                    || block_type == "output_text"
-                    || block_type == "text";
-                if !is_text {
-                    continue;
-                }
+			// Pick the first text-shaped part for compression. The
+			// common Codex shape has exactly one input_text per
+			// user message; the assistant final-answer shape has
+			// exactly one output_text. If a future shape carries
+			// multiple, we compress the first only — the rest still
+			// round-trip byte-equal because we never plan a second
+			// slot.
+			for (part_idx, part_raw) in parts.iter().enumerate() {
+				let header: BlockHeader<'_> =
+					serde_json::from_str(part_raw.get()).map_err(|_| PlanError::ParseFailed)?;
+				let block_type = header.r#type.unwrap_or("unknown");
+				let is_text = block_type == "input_text" || block_type == "output_text" || block_type == "text";
+				if !is_text {
+					continue;
+				}
 
-                #[derive(Deserialize)]
-                struct TextHeader<'a> {
-                    #[serde(borrow, default)]
-                    text: Option<&'a RawValue>,
-                }
-                let h: TextHeader<'_> =
-                    serde_json::from_str(part_raw.get()).map_err(|_| PlanError::ParseFailed)?;
-                let Some(text_raw) = h.text else { continue };
+				#[derive(Deserialize)]
+				struct TextHeader<'a> {
+					#[serde(borrow, default)]
+					text: Option<&'a RawValue>,
+				}
+				let h: TextHeader<'_> = serde_json::from_str(part_raw.get()).map_err(|_| PlanError::ParseFailed)?;
+				let Some(text_raw) = h.text else { continue };
 
-                let part_offset_in_content =
-                    bytes_offset_of(content_str, part_raw.get()).ok_or(PlanError::OffsetMissing)?;
-                let part_offset_in_body = content_offset_in_body + part_offset_in_content;
-                let text_offset_in_part = bytes_offset_of(part_raw.get(), text_raw.get())
-                    .ok_or(PlanError::OffsetMissing)?;
+				let part_offset_in_content =
+					bytes_offset_of(content_str, part_raw.get()).ok_or(PlanError::OffsetMissing)?;
+				let part_offset_in_body = content_offset_in_body + part_offset_in_content;
+				let text_offset_in_part =
+					bytes_offset_of(part_raw.get(), text_raw.get()).ok_or(PlanError::OffsetMissing)?;
 
-                let text_str = text_raw.get();
-                if !text_str.starts_with('"') {
-                    continue;
-                }
-                let unescaped: String =
-                    serde_json::from_str(text_str).map_err(|_| PlanError::ParseFailed)?;
+				let text_str = text_raw.get();
+				if !text_str.starts_with('"') {
+					continue;
+				}
+				let unescaped: String = serde_json::from_str(text_str).map_err(|_| PlanError::ParseFailed)?;
 
-                let text_start_in_body = part_offset_in_body + text_offset_in_part;
-                let text_end_in_body = text_start_in_body + text_str.len();
+				let text_start_in_body = part_offset_in_body + text_offset_in_part;
+				let text_end_in_body = text_start_in_body + text_str.len();
 
-                return Ok(Some(ResponsesPlanSlot {
-                    block_index: Some(part_idx),
-                    block_type: format!("message_{block_type}"),
-                    content_text: unescaped,
-                    content_byte_range: (text_start_in_body, text_end_in_body),
-                    is_output_item: false,
-                }));
-            }
-            Ok(None)
-        },
-        _ => Ok(None),
-    }
+				return Ok(Some(ResponsesPlanSlot {
+					block_index: Some(part_idx),
+					block_type: format!("message_{block_type}"),
+					content_text: unescaped,
+					content_byte_range: (text_start_in_body, text_end_in_body),
+					is_output_item: false,
+				}));
+			}
+			Ok(None)
+		},
+		_ => Ok(None),
+	}
 }
 
 #[cfg(test)]
 mod openai_responses_tests {
-    use super::*;
-    use serde_json::json;
+	use super::*;
+	use serde_json::json;
 
-    fn body(value: Value) -> Vec<u8> {
-        serde_json::to_vec(&value).unwrap()
-    }
+	fn body(value: Value) -> Vec<u8> {
+		serde_json::to_vec(&value).unwrap()
+	}
 
-    #[test]
-    fn empty_input_yields_no_change() {
-        let b = body(json!({"model": "gpt-4o", "input": []}));
-        let out = compress_openai_responses_live_zone(&b, AuthMode::Payg, DEFAULT_MODEL).unwrap();
-        assert!(matches!(out, LiveZoneOutcome::NoChange { .. }));
-    }
+	#[test]
+	fn empty_input_yields_no_change() {
+		let b = body(json!({"model": "gpt-4o", "input": []}));
+		let out = compress_openai_responses_live_zone(&b, AuthMode::Payg, DEFAULT_MODEL).unwrap();
+		assert!(matches!(out, LiveZoneOutcome::NoChange { .. }));
+	}
 
-    #[test]
-    fn no_input_field_errors() {
-        let b = body(json!({"model": "gpt-4o"}));
-        let err =
-            compress_openai_responses_live_zone(&b, AuthMode::Payg, DEFAULT_MODEL).unwrap_err();
-        assert!(matches!(err, LiveZoneError::NoMessagesArray));
-    }
+	#[test]
+	fn no_input_field_errors() {
+		let b = body(json!({"model": "gpt-4o"}));
+		let err = compress_openai_responses_live_zone(&b, AuthMode::Payg, DEFAULT_MODEL).unwrap_err();
+		assert!(matches!(err, LiveZoneError::NoMessagesArray));
+	}
 
-    #[test]
-    fn invalid_json_errors() {
-        let err = compress_openai_responses_live_zone(b"not json", AuthMode::Payg, DEFAULT_MODEL)
-            .unwrap_err();
-        assert!(matches!(err, LiveZoneError::BodyNotJson(_)));
-    }
+	#[test]
+	fn invalid_json_errors() {
+		let err = compress_openai_responses_live_zone(b"not json", AuthMode::Payg, DEFAULT_MODEL).unwrap_err();
+		assert!(matches!(err, LiveZoneError::BodyNotJson(_)));
+	}
 
-    #[test]
-    fn output_below_512b_skipped() {
-        // 256 B output → below the output-item floor.
-        let small = "x".repeat(256);
-        let b = body(json!({
-            "model": "gpt-4o",
-            "input": [
-                {"type": "function_call_output", "call_id": "c1", "output": small}
-            ]
-        }));
-        let out = compress_openai_responses_live_zone(&b, AuthMode::Payg, "gpt-4o").unwrap();
-        match &out {
-            LiveZoneOutcome::NoChange { manifest } => {
-                assert_eq!(manifest.block_outcomes.len(), 1);
-                match &manifest.block_outcomes[0].action {
-                    BlockAction::BelowByteThreshold {
-                        content_type,
-                        byte_count,
-                        threshold_bytes,
-                    } => {
-                        assert_eq!(*content_type, "output_item");
-                        assert_eq!(*byte_count, 256);
-                        assert_eq!(*threshold_bytes, RESPONSES_OUTPUT_MIN_BYTES);
-                    },
-                    other => panic!("expected BelowByteThreshold, got {other:?}"),
-                }
-            },
-            _ => panic!("expected NoChange"),
-        }
-    }
+	#[test]
+	fn output_below_512b_skipped() {
+		// 256 B output → below the output-item floor.
+		let small = "x".repeat(256);
+		let b = body(json!({
+			"model": "gpt-4o",
+			"input": [
+				{"type": "function_call_output", "call_id": "c1", "output": small}
+			]
+		}));
+		let out = compress_openai_responses_live_zone(&b, AuthMode::Payg, "gpt-4o").unwrap();
+		match &out {
+			LiveZoneOutcome::NoChange { manifest } => {
+				assert_eq!(manifest.block_outcomes.len(), 1);
+				match &manifest.block_outcomes[0].action {
+					BlockAction::BelowByteThreshold { content_type, byte_count, threshold_bytes } => {
+						assert_eq!(*content_type, "output_item");
+						assert_eq!(*byte_count, 256);
+						assert_eq!(*threshold_bytes, RESPONSES_OUTPUT_MIN_BYTES);
+					},
+					other => panic!("expected BelowByteThreshold, got {other:?}"),
+				}
+			},
+			_ => panic!("expected NoChange"),
+		}
+	}
 
-    #[test]
-    fn plans_all_same_frame_function_outputs() {
-        // Codex can batch parallel tool results in a single
-        // response.create frame. They are all current-frame live
-        // inputs, so each byte-safe output string gets a slot.
-        let b = body(json!({
-            "model": "gpt-4o",
-            "input": [
-                {"type": "function_call_output", "call_id": "c1", "output": "early"},
-                {"type": "function_call", "call_id": "c2", "name": "f", "arguments": "{}"},
-                {"type": "function_call_output", "call_id": "c2", "output": "late"},
-            ]
-        }));
-        let out = compress_openai_responses_live_zone(&b, AuthMode::Payg, "gpt-4o").unwrap();
-        let manifest = match &out {
-            LiveZoneOutcome::NoChange { manifest } => manifest,
-            LiveZoneOutcome::Modified { manifest, .. } => manifest,
-        };
-        let outputs: Vec<_> = manifest
-            .block_outcomes
-            .iter()
-            .filter(|b| b.block_type == "function_call_output")
-            .collect();
-        assert_eq!(outputs.len(), 2);
-        assert_eq!(outputs[0].message_index, 0);
-        assert_eq!(outputs[1].message_index, 2);
-    }
+	#[test]
+	fn plans_all_same_frame_function_outputs() {
+		// Codex can batch parallel tool results in a single
+		// response.create frame. They are all current-frame live
+		// inputs, so each byte-safe output string gets a slot.
+		let b = body(json!({
+			"model": "gpt-4o",
+			"input": [
+				{"type": "function_call_output", "call_id": "c1", "output": "early"},
+				{"type": "function_call", "call_id": "c2", "name": "f", "arguments": "{}"},
+				{"type": "function_call_output", "call_id": "c2", "output": "late"},
+			]
+		}));
+		let out = compress_openai_responses_live_zone(&b, AuthMode::Payg, "gpt-4o").unwrap();
+		let manifest = match &out {
+			LiveZoneOutcome::NoChange { manifest } => manifest,
+			LiveZoneOutcome::Modified { manifest, .. } => manifest,
+		};
+		let outputs: Vec<_> = manifest
+			.block_outcomes
+			.iter()
+			.filter(|b| b.block_type == "function_call_output")
+			.collect();
+		assert_eq!(outputs.len(), 2);
+		assert_eq!(outputs[0].message_index, 0);
+		assert_eq!(outputs[1].message_index, 2);
+	}
 
-    #[test]
-    fn compresses_multiple_same_frame_outputs() {
-        let mut first = String::new();
-        let mut second = String::new();
-        for i in 0..400 {
-            first.push_str(&format!(
-                "./src/foo_{i}.rs:12: error[E0308]: mismatched types in module foo_{i}\n"
-            ));
-            second.push_str(&format!(
-                "./tests/bar_{i}.rs:44: warning: unused variable in test bar_{i}\n"
-            ));
-        }
-        let b = body(json!({
-            "model": "gpt-4o",
-            "input": [
-                {"type": "function_call_output", "call_id": "c1", "output": first},
-                {"type": "function_call", "call_id": "c2", "name": "f", "arguments": "{}"},
-                {"type": "function_call_output", "call_id": "c2", "output": second},
-            ]
-        }));
-        let out = compress_openai_responses_live_zone(&b, AuthMode::Payg, "gpt-4o").unwrap();
-        let manifest = match &out {
-            LiveZoneOutcome::NoChange { manifest } => manifest,
-            LiveZoneOutcome::Modified { manifest, .. } => manifest,
-        };
-        let compressed_outputs = manifest
-            .block_outcomes
-            .iter()
-            .filter(|b| {
-                b.block_type == "function_call_output"
-                    && matches!(b.action, BlockAction::Compressed { .. })
-            })
-            .count();
-        assert_eq!(compressed_outputs, 2, "{manifest:?}");
-    }
+	#[test]
+	fn compresses_multiple_same_frame_outputs() {
+		let mut first = String::new();
+		let mut second = String::new();
+		for i in 0..400 {
+			first.push_str(&format!(
+				"./src/foo_{i}.rs:12: error[E0308]: mismatched types in module foo_{i}\n"
+			));
+			second.push_str(&format!("./tests/bar_{i}.rs:44: warning: unused variable in test bar_{i}\n"));
+		}
+		let b = body(json!({
+			"model": "gpt-4o",
+			"input": [
+				{"type": "function_call_output", "call_id": "c1", "output": first},
+				{"type": "function_call", "call_id": "c2", "name": "f", "arguments": "{}"},
+				{"type": "function_call_output", "call_id": "c2", "output": second},
+			]
+		}));
+		let out = compress_openai_responses_live_zone(&b, AuthMode::Payg, "gpt-4o").unwrap();
+		let manifest = match &out {
+			LiveZoneOutcome::NoChange { manifest } => manifest,
+			LiveZoneOutcome::Modified { manifest, .. } => manifest,
+		};
+		let compressed_outputs = manifest
+			.block_outcomes
+			.iter()
+			.filter(|b| b.block_type == "function_call_output" && matches!(b.action, BlockAction::Compressed { .. }))
+			.count();
+		assert_eq!(compressed_outputs, 2, "{manifest:?}");
+	}
 
-    #[test]
-    fn unknown_item_types_passthrough_no_slot() {
-        // Items the dispatcher doesn't compress — no replacement.
-        let b = body(json!({
-            "model": "gpt-4o",
-            "input": [
-                {"type": "reasoning", "id": "r1", "encrypted_content": "opaque"},
-                {"type": "compaction", "id": "k1", "encrypted_content": "opaque"},
-                {"type": "future_item_v2", "novel": true},
-            ]
-        }));
-        let out = compress_openai_responses_live_zone(&b, AuthMode::Payg, "gpt-4o").unwrap();
-        match &out {
-            LiveZoneOutcome::NoChange { manifest } => {
-                assert!(manifest.block_outcomes.is_empty());
-            },
-            _ => panic!("expected NoChange"),
-        }
-    }
+	#[test]
+	fn unknown_item_types_passthrough_no_slot() {
+		// Items the dispatcher doesn't compress — no replacement.
+		let b = body(json!({
+			"model": "gpt-4o",
+			"input": [
+				{"type": "reasoning", "id": "r1", "encrypted_content": "opaque"},
+				{"type": "compaction", "id": "k1", "encrypted_content": "opaque"},
+				{"type": "future_item_v2", "novel": true},
+			]
+		}));
+		let out = compress_openai_responses_live_zone(&b, AuthMode::Payg, "gpt-4o").unwrap();
+		match &out {
+			LiveZoneOutcome::NoChange { manifest } => {
+				assert!(manifest.block_outcomes.is_empty());
+			},
+			_ => panic!("expected NoChange"),
+		}
+	}
 
-    #[test]
-    fn large_log_output_compressed() {
-        // Compressible build-output style log block with repeated
-        // template lines. Above 2 KB so the output floor passes;
-        // LogCompressor handles BuildOutput content type.
-        let mut log = String::new();
-        for i in 0..400 {
-            log.push_str(&format!(
-                "[2024-01-01 00:00:00] INFO compile.rs:42 building module foo_{i}\n"
-            ));
-        }
-        assert!(log.len() > 2048);
-        let b = body(json!({
-            "model": "gpt-4o",
-            "input": [
-                {"type": "local_shell_call_output", "call_id": "c1", "output": log}
-            ]
-        }));
-        let out = compress_openai_responses_live_zone(&b, AuthMode::Payg, "gpt-4o").unwrap();
-        match &out {
-            LiveZoneOutcome::Modified { new_body, manifest } => {
-                let new = new_body.get();
-                assert!(new.len() < b.len());
-                assert!(manifest
-                    .block_outcomes
-                    .iter()
-                    .any(|b| matches!(b.action, BlockAction::Compressed { .. })));
-            },
-            LiveZoneOutcome::NoChange { manifest } => {
-                // RejectedNotSmaller is also an acceptable outcome
-                // for the test fixture; what matters is that the
-                // dispatcher *attempted* the compression.
-                let attempted = manifest.block_outcomes.iter().any(|b| {
-                    matches!(
-                        b.action,
-                        BlockAction::Compressed { .. } | BlockAction::RejectedNotSmaller { .. }
-                    )
-                });
-                assert!(
-                    attempted,
-                    "expected dispatcher to attempt compression on a 2KB+ log fixture: {manifest:?}"
-                );
-            },
-        }
-    }
+	#[test]
+	fn large_log_output_compressed() {
+		// Compressible build-output style log block with repeated
+		// template lines. Above 2 KB so the output floor passes;
+		// LogCompressor handles BuildOutput content type.
+		let mut log = String::new();
+		for i in 0..400 {
+			log.push_str(&format!("[2024-01-01 00:00:00] INFO compile.rs:42 building module foo_{i}\n"));
+		}
+		assert!(log.len() > 2048);
+		let b = body(json!({
+			"model": "gpt-4o",
+			"input": [
+				{"type": "local_shell_call_output", "call_id": "c1", "output": log}
+			]
+		}));
+		let out = compress_openai_responses_live_zone(&b, AuthMode::Payg, "gpt-4o").unwrap();
+		match &out {
+			LiveZoneOutcome::Modified { new_body, manifest } => {
+				let new = new_body.get();
+				assert!(new.len() < b.len());
+				assert!(
+					manifest
+						.block_outcomes
+						.iter()
+						.any(|b| matches!(b.action, BlockAction::Compressed { .. }))
+				);
+			},
+			LiveZoneOutcome::NoChange { manifest } => {
+				// RejectedNotSmaller is also an acceptable outcome
+				// for the test fixture; what matters is that the
+				// dispatcher *attempted* the compression.
+				let attempted = manifest.block_outcomes.iter().any(|b| {
+					matches!(
+						b.action,
+						BlockAction::Compressed { .. } | BlockAction::RejectedNotSmaller { .. }
+					)
+				});
+				assert!(
+					attempted,
+					"expected dispatcher to attempt compression on a 2KB+ log fixture: {manifest:?}"
+				);
+			},
+		}
+	}
 
-    #[test]
-    fn message_user_content_not_in_live_zone() {
-        let b = body(json!({
-            "model": "gpt-4o",
-            "input": [
-                {"type": "message", "role": "user",
-                 "content": [{"type": "input_text", "text": "describe this"}]}
-            ]
-        }));
-        let out = compress_openai_responses_live_zone(&b, AuthMode::Payg, "gpt-4o").unwrap();
-        match &out {
-            LiveZoneOutcome::NoChange { manifest } => {
-                assert!(manifest.block_outcomes.is_empty());
-            },
-            _ => panic!("expected NoChange"),
-        }
-    }
+	#[test]
+	fn message_user_content_not_in_live_zone() {
+		let b = body(json!({
+			"model": "gpt-4o",
+			"input": [
+				{"type": "message", "role": "user",
+				 "content": [{"type": "input_text", "text": "describe this"}]}
+			]
+		}));
+		let out = compress_openai_responses_live_zone(&b, AuthMode::Payg, "gpt-4o").unwrap();
+		match &out {
+			LiveZoneOutcome::NoChange { manifest } => {
+				assert!(manifest.block_outcomes.is_empty());
+			},
+			_ => panic!("expected NoChange"),
+		}
+	}
 
-    #[test]
-    fn headroom_retrieve_output_not_in_live_zone() {
-        let retrieved = "retrieved original content ".repeat(100);
-        let b = body(json!({
-            "model": "gpt-4o",
-            "input": [
-                {
-                    "type": "function_call",
-                    "call_id": "call_retrieve",
-                    "name": "mcp__headroom__headroom_retrieve",
-                    "arguments": "{}"
-                },
-                {
-                    "type": "function_call_output",
-                    "call_id": "call_retrieve",
-                    "output": retrieved
-                }
-            ]
-        }));
-        let out = compress_openai_responses_live_zone(&b, AuthMode::Payg, "gpt-4o").unwrap();
-        match &out {
-            LiveZoneOutcome::NoChange { manifest } => {
-                assert!(manifest.block_outcomes.is_empty());
-            },
-            _ => panic!("expected NoChange"),
-        }
-    }
+	#[test]
+	fn headroom_retrieve_output_not_in_live_zone() {
+		let retrieved = "retrieved original content ".repeat(100);
+		let b = body(json!({
+			"model": "gpt-4o",
+			"input": [
+				{
+					"type": "function_call",
+					"call_id": "call_retrieve",
+					"name": "mcp__headroom__headroom_retrieve",
+					"arguments": "{}"
+				},
+				{
+					"type": "function_call_output",
+					"call_id": "call_retrieve",
+					"output": retrieved
+				}
+			]
+		}));
+		let out = compress_openai_responses_live_zone(&b, AuthMode::Payg, "gpt-4o").unwrap();
+		match &out {
+			LiveZoneOutcome::NoChange { manifest } => {
+				assert!(manifest.block_outcomes.is_empty());
+			},
+			_ => panic!("expected NoChange"),
+		}
+	}
 
-    #[test]
-    fn assistant_message_not_in_live_zone() {
-        // Only user messages are eligible. An assistant `message`
-        // item is never planned.
-        let b = body(json!({
-            "model": "gpt-4o",
-            "input": [
-                {"type": "message", "role": "assistant",
-                 "content": [{"type": "output_text", "text": "answer"}]}
-            ]
-        }));
-        let out = compress_openai_responses_live_zone(&b, AuthMode::Payg, "gpt-4o").unwrap();
-        match &out {
-            LiveZoneOutcome::NoChange { manifest } => {
-                assert!(manifest.block_outcomes.is_empty());
-            },
-            _ => panic!("expected NoChange"),
-        }
-    }
+	#[test]
+	fn assistant_message_not_in_live_zone() {
+		// Only user messages are eligible. An assistant `message`
+		// item is never planned.
+		let b = body(json!({
+			"model": "gpt-4o",
+			"input": [
+				{"type": "message", "role": "assistant",
+				 "content": [{"type": "output_text", "text": "answer"}]}
+			]
+		}));
+		let out = compress_openai_responses_live_zone(&b, AuthMode::Payg, "gpt-4o").unwrap();
+		match &out {
+			LiveZoneOutcome::NoChange { manifest } => {
+				assert!(manifest.block_outcomes.is_empty());
+			},
+			_ => panic!("expected NoChange"),
+		}
+	}
 
-    #[test]
-    fn no_change_reason_empty_input_is_no_eligible_items() {
-        let manifest = CompressionManifest::empty();
-        assert_eq!(
-            summarize_openai_responses_no_change_reason(&manifest),
-            "no_eligible_items"
-        );
-    }
+	#[test]
+	fn no_change_reason_empty_input_is_no_eligible_items() {
+		let manifest = CompressionManifest::empty();
+		assert_eq!(summarize_openai_responses_no_change_reason(&manifest), "no_eligible_items");
+	}
 
-    #[test]
-    fn no_change_reason_prefers_output_floor() {
-        let manifest = CompressionManifest {
-            messages_total: 1,
-            messages_below_frozen_floor: 0,
-            latest_user_message_index: Some(0),
-            block_outcomes: vec![BlockOutcome {
-                message_index: 0,
-                block_index: None,
-                block_type: "function_call_output".to_string(),
-                action: BlockAction::BelowByteThreshold {
-                    content_type: "output_item",
-                    byte_count: 1024,
-                    threshold_bytes: RESPONSES_OUTPUT_MIN_BYTES,
-                },
-            }],
-        };
-        assert_eq!(
-            summarize_openai_responses_no_change_reason(&manifest),
-            "below_output_floor"
-        );
-    }
+	#[test]
+	fn no_change_reason_prefers_output_floor() {
+		let manifest = CompressionManifest {
+			messages_total: 1,
+			messages_below_frozen_floor: 0,
+			latest_user_message_index: Some(0),
+			block_outcomes: vec![BlockOutcome {
+				message_index: 0,
+				block_index: None,
+				block_type: "function_call_output".to_string(),
+				action: BlockAction::BelowByteThreshold {
+					content_type: "output_item",
+					byte_count: 1024,
+					threshold_bytes: RESPONSES_OUTPUT_MIN_BYTES,
+				},
+			}],
+		};
+		assert_eq!(summarize_openai_responses_no_change_reason(&manifest), "below_output_floor");
+	}
 }
