@@ -69,7 +69,10 @@ tokio = { version = "1.52.3", features = [
 ] }
 axum = "0.7"
 tower = "0.5"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = [
+	"json",
+	"rustls-tls",
+] }
 pyo3 = { version = "0.29", features = ["abi3-py310"] }
 # Forwards Rust `log` records (incl. tracing events via the `log` compat
 # feature above) into Python's `logging` inside the _core extension module.
