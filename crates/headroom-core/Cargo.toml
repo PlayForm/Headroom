@@ -198,7 +198,13 @@ ort = { version = "=2.0.0-rc.12", default-features = false, optional = true, fea
 # consumer ship a fully-static musl binary. See the source `#[cfg(feature =
 # "ml")]` gates (TODO: the module + dispatch gating is the collaborative half
 # of this change — flagged in the PR).
-default = ["ml"]
+# The `ml` feature pulls in ONNX Runtime + fastembed + magika (~18MiB into the
+# hot-loaded dylib). Aphrodite never calls the ML path (it routes classification
+# through the µs `content_detector` heuristic in crates/aphrodite), so it is
+# OFF by default. Consumers that want semantic ML classification (headroom-cli,
+# the parity harness, Kompress) enable it explicitly. Builds that don't set `ml`
+# still compile a fully-functional lexical pipeline (unidiff + content_detector).
+default = []
 ml = ["dep:ort", "dep:fastembed", "dep:magika"]
 # Compile in the Redis CCR backend. Enable for multi-worker deployments
 # that want a shared CCR store with no sticky-session at the LB. The
