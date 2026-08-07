@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fnmatch
+import json
 from collections.abc import Iterable
 from dataclasses import InitVar, dataclass, field
 from datetime import datetime
@@ -56,7 +57,7 @@ class CacheAlignerConfig:
     SAFE: Only applied to SYSTEM messages, not user/assistant/tool content.
     """
 
-    enabled: bool = False  # Disabled by default - prefix stability gains are marginal in practice
+    enabled: bool = False  # Disabled by default — prefix stability gains are marginal in practice
 
     # === Phase 1: DynamicContentDetector Integration ===
     # When True, uses the full DynamicContentDetector with 15+ patterns
@@ -208,10 +209,14 @@ class AnchorConfig:
 #   not worth compressing.
 # Tool outputs that are reference data and must NOT be compressed.
 # Read/Glob/Grep contain exact file contents/search results the agent needs for edits.
-# Write/Edit record what changes were made - compressing them causes duplicate/conflicting edits.
-# Bash is NOT excluded - its outputs (build logs, test output) are ideal compression targets.
+# Write/Edit record what changes were made — compressing them causes duplicate/conflicting edits.
+# WebSearch/WebFetch results are large reference payloads that must remain verbatim.
+# Bash is NOT excluded — its outputs (build logs, test output) are ideal compression targets.
 # To protect Bash or other non-excluded tools from lossy compression, use
 # HEADROOM_PROTECT_TOOL_RESULTS=Bash or --protect-tool-results Bash.
+# headroom_retrieve: its entire contract is returning already-retrieved, original
+# CCR content verbatim. Recompressing it writes a new <<ccr:hash>> marker the
+# agent can never redeem (#1077).
 DEFAULT_EXCLUDE_TOOLS: frozenset[str] = frozenset(
     {
         "Read",
@@ -219,18 +224,46 @@ DEFAULT_EXCLUDE_TOOLS: frozenset[str] = frozenset(
         "Grep",
         "Write",
         "Edit",
+        "WebSearch",
+        "WebFetch",
+        "headroom_retrieve",
         # Lowercase variants for case-insensitive matching
         "read",
         "glob",
         "grep",
         "write",
         "edit",
+        "web_search",
+        "web_fetch",
+    }
+)
+
+# These excluded web-tool results must remain byte-faithful. Even the
+# excluded-tool lossless fold rewrites formatted JSON.
+# Three independent consumers key off this frozenset, all in
+# transforms/content_router.py: ContentRouter's two per-block CCR-retrieve
+# guards, and _cross_turn_dedup_messages's verbatim_tool_ids -- the latter has
+# no dedicated guard of its own, so removing headroom_retrieve from here would
+# silently reopen the retrieval loop for that path with cross-turn dedup on.
+DEFAULT_VERBATIM_EXCLUDE_TOOLS: frozenset[str] = frozenset(
+    {
+        "WebSearch",
+        "WebFetch",
+        "web_search",
+        "web_fetch",
+        "headroom_retrieve",
     }
 )
 
 
 def _tool_name_aliases(name: str) -> tuple[str, ...]:
     """Return equivalent spellings for tool exclusion matching."""
+    if not isinstance(name, str):
+        # Pre-existing fragility (not introduced here): a malformed message can
+        # put a non-string value in the tool-name map (see _build_tool_name_map's
+        # truthy-only `if tc_id and name:` filter). Fail safe -- no aliases means
+        # is_tool_excluded() returns False -- rather than crashing the pipeline.
+        return ()
     aliases = [name]
     lname = name.lower()
 
@@ -248,6 +281,37 @@ def _tool_name_aliases(name: str) -> tuple[str, ...]:
             aliases.append(parts[2])
 
     return tuple(dict.fromkeys(aliases))
+
+
+# Hermes Agent's deferred-tool bridge. Hermes loads on-demand tools via a
+# `tool_search`/`tool_describe`/`tool_call` indirection; on the wire the
+# emitted tool call is named `tool_call` and the REAL tool name lives in the
+# arguments payload (`{"name": "...", "arguments": {...}}`). Tool exclusion /
+# protect lists match on the real name, so we must unwrap this bridge before
+# building the tool_call_id -> name map, or whitelists silently no-op for all
+# deferred tools.
+_HERMES_TOOL_CALL_WRAPPER = "tool_call"
+
+
+def unwrap_tool_call_name(name: str, arguments: Any) -> str:
+    """Extract the real tool name from a Hermes deferred ``tool_call`` wrapper.
+
+    Non-wrapper names pass through unchanged. Malformed/unparseable wrappers
+    fail open and return the wrapper name (caller decides what that means).
+    """
+    if name != _HERMES_TOOL_CALL_WRAPPER:
+        return name
+    raw = arguments
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (ValueError, TypeError):
+            return name
+    if isinstance(raw, dict):
+        inner = raw.get("name")
+        if isinstance(inner, str) and inner.strip():
+            return inner.strip()
+    return name
 
 
 def is_tool_excluded(name: str, exclude_tools: Iterable[str]) -> bool:
@@ -303,7 +367,7 @@ class ReadLifecycleConfig:
     is redundant). Both are provably safe to compress.
 
     Operates as a pre-processing pass before ContentRouter, independent of
-    tool exclusion logic. Read remains in DEFAULT_EXCLUDE_TOOLS - fresh Read
+    tool exclusion logic. Read remains in DEFAULT_EXCLUDE_TOOLS — fresh Read
     outputs still bypass ContentRouter compression.
     """
 
@@ -319,7 +383,7 @@ class ReadMaturationConfig:
 
     Motivation (measured by `headroom audit-reads`): the median Read stays
     in context for ~118 assistant turns after it appears, billed at the
-    provider's cache-read rate every request - a Read's lifetime cost is
+    provider's cache-read rate every request — a Read's lifetime cost is
     roughly 13x its size. The only cache-safe moment to shrink it is
     BEFORE it is ever cache-written.
 
@@ -328,12 +392,12 @@ class ReadMaturationConfig:
     while its file is ACTIVE, stays verbatim the whole time the model is
     working with it, and matures into a CCR-backed marker once the file
     has been quiet for `quiesce_turns`. Only that final compressed form
-    ever enters the cache. No cached byte is ever mutated - there is
+    ever enters the cache. No cached byte is ever mutated — there is
     nothing to bust.
 
     Activity-based (not a fixed hold window) because the audit-reads
     simulation showed touch gaps are fat-tailed: next-touch p50 is 4
-    turns but p90 is 81 - no fixed window covers the tail, while a
+    turns but p90 is 81 — no fixed window covers the tail, while a
     quiesce rule covers the activity cluster and lets the tail self-heal
     via the model's observed habit of re-reading ranges from disk (95%
     of re-reads in real traffic are partial-range reads made while the
@@ -423,7 +487,7 @@ class SmartCrusherConfig:
     - Set variance_threshold lower (1.5) to catch more change points
     """
 
-    enabled: bool = True  # Enabled by default - sole tool-output compressor
+    enabled: bool = True  # Enabled by default — sole tool-output compressor
     min_items_to_analyze: int = 5  # Don't analyze tiny arrays
     min_tokens_to_crush: int = 200  # Only crush if > N tokens
     variance_threshold: float = 2.0  # Std devs for change point detection
@@ -458,16 +522,17 @@ class SmartCrusherConfig:
     first_fraction: float = 0.3  # 30% of K from start of array
     last_fraction: float = 0.15  # 15% of K from end of array
 
-    # Lossless compaction only replaces the original when it saves at
-    # least this byte fraction vs the (minified) input. Mirrors the
-    # Rust default (smart_crusher config.rs).
+    # Lossless-first dispatch: minimum byte-savings ratio for the lossless
+    # Table/CSV compaction path to win over the lossy path. Must stay in
+    # lockstep with the Rust default (smart_crusher config.rs) and the
+    # transforms-level dataclass.
     lossless_min_savings_ratio: float = 0.15
 
     # Strict lossless mode. When True, lossless tabular compaction still
     # applies, but any path that would emit a CCR marker (lossy row-drop
     # OR opaque-blob offload) leaves the content uncompacted instead, so
     # the output is always marker-free and byte-recoverable. Mirrors the
-    # Rust default. See also `CCRConfig` - with this on, no `<<ccr:…>>`
+    # Rust default. See also `CCRConfig` — with this on, no `<<ccr:…>>`
     # markers are produced regardless of CCR settings.
     lossless_only: bool = False
 
@@ -529,13 +594,19 @@ class CCRConfig:
     - Network effect: retrieval patterns improve compression for all users
 
     GOTCHAS:
-    - Cache has TTL (default 300 seconds) - retrieval fails after expiration
+    - Cache has TTL (default 30 min) - retrieval fails after expiration
     - Memory usage: ~1KB per cached entry
     - Only works with array compression (not string truncation)
     """
 
     enabled: bool = True  # Enable CCR (cache + retrieval markers)
     store_max_entries: int = 1000  # Max entries in compression store
+    # Session-scale TTL. The original 5-minute default predates agentic
+    # sessions that routinely run 30+ minutes; an expired entry silently
+    # converts "lossless with retrieval" into "lossy", so the TTL is the
+    # weakest link in the no-accuracy-loss guarantee. Kept in lockstep
+    # with Rust DEFAULT_TTL (crates/headroom-core/src/ccr/mod.rs) and
+    # DEFAULT_CCR_TTL_SECONDS (cache/compression_store.py).
     store_ttl_seconds: int = 1800  # Cache TTL (30 minutes)
     inject_retrieval_marker: bool = True  # Add retrieval hint to compressed output
     feedback_enabled: bool = True  # Track retrieval events for learning
@@ -655,7 +726,7 @@ class WasteSignals:
     repetition_tokens: int = 0  # Repeated content
     reread_tokens: int = 0  # Tool results re-served after already appearing earlier
     # Subset of reread_tokens whose first serve was compressed away (CCR
-    # marker left in its place) - re-reads attributable to over-compression
+    # marker left in its place) — re-reads attributable to over-compression
     # rather than agent behavior (#899). Excluded from total() because the
     # same tokens are already counted in reread_tokens.
     reread_compressed_tokens: int = 0

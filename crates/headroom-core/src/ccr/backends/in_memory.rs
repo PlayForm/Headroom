@@ -28,7 +28,7 @@ use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
 
-use crate::ccr::{CcrStore, DEFAULT_CAPACITY, DEFAULT_TTL};
+use crate::ccr::{max_lifetime_for, CcrStore, DEFAULT_CAPACITY, DEFAULT_TTL};
 
 /// Acquire the mutex guard, recovering from poison.
 fn lock_order(mtx: &Mutex<VecDeque<String>>) -> std::sync::MutexGuard<'_, VecDeque<String>> {
@@ -44,8 +44,11 @@ fn lock_order(mtx: &Mutex<VecDeque<String>>) -> std::sync::MutexGuard<'_, VecDeq
 /// In-memory CCR store backed by [`DashMap`] for sharded concurrent
 /// access.
 ///
-/// - **TTL**: 5 minutes by default. Entries past their TTL are dropped
-///   on the next `get` (lazy expiry - no background reaper thread).
+/// - **TTL**: 30 minutes by default, treated as an **idle window** -
+///   every successful `get` restarts the entry's clock (#2604), bounded
+///   by an absolute max lifetime of 8x the idle TTL measured from
+///   insertion. Entries past their window are dropped on the next `get`
+///   (lazy expiry - no background reaper thread).
 /// - **Capacity**: 1000 entries by default. When `put` would push us
 ///   past capacity, the oldest entry (per insertion order) is evicted.
 /// - **Concurrency**: gets and puts on distinct keys do not contend.
@@ -66,6 +69,7 @@ pub struct InMemoryCcrStore {
 	/// when `order.len() > capacity * 2`.
 	order: Mutex<VecDeque<String>>,
 	ttl: Duration,
+	max_lifetime: Duration,
 	capacity: usize,
 }
 
@@ -73,19 +77,38 @@ pub struct InMemoryCcrStore {
 struct Entry {
 	payload: String,
 	inserted: Instant,
+	last_accessed: Instant,
+}
+
+impl Entry {
+	/// Expired when idle past `ttl` OR older (since insertion) than
+	/// `max_lifetime` - the absolute ceiling that keeps constant access
+	/// from pinning an entry forever.
+	fn is_expired(&self, ttl: Duration, max_lifetime: Duration) -> bool {
+		self.last_accessed.elapsed() > ttl || self.inserted.elapsed() > max_lifetime
+	}
 }
 
 impl InMemoryCcrStore {
-	/// Default: 1000 entries, 5-minute TTL.
+	/// Default: 1000 entries, 30-minute idle TTL (8x max lifetime).
 	pub fn new() -> Self {
 		Self::with_capacity_and_ttl(DEFAULT_CAPACITY, DEFAULT_TTL)
 	}
 
+	/// `ttl` is the idle window; the absolute max lifetime defaults to
+	/// 8x that (see [`crate::ccr::DEFAULT_MAX_LIFETIME_MULTIPLIER`]).
 	pub fn with_capacity_and_ttl(capacity: usize, ttl: Duration) -> Self {
+		Self::with_capacity_and_ttls(capacity, ttl, max_lifetime_for(ttl))
+	}
+
+	/// Full-control constructor: idle window and absolute max lifetime
+	/// specified independently.
+	pub fn with_capacity_and_ttls(capacity: usize, ttl: Duration, max_lifetime: Duration) -> Self {
 		Self {
 			map: DashMap::with_capacity(capacity),
 			order: Mutex::new(VecDeque::with_capacity(capacity)),
 			ttl,
+			max_lifetime,
 			capacity,
 		}
 	}
@@ -132,8 +155,10 @@ impl CcrStore for InMemoryCcrStore {
 		// in place, leave the order queue alone. Common when the same
 		// tool output flows through multiple times in a session.
 		if let Some(mut existing) = self.map.get_mut(hash) {
+			let now = Instant::now();
 			existing.payload = payload.to_string();
-			existing.inserted = Instant::now();
+			existing.inserted = now;
+			existing.last_accessed = now;
 			return true;
 		}
 
@@ -142,7 +167,8 @@ impl CcrStore for InMemoryCcrStore {
 		if self.map.len() >= self.capacity {
 			self.evict_until_under_capacity();
 		}
-		let entry = Entry { payload: payload.to_string(), inserted: Instant::now() };
+		let now = Instant::now();
+		let entry = Entry { payload: payload.to_string(), inserted: now, last_accessed: now };
 		let prev = self.map.insert(hash.to_string(), entry);
 		if prev.is_none() {
 			// Truly new key - record in FIFO order. (If `prev.is_some()`
@@ -165,10 +191,12 @@ impl CcrStore for InMemoryCcrStore {
 		if should_compact {
 			self.compact();
 		}
-
-		// Read path: shard read-lock, check TTL, clone payload out.
-		// No global lock involvement at all - distinct hashes hash to
-		// distinct shards and never contend.
+		// Hit path: shard write-lock (get_mut), check the idle window +
+		// max-lifetime ceiling, refresh `last_accessed`, clone payload
+		// out. The TTL is a sliding idle window (#2604): every hit
+		// restarts the clock, so an entry a session keeps touching does
+		// not expire mid-burst. Distinct hashes hash to distinct shards
+		// and never contend.
 		//
 		// Lazy expiry uses DashMap's `remove_if` so the check-and-remove
 		// is atomic on the shard. An earlier 2-step (drop read lock,
@@ -179,8 +207,9 @@ impl CcrStore for InMemoryCcrStore {
 		// load this manifested as "I just stored it; why is it gone?"
 		// `remove_if` closes the window because the shard write lock
 		// is held across both the predicate evaluation and the removal.
-		if let Some(entry) = self.map.get(hash) {
-			if entry.inserted.elapsed() <= self.ttl {
+		if let Some(mut entry) = self.map.get_mut(hash) {
+			if !entry.is_expired(self.ttl, self.max_lifetime) {
+				entry.last_accessed = Instant::now();
 				return Some(entry.payload.clone());
 			}
 		} else {
@@ -192,7 +221,7 @@ impl CcrStore for InMemoryCcrStore {
 		// and re-fetch its payload.
 		let was_removed = self
 			.map
-			.remove_if(hash, |_, entry| entry.inserted.elapsed() > self.ttl)
+			.remove_if(hash, |_, entry| entry.is_expired(self.ttl, self.max_lifetime))
 			.is_some();
 		if was_removed {
 			None

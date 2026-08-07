@@ -181,8 +181,9 @@ pub struct LogTemplateConfig {
 /// Offload-transform configs (one struct per offload that needs them).
 #[derive(Debug, Clone, Deserialize)]
 pub struct OffloadConfigs {
-	pub json: JsonOffloadConfig,
-	pub diff_noise: DiffNoiseConfig,
+    pub json: JsonOffloadConfig,
+    pub diff_noise: DiffNoiseConfig,
+    pub prose_field: ProseFieldConfig,
 }
 
 /// Knobs for the [`crate::transforms::pipeline::offloads::JsonOffload`]
@@ -193,6 +194,15 @@ pub struct OffloadConfigs {
 pub struct JsonOffloadConfig {
 	pub min_array_rows: usize,
 	pub saturation_rows: usize,
+}
+
+/// Knobs for the [`crate::transforms::pipeline::offloads::ProseFieldOffload`]
+/// structured string-leaf compressor.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq)]
+pub struct ProseFieldConfig {
+    pub min_bytes: usize,
+    pub min_segments: usize,
+    pub target_ratio: f64,
 }
 
 /// Knobs for the [`crate::transforms::pipeline::offloads::DiffNoise`]
@@ -279,31 +289,98 @@ mod tests {
             min_lines = 20
             lockfile_suffixes = ["custom.lock"]
             drop_whitespace_only_hunks = false
+
+            [offload.prose_field]
+            min_bytes = 300
+            min_segments = 5
+            target_ratio = 0.4
         "#;
-		let cfg = PipelineConfig::from_toml_str(toml).expect("override parses");
-		assert_eq!(cfg.pipeline.reformat_target_ratio, 0.3);
-		assert_eq!(cfg.bloat.log.min_lines, 25);
-		assert_eq!(cfg.bloat.search.cluster_threshold, 20.0);
-		assert_eq!(cfg.reformat.log_template.min_run, 5);
-		assert_eq!(cfg.offload.diff_noise.lockfile_suffixes, vec!["custom.lock"]);
-	}
+        let cfg = PipelineConfig::from_toml_str(toml).expect("override parses");
+        assert_eq!(cfg.pipeline.reformat_target_ratio, 0.3);
+        assert_eq!(cfg.bloat.log.min_lines, 25);
+        assert_eq!(cfg.bloat.search.cluster_threshold, 20.0);
+        assert_eq!(cfg.reformat.log_template.min_run, 5);
+        assert_eq!(
+            cfg.offload.diff_noise.lockfile_suffixes,
+            vec!["custom.lock"]
+        );
+        assert_eq!(cfg.offload.prose_field.min_bytes, 300);
+        assert_eq!(cfg.offload.prose_field.min_segments, 5);
+        assert_eq!(cfg.offload.prose_field.target_ratio, 0.4);
+    }
 
-	#[test]
-	fn defaults_carry_reformat_and_offload_sections() {
-		let cfg = PipelineConfig::default();
-		assert_eq!(cfg.reformat.log_template.min_lines, 20);
-		assert_eq!(cfg.reformat.log_template.min_run, 3);
-		assert_eq!(cfg.offload.json.min_array_rows, 5);
-		assert_eq!(cfg.offload.json.saturation_rows, 50);
-		assert!(!cfg.offload.diff_noise.lockfile_suffixes.is_empty());
-		assert!(cfg.offload.diff_noise.lockfile_suffixes.iter().any(|s| s == "Cargo.lock"));
-	}
+    #[test]
+    fn defaults_carry_reformat_and_offload_sections() {
+        let cfg = PipelineConfig::default();
+        assert_eq!(cfg.reformat.log_template.min_lines, 20);
+        assert_eq!(cfg.reformat.log_template.min_run, 3);
+        assert_eq!(cfg.offload.json.min_array_rows, 5);
+        assert_eq!(cfg.offload.json.saturation_rows, 50);
+        assert_eq!(cfg.offload.prose_field.min_bytes, 256);
+        assert_eq!(cfg.offload.prose_field.min_segments, 6);
+        assert_eq!(cfg.offload.prose_field.target_ratio, 0.5);
+        assert!(!cfg.offload.diff_noise.lockfile_suffixes.is_empty());
+        assert!(cfg
+            .offload
+            .diff_noise
+            .lockfile_suffixes
+            .iter()
+            .any(|s| s == "Cargo.lock"));
+    }
 
-	#[test]
-	fn malformed_toml_returns_error() {
-		let r = PipelineConfig::from_toml_str("this is not toml = [unterminated");
-		assert!(r.is_err(), "malformed TOML should fail loudly");
-	}
+    #[test]
+    fn prose_field_defaults_and_override() {
+        let defaults = PipelineConfig::default().offload.prose_field;
+        let override_cfg = PipelineConfig::from_toml_str(
+            r#"
+            [pipeline]
+            reformat_target_ratio = 0.5
+            bloat_threshold = 0.5
+            offload_fallback_ratio = 0.85
+            [bloat.log]
+            min_lines = 50
+            sample_size = 100
+            high_priority_threshold = 0.4
+            uniqueness_weight = 0.5
+            priority_dilution_weight = 0.5
+            [bloat.diff]
+            min_lines = 50
+            normal_context_ratio = 0.6
+            [bloat.search]
+            min_matches = 10
+            cluster_threshold = 10.0
+            [reformat.log_template]
+            min_lines = 20
+            min_run = 3
+            similarity_threshold = 0.8
+            min_constant_tokens = 2
+            [offload.json]
+            min_array_rows = 5
+            saturation_rows = 50
+            [offload.diff_noise]
+            min_lines = 30
+            lockfile_suffixes = ["Cargo.lock"]
+            drop_whitespace_only_hunks = true
+            [offload.prose_field]
+            min_bytes = 300
+            min_segments = 5
+            target_ratio = 0.4
+            "#,
+        )
+        .unwrap()
+        .offload
+        .prose_field;
+        assert_eq!(defaults.min_bytes, 256);
+        assert_eq!(override_cfg.min_bytes, 300);
+        assert_eq!(override_cfg.min_segments, 5);
+        assert_eq!(override_cfg.target_ratio, 0.4);
+    }
+
+    #[test]
+    fn malformed_toml_returns_error() {
+        let r = PipelineConfig::from_toml_str("this is not toml = [unterminated");
+        assert!(r.is_err(), "malformed TOML should fail loudly");
+    }
 
 	#[test]
 	fn missing_section_returns_error() {

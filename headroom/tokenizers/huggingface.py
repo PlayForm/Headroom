@@ -63,17 +63,31 @@ MODEL_TO_TOKENIZER: dict[str, str] = {
     "qwen2.5": "Qwen/Qwen2.5-7B",
     "qwen2.5-7b": "Qwen/Qwen2.5-7B",
     "qwen2.5-72b": "Qwen/Qwen2.5-72B",
-    # DeepSeek
-    "deepseek-chat": "deepseek-ai/DeepSeek-V3",
-    "deepseek-r1": "deepseek-ai/DeepSeek-V3",
-    "deepseek-v4": "deepseek-ai/DeepSeek-V3",
-    "deepseek-v4-pro": "deepseek-ai/DeepSeek-V3",
+    # DeepSeek V1 / Coder (legacy, 2023-2024)
     "deepseek": "deepseek-ai/deepseek-llm-7b-base",
     "deepseek-7b": "deepseek-ai/deepseek-llm-7b-base",
     "deepseek-67b": "deepseek-ai/deepseek-llm-67b-base",
     "deepseek-coder": "deepseek-ai/deepseek-coder-6.7b-base",
+    "deepseek-coder-v2": "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct",
+    "deepseek-coder-v2-lite": "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct",
+    # DeepSeek V2/V3 family (2024)
     "deepseek-v2": "deepseek-ai/DeepSeek-V2",
+    "deepseek-v2-lite": "deepseek-ai/DeepSeek-V2-Lite",
     "deepseek-v3": "deepseek-ai/DeepSeek-V3",
+    "deepseek-v3-0324": "deepseek-ai/DeepSeek-V3-0324",
+    "deepseek-v3.2": "deepseek-ai/DeepSeek-V3.2",
+    # DeepSeek R1 reasoning family (2025)
+    "deepseek-r1": "deepseek-ai/DeepSeek-R1",
+    "deepseek-r1-0528": "deepseek-ai/DeepSeek-R1-0528",
+    "deepseek-reasoner": "deepseek-ai/DeepSeek-R1",
+    # DeepSeek V4 family (2025-2026)
+    "deepseek-v4": "deepseek-ai/DeepSeek-V3",
+    "deepseek-v4-pro": "deepseek-ai/DeepSeek-V4-Pro",
+    "deepseek-v4-flash": "deepseek-ai/DeepSeek-V4-Flash",
+    # DeepSeek API aliases (routed through the proxy)
+    "deepseek-chat": "deepseek-ai/DeepSeek-V3",
+    "deepseek-r1-distill-qwen": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+    "deepseek-r1-distill-llama": "deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
     # Yi family
     "yi": "01-ai/Yi-6B",
     "yi-6b": "01-ai/Yi-6B",
@@ -130,7 +144,7 @@ def _load_tokenizer(tokenizer_name: str):
     The first attempt is cache-only (``local_files_only=True``) so a warm
     HF cache never touches the network. A cache miss falls through to a
     network download bounded by ``HEADROOM_HF_TOKENIZER_LOAD_TIMEOUT_SECS``
-    (default 10s) on a daemon thread — the download itself cannot be
+    (default 10s) on a daemon thread - the download itself cannot be
     cancelled, but the caller unblocks and falls back to estimation.
     Failures are cached by ``lru_cache`` (returns ``None``), so a slow or
     offline hub is probed at most once per process per tokenizer.
@@ -150,7 +164,7 @@ def _load_tokenizer(tokenizer_name: str):
             local_files_only=True,
         )
     except Exception:
-        pass  # Not in the local cache — try the network below, bounded.
+        pass  # Not in the local cache - try the network below, bounded.
 
     timeout = _load_timeout_secs()
     if timeout <= 0:
@@ -171,7 +185,7 @@ def _load_tokenizer(tokenizer_name: str):
                     trust_remote_code=True,
                 )
             )
-        except BaseException as e:  # noqa: BLE001 — report any failure to the waiter
+        except BaseException as e:  # noqa: BLE001 - report any failure to the waiter
             error.append(e)
 
     thread = threading.Thread(
@@ -208,10 +222,15 @@ def get_tokenizer_name(model: str) -> str:
     if model_lower in MODEL_TO_TOKENIZER:
         return MODEL_TO_TOKENIZER[model_lower]
 
-    # Try prefix matching
-    for key, value in MODEL_TO_TOKENIZER.items():
+    # Try prefix matching, longest (most specific) key first. Scanning in
+    # dict-insertion order is wrong: a short family key like "qwen" precedes
+    # "qwen2"/"qwen2.5", so "qwen2-7b-instruct" would match "qwen" first and
+    # resolve to the Qwen1 tokenizer (a different vocabulary -> wrong counts).
+    # The sibling tiktoken resolver (get_encoding_for_model) documents and
+    # guards this exact order-dependent pitfall.
+    for key in sorted(MODEL_TO_TOKENIZER, key=len, reverse=True):
         if model_lower.startswith(key):
-            return value
+            return MODEL_TO_TOKENIZER[key]
 
     # Assume model name is the tokenizer name
     return model
@@ -307,11 +326,22 @@ class HuggingFaceTokenizer(BaseTokenizer):
         # Try to use chat template for accurate counting
         if hasattr(self.tokenizer, "apply_chat_template"):
             try:
-                # Apply chat template and count
+                # ``return_dict=False`` is load-bearing. transformers >= 5 defaults
+                # ``apply_chat_template(tokenize=True)`` to ``return_dict=True``,
+                # which hands back a BatchEncoding - so ``len(formatted)`` counted
+                # DICT KEYS (2: input_ids, attention_mask) instead of tokens.
+                # Measured on Qwen2.5-72B, a 6,000-char message: count_messages
+                # returned 2 and count_message returned -1 (base subtracts a
+                # 3-token reply overhead), against a true 1,003 tokens. That is a
+                # ~99.8% undercount on every HF-routed family whose resolved
+                # tokenizer carries a chat template - llama, qwen, deepseek, phi,
+                # yi, falcon, starcoder. pyproject pins transformers>=5.5.0,<6.0,
+                # so the affected version is the only installable one.
                 formatted = self.tokenizer.apply_chat_template(
                     messages,
                     tokenize=True,
                     add_generation_prompt=True,
+                    return_dict=False,
                 )
                 return len(formatted)
             except Exception:

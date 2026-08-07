@@ -1,4 +1,4 @@
-"""Smart JSON array crusher - Rust-backed via PyO3.
+"""Smart JSON array crusher — Rust-backed via PyO3.
 
 The Python implementation has been retired (Stage 3c.1b, 2026-04-27).
 All array compression now goes through `headroom._core.SmartCrusher`
@@ -8,8 +8,8 @@ implementations was verified against 17 recorded fixtures
 removed; the Rust crate has its own coverage in `crates/headroom-core/`
 (388 unit tests + property tests).
 
-This module retains the public surface - `SmartCrusherConfig`,
-`CrushResult`, `SmartCrusher`, `smart_crush_tool_output` - so existing
+This module retains the public surface — `SmartCrusherConfig`,
+`CrushResult`, `SmartCrusher`, `smart_crush_tool_output` — so existing
 call sites keep working unchanged. The dataclasses are still pure
 Python because callers use `asdict()`, `__dict__`, and dataclass
 matching on them. Only the `SmartCrusher` class delegates to Rust.
@@ -20,19 +20,19 @@ fallback. Build it locally with `scripts/build_rust_extension.sh`
 
 # Functionality state (post-audit, 2026-04-29)
 
-- **TOIN learning** - re-attached. `crush()` and `_smart_crush_content`
+- **TOIN learning** — re-attached. `crush()` and `_smart_crush_content`
   call `toin.record_compression()` after a real compression (filtered on
   `strategy != "passthrough"` to ignore JSON re-canonicalization).
   The retired Python class did this inline; the bridge keeps the
   highest-traffic strategy fueling the learning loop.
-- **CCR marker emission** - honored end-to-end. Both
+- **CCR marker emission** — honored end-to-end. Both
   `ccr_config.enabled=False` and
   `ccr_config.inject_retrieval_marker=False` flip the Rust crusher's
   `enable_ccr_marker` field; the lossy row-drop path then skips both
   the marker text and the CCR store write. Scope: gates only the
   row-drop sentinel path. Stage-3c.2 opaque-string CCR substitutions
-  still emit always - they have no Python equivalent.
-- **Custom relevance scorer / scorer override** - fails loud.
+  still emit always — they have no Python equivalent.
+- **Custom relevance scorer / scorer override** — fails loud.
   `relevance_config` and `scorer` constructor args remain in the
   signature for source compat, but the shim raises
   `NotImplementedError` when either is non-None. Silently dropping a
@@ -52,7 +52,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..ccr.tool_injection import CCR_TOOL_NAME
-from ..config import CCRConfig, TransformResult
+from ..config import CCRConfig, TransformResult, is_tool_excluded
 from ..tokenizer import Tokenizer
 from ..utils import compute_short_hash, create_tool_digest_marker, deep_copy_messages
 from .base import Transform
@@ -61,7 +61,7 @@ from .content_detector import normalize_concatenated_json
 logger = logging.getLogger(__name__)
 
 
-# Lossless-compaction renderers known to the Rust core - mirrors
+# Lossless-compaction renderers known to the Rust core — mirrors
 # `CompactionStage::SUPPORTED_FORMAT_NAMES` in
 # `crates/headroom-core/.../compaction/mod.rs`.
 _SUPPORTED_COMPACTION_FORMATS = ("csv-schema", "json", "markdown-kv")
@@ -74,7 +74,7 @@ _SUPPORTED_COMPACTION_FORMATS = ("csv-schema", "json", "markdown-kv")
 # array. The LLM sees this in the prompt and can ask for the original via
 # the CCR retrieval tool. Downstream consumers that iterate the array
 # expecting a uniform schema (e.g. `for e in entries: e["level"]`) need
-# to skip the sentinel - that's what `strip_ccr_sentinels` is for.
+# to skip the sentinel — that's what `strip_ccr_sentinels` is for.
 
 CCR_SENTINEL_KEY = "_ccr_dropped"
 
@@ -90,7 +90,7 @@ def strip_ccr_sentinels(items: Any) -> Any:
     Pass this through any iteration over a compressed array's contents
     when your code expects a uniform-schema list of records. The sentinel
     carries a `<<ccr:HASH ...>>` marker for the LLM and shouldn't be
-    confused for a record - it has only the `_ccr_dropped` key.
+    confused for a record — it has only the `_ccr_dropped` key.
 
     Non-list inputs pass through unchanged so callers can wrap whatever
     `json.loads` returned without first checking the shape.
@@ -184,14 +184,16 @@ class SmartCrusherConfig:
     first_fraction: float = 0.3
     last_fraction: float = 0.15
     # Minimum byte-savings ratio for the lossless Table/CSV compaction
-    # path to win over the lossy path. Mirrors the Rust default (0.30,
-    # see config.rs) - the two must stay in lockstep. Mainly lowered in
-    # tests and KV experiments - KV repeats field names per row, so it
-    # clears the gate less often than CSV.
+    # path to win over the lossy path (0.15, matching the Rust default —
+    # the two must stay in lockstep, see config.rs). Lossless output
+    # needs no CCR retrieval round-trip when the model wants more rows,
+    # so it gets a lower bar than the lossy path. Mainly raised in tests
+    # and KV experiments — KV repeats field names per row, so it clears
+    # the gate less often than CSV.
     lossless_min_savings_ratio: float = 0.15
     # Strict lossless mode. When True, lossless tabular compaction still
-    # applies, but any path that would otherwise emit a CCR marker - the
-    # lossy row-drop sentinel AND opaque-blob offload - leaves the content
+    # applies, but any path that would otherwise emit a CCR marker — the
+    # lossy row-drop sentinel AND opaque-blob offload — leaves the content
     # uncompacted instead. The output is always marker-free and fully
     # byte-recoverable: rows are never dropped and opaque cells render
     # inline. Default False (markers allowed). Mirrors the Rust default.
@@ -213,12 +215,12 @@ class SmartCrusherConfig:
     # ─── Audit-safe mode (#1705) ───────────────────────────────────────
     # Opt-in. `crush_array_json`'s row selection (Rust-side statistical
     # sampling) has no concept of "this row must not disappear from the
-    # prompt" - a rare compliance/audit-trail row can be sampled out or
+    # prompt" — a rare compliance/audit-trail row can be sampled out or
     # replaced by a `<<ccr:...>>` retrieval marker like any other row.
     # When `audit_safe=True` and `protected_patterns` is non-empty,
     # `crush_array_json` scans rows for pattern matches before
     # compression, then guarantees matched rows survive in the
-    # compressed output verbatim - not dropped, not marker-only. This
+    # compressed output verbatim — not dropped, not marker-only. This
     # field never reaches the Rust config (`_rust_cfg_kwargs` excludes
     # it); it's pure Python post-processing around the Rust call.
     audit_safe: bool = False
@@ -226,7 +228,7 @@ class SmartCrusherConfig:
     # its canonical JSON text (`json.dumps(row, sort_keys=True)`).
     protected_patterns: list[str] | None = None
     # If protected rows still can't be fully preserved after the
-    # splice-back pass (defensive - should only trip on internal
+    # splice-back pass (defensive — should only trip on internal
     # bugs), fail closed by returning the original, uncompressed array
     # instead of a result with fewer protected-row matches than the
     # input had. When False, ship the best-effort result with a
@@ -240,7 +242,7 @@ class SmartCrusherConfig:
 class SmartCrusher(Transform):
     """Rust-backed `SmartCrusher` (via PyO3 / `headroom._core`).
 
-    Same `__init__` and method shapes as the retired Python class -
+    Same `__init__` and method shapes as the retired Python class —
     drop-in replacement. The `crush()` and `_smart_crush_content()`
     methods delegate every byte to Rust; `apply()` keeps the
     Transform-protocol orchestration in Python (message walking,
@@ -261,7 +263,7 @@ class SmartCrusher(Transform):
         compaction_format: str | None = None,
         lossless_only: bool | None = None,
     ):
-        # Hard import - no Python fallback. If the wheel is missing the
+        # Hard import — no Python fallback. If the wheel is missing the
         # caller must build it (scripts/build_rust_extension.sh) or
         # install a prebuilt one. Failing loudly is better than silent
         # degradation; see feedback memory `feedback_no_silent_fallbacks.md`.
@@ -278,7 +280,7 @@ class SmartCrusher(Transform):
 
         # Audit-safe mode (#1705). getattr fallbacks: callers may pass
         # the SDK-side `headroom.config.SmartCrusherConfig`, which
-        # doesn't carry these fields - defaults to disabled, the safe
+        # doesn't carry these fields — defaults to disabled, the safe
         # choice (no behavior change for callers who don't opt in).
         self._audit_safe = bool(getattr(cfg, "audit_safe", False))
         self._fail_closed_on_protected_loss = bool(
@@ -300,14 +302,14 @@ class SmartCrusher(Transform):
         # `observer`: see `headroom.transforms.observability`. The
         # legacy proxy pipeline uses SmartCrusher.apply() directly
         # (no ContentRouter); without an observer here, those
-        # compressions would be invisible to per-strategy metrics -
+        # compressions would be invisible to per-strategy metrics —
         # exactly the silent-regression class we're guarding against.
         self._observer = observer
 
         # CCR config is preserved on `self` for callers that read it
         # back (`headroom.proxy.server` does). Both `enabled=False` and
         # `inject_retrieval_marker=False` collapse to the Rust crusher's
-        # `enable_ccr_marker=False` gate - when either is off, the
+        # `enable_ccr_marker=False` gate — when either is off, the
         # lossy row-drop path skips marker emission AND the CCR store
         # write (no point storing a payload nothing in the prompt can
         # reference; storing it under `enabled=False` would also be a
@@ -323,7 +325,7 @@ class SmartCrusher(Transform):
         # markers + store writes for every caller.
         #
         # Scope: gates ONLY the row-drop sentinel path. Stage-3c.2
-        # opaque-string CCR substitutions still emit always - they have
+        # opaque-string CCR substitutions still emit always — they have
         # no Python equivalent and no production caller has asked for
         # them to be suppressed.
         if ccr_config is None:
@@ -336,7 +338,7 @@ class SmartCrusher(Transform):
         # overrides yet (it always uses `HybridScorer` from the
         # relevance crate; the Python-bridged constructor surface
         # arrives in Stage 3c.2). Silently dropping a user-supplied
-        # scorer would be a textbook silent fallback - if a caller
+        # scorer would be a textbook silent fallback — if a caller
         # depends on a custom scoring function and we ignore it, the
         # compression they get back is wrong in a way they cannot see.
         # Fail loud instead. See `feedback_no_silent_fallbacks.md`.
@@ -368,7 +370,7 @@ class SmartCrusher(Transform):
         self._runtime_compression_policy: Any = None
 
         # Build the Rust crusher with every field from the Python
-        # config, plus the relevance_threshold default (0.3) - the
+        # config, plus the relevance_threshold default (0.3) — the
         # Python dataclass doesn't carry that field; it lives on
         # `RelevanceScorerConfig` instead. Kept as a kwargs dict so the
         # per-call `crush(..., lossless_only=...)` override can rebuild an
@@ -484,7 +486,7 @@ class SmartCrusher(Transform):
         """
         # Web search tools often return space-separated JSON objects
         # (``{...} {...} {...}``) rather than a real array. The Rust crusher
-        # only compresses JSON arrays, so normalize that shape first -
+        # only compresses JSON arrays, so normalize that shape first —
         # otherwise it passes through at 0% compression (#1741).
         normalized = normalize_concatenated_json(content)
         if normalized is not None:
@@ -505,7 +507,7 @@ class SmartCrusher(Transform):
         # Filter on `was_modified AND strategy != "passthrough"`. The
         # Rust crusher sometimes flips `was_modified=True` from pure
         # JSON re-canonicalization (whitespace normalization) without
-        # actually compressing - the strategy stays `"passthrough"` in
+        # actually compressing — the strategy stays `"passthrough"` in
         # that case, and there's no learning value in recording it.
         if r.was_modified and r.strategy != "passthrough":
             self._record_to_toin(
@@ -534,7 +536,7 @@ class SmartCrusher(Transform):
     # ─── Audit-safe protection (#1705) ─────────────────────────────────
     #
     # `crush_array_json`'s Rust-side row selection is purely statistical
-    # (variance, anomaly, position) - it has no notion of "this row is
+    # (variance, anomaly, position) — it has no notion of "this row is
     # legally/compliance-significant and must stay visible in the
     # prompt." Audit-safe mode bolts that on in Python: scan for
     # pattern matches before compression, then guarantee matched rows
@@ -545,7 +547,7 @@ class SmartCrusher(Transform):
         """Compile `protected_patterns` once at construction time.
 
         A pattern that fails to compile is a caller bug, not something
-        to swallow - silently treating an invalid regex as "no rows
+        to swallow — silently treating an invalid regex as "no rows
         protected" would defeat the entire point of audit-safe mode
         (rows the caller believes are protected wouldn't be).
         """
@@ -566,7 +568,7 @@ class SmartCrusher(Transform):
         """Canonical JSON text for a row.
 
         Used both for protected-pattern matching and for identity
-        comparison across the crush boundary - kept rows are
+        comparison across the crush boundary — kept rows are
         re-serialized by Rust, so rows are matched by content, not by
         Python object identity.
         """
@@ -580,7 +582,7 @@ class SmartCrusher(Transform):
         """Rows matching any `protected_patterns` entry, or `[]` when
         audit-safe mode is off, no patterns are configured, or the
         input doesn't parse as a JSON array (nothing row-shaped to
-        protect - e.g. raw CSV/log text, out of scope for this mode)."""
+        protect — e.g. raw CSV/log text, out of scope for this mode)."""
         if not (self._audit_safe and self._protected_patterns):
             return []
         try:
@@ -599,7 +601,7 @@ class SmartCrusher(Transform):
         protected rows are each accounted for individually).
 
         Returns `(kept_with_splice, lost_count)`. `lost_count` is
-        almost always 0 after splicing - it stays non-zero only when
+        almost always 0 after splicing — it stays non-zero only when
         something structural prevents the appended row from being
         recognized as a survivor (defensive; see call sites).
         """
@@ -629,11 +631,11 @@ class SmartCrusher(Transform):
         """Guarantee every row in `protected` survives in `result["items"]`.
 
         Two phases:
-        1. Splice - any protected row missing from the compressed
+        1. Splice — any protected row missing from the compressed
            output (statistically sampled out, or moved behind an
            opaque `<<ccr:...>>` retrieval marker) is appended back
            into `items` verbatim.
-        2. Verify - re-count protected-row survivors after splicing.
+        2. Verify — re-count protected-row survivors after splicing.
            If the count is still short (defensive: should only trip
            on an internal bug, e.g. the lossless table path rendering
            rows into a non-addressable CSV blob), fail closed by
@@ -650,7 +652,7 @@ class SmartCrusher(Transform):
         before_count = len(kept)
         kept, lost = self._splice_missing_protected(protected, kept)
         if len(kept) != before_count:
-            # Only reserialize when something was actually spliced in -
+            # Only reserialize when something was actually spliced in —
             # an unmodified `kept` stays byte-identical to Rust's output
             # (Python's `json.dumps` and serde_json don't necessarily
             # agree on e.g. non-ASCII escaping).
@@ -675,7 +677,7 @@ class SmartCrusher(Transform):
                 "compaction_kind": None,
             }
         logger.warning(
-            "%s fail_closed_on_protected_loss=False - shipping best-effort result.",
+            "%s fail_closed_on_protected_loss=False — shipping best-effort result.",
             msg,
         )
         return result
@@ -689,13 +691,13 @@ class SmartCrusher(Transform):
         info: str,
     ) -> tuple[str, bool, str]:
         """Guarantee protected rows survive `_smart_crush_content`'s
-        output - the tuple-shaped API `apply()` uses for real
+        output — the tuple-shaped API `apply()` uses for real
         tool-output compression (`crush_array_json` is the dict-shaped
         API used by direct/test callers and the CCR retrieval flow;
         `apply()` never calls it).
 
         `crushed` may be a JSON array string (the common shape for the
-        lossy row-drop and passthrough paths) - spliced exactly like
+        lossy row-drop and passthrough paths) — spliced exactly like
         `crush_array_json`. Anything else (lossless CSV/table
         rendering, an opaque marker string) has no row structure left
         to splice into, so verification falls back to counting
@@ -708,7 +710,7 @@ class SmartCrusher(Transform):
 
         if isinstance(parsed, list):
             kept, lost = self._splice_missing_protected(protected, parsed)
-            # Only reserialize when something was actually spliced in -
+            # Only reserialize when something was actually spliced in —
             # see the matching comment in `_apply_audit_safe_protection`.
             candidate = json.dumps(kept) if len(kept) != len(parsed) else crushed
         else:
@@ -726,7 +728,7 @@ class SmartCrusher(Transform):
             logger.warning("%s Failing closed: returning original content uncompressed.", msg)
             return original_content, False, "audit_safe:fail_closed"
         logger.warning(
-            "%s fail_closed_on_protected_loss=False - shipping best-effort result.",
+            "%s fail_closed_on_protected_loss=False — shipping best-effort result.",
             msg,
         )
         return candidate, was_modified, info
@@ -750,7 +752,7 @@ class SmartCrusher(Transform):
         When this instance is configured with `audit_safe=True` and a
         non-empty `protected_patterns`, rows matching any pattern are
         scanned *before* compression and guaranteed to survive in the
-        returned `items` - see `_apply_audit_safe_protection`.
+        returned `items` — see `_apply_audit_safe_protection`.
         """
         protected = self._scan_protected_rows(items_json)
 
@@ -793,7 +795,7 @@ class SmartCrusher(Transform):
     def compact_document_json(self, doc_json: str) -> str:
         """Run the document walker on ``doc_json`` and return compacted JSON.
 
-        Lossless walker pass over objects, arrays, and strings -
+        Lossless walker pass over objects, arrays, and strings —
         tabular sub-arrays become CSV+schema strings, long opaque
         blobs become ``<<ccr:HASH,KIND,SIZE>>`` markers (originals
         stashed in this crusher's CCR store, so ``ccr_get`` resolves them).
@@ -847,7 +849,7 @@ class SmartCrusher(Transform):
         one in scope) the recording uses content-based signature only.
 
         This is the path `apply()` actually calls for every compressed
-        tool/tool_result message - so it's also where audit-safe mode
+        tool/tool_result message — so it's also where audit-safe mode
         (`audit_safe=True` + `protected_patterns`, #1705) has to hook
         in to matter in production, not just via the `crush_array_json`
         convenience API. See `_apply_audit_safe_protection_to_content`.
@@ -858,7 +860,7 @@ class SmartCrusher(Transform):
             crushed, was_modified, info = self._apply_audit_safe_protection_to_content(
                 protected, content, crushed, was_modified, info
             )
-        # Same passthrough filter as `crush()` - re-canonicalization of
+        # Same passthrough filter as `crush()` — re-canonicalization of
         # JSON whitespace can flip `was_modified=True` even when the
         # `info` field reports `passthrough` and no compression happened.
         if was_modified and info != "passthrough":
@@ -892,7 +894,7 @@ class SmartCrusher(Transform):
 
         Replaces the inline TOIN call the retired Python SmartCrusher
         had at the end of its compression path. Best-effort: TOIN
-        failures are logged at debug level and never bubble - the
+        failures are logged at debug level and never bubble — the
         compression itself has already happened and is correct.
 
         Token estimates use the `len(json) // 4` rule the retired
@@ -902,7 +904,7 @@ class SmartCrusher(Transform):
 
         F2.2: when the active ``CompressionPolicy`` (set by
         ``apply()`` from ``kwargs["compression_policy"]``) has
-        ``toin_read_only=True``, the write is skipped - Subscription
+        ``toin_read_only=True``, the write is skipped — Subscription
         users keep prompt-cache stability AND don't mutate the global
         TOIN learning pool from cache-sensitive traffic. Direct
         ``crush()`` / ``crush_array_json()`` callers don't set the
@@ -917,7 +919,7 @@ class SmartCrusher(Transform):
         policy = self._runtime_compression_policy
         if policy is not None and policy.toin_read_only:
             logger.debug(
-                "SmartCrusher: skipping TOIN record_compression - "
+                "SmartCrusher: skipping TOIN record_compression — "
                 "policy.toin_read_only=True (auth_mode resolved as "
                 "Subscription, F2.2 gate)"
             )
@@ -926,7 +928,7 @@ class SmartCrusher(Transform):
             try:
                 items = json.loads(original)
             except (json.JSONDecodeError, ValueError):
-                # Not JSON - nothing structural for TOIN to learn from
+                # Not JSON — nothing structural for TOIN to learn from
                 # at the array level. The Rust crusher only sets
                 # `was_modified=True` on JSON-array inputs, so this
                 # branch is rare; bail quietly.
@@ -973,7 +975,7 @@ class SmartCrusher(Transform):
                 items=items[:5],  # Sample for field-level learning
             )
         except ImportError:
-            # TOIN module not installed in this build - disable for
+            # TOIN module not installed in this build — disable for
             # the lifetime of this crusher to avoid retry overhead.
             self._toin_load_failed = True
         except Exception as e:  # pragma: no cover - best effort
@@ -984,7 +986,7 @@ class SmartCrusher(Transform):
     # Issue #389: SmartCrusher's row-drop and opaque-blob paths emit
     # `<<ccr:HASH ...>>` markers and stash the original payload in the
     # Rust process-local CCR store. /v1/retrieve queries the Python
-    # `compression_store` via `get_compression_store()` - which is a
+    # `compression_store` via `get_compression_store()` — which is a
     # different store. Without an explicit bridge, every retrieve call
     # for a marker emitted by the Rust crusher returns 404.
     #
@@ -1013,7 +1015,7 @@ class SmartCrusher(Transform):
         output format) or arbitrary text. We try the structured walk
         first; if that fails we fall back to a non-regex token scan.
         """
-        # Cheap pre-filter - most outputs have no marker at all.
+        # Cheap pre-filter — most outputs have no marker at all.
         if "<<ccr:" not in rendered:
             return
         self._mirror_ccr_markers_in_text(
@@ -1044,7 +1046,7 @@ class SmartCrusher(Transform):
             parsed = json.loads(rendered)
             self._collect_ccr_hashes(parsed, hashes)
         except (json.JSONDecodeError, ValueError):
-            # Output isn't valid JSON (rare - `smart_crush_content`
+            # Output isn't valid JSON (rare — `smart_crush_content`
             # always re-serializes via `python_safe_json_dumps`). Fall
             # through to a string-token scan so we still bridge.
             self._collect_ccr_hashes_from_string(rendered, hashes)
@@ -1073,7 +1075,7 @@ class SmartCrusher(Transform):
             for v in value:
                 SmartCrusher._collect_ccr_hashes(v, sink)
             return
-        # ints/bools/None/floats - no markers possible
+        # ints/bools/None/floats — no markers possible
 
     @staticmethod
     def _collect_ccr_hashes_from_string(s: str, sink: set[str]) -> None:
@@ -1102,7 +1104,7 @@ class SmartCrusher(Transform):
             while end < n and s[end] in "0123456789abcdefABCDEF":
                 end += 1
             if end == cursor:
-                # No hex chars after `<<ccr:` - not a real marker.
+                # No hex chars after `<<ccr:` — not a real marker.
                 idx = cursor
                 continue
             hash_str = s[cursor:end].lower()
@@ -1121,7 +1123,7 @@ class SmartCrusher(Transform):
         """
         canonical = self._rust.ccr_get(ccr_hash)
         if canonical is None:
-            # Rust store doesn't have it - either the marker came from
+            # Rust store doesn't have it — either the marker came from
             # somewhere else (defensive: another transform's marker
             # leaked into our input), or the entry expired between
             # emission and mirror. Either way, nothing to mirror.
@@ -1142,7 +1144,7 @@ class SmartCrusher(Transform):
         except Exception as e:  # pragma: no cover - defensive
             logger.debug("CCR mirror: cannot get compression_store (%s)", e)
             return
-        # The TTL on the Python store defaults to 5 minutes - same as
+        # The TTL on the Python store defaults to 30 minutes — same as
         # the Rust store's `DEFAULT_TTL` (see crates/headroom-core/src/
         # ccr/mod.rs). No need to override.
         try:
@@ -1151,7 +1153,7 @@ class SmartCrusher(Transform):
                 # The "compressed" payload for the row-drop case isn't
                 # readily available here (the rendered output may be
                 # only one of many crushed sub-arrays). Use the marker
-                # itself as a placeholder - `/v1/retrieve` returns
+                # itself as a placeholder — `/v1/retrieve` returns
                 # `original_content` and `compressed` isn't surfaced.
                 compressed=f"<<ccr:{ccr_hash}>>",
                 tool_name=tool_name,
@@ -1160,7 +1162,7 @@ class SmartCrusher(Transform):
                 explicit_hash=ccr_hash,
             )
         except ValueError:
-            # explicit_hash validation failed - the marker had a
+            # explicit_hash validation failed — the marker had a
             # malformed hash (shouldn't happen in practice).
             logger.warning(
                 "CCR mirror: invalid hash %r from rendered marker",
@@ -1235,7 +1237,7 @@ class SmartCrusher(Transform):
         message, applies SmartCrusher to large enough payloads, and
         replaces the message content with `<crushed>\\n<digest_marker>`.
 
-        Pure orchestration - the per-message compression delegates to
+        Pure orchestration — the per-message compression delegates to
         Rust via `_smart_crush_content`.
         """
         tokens_before = tokenizer.count_messages(messages)
@@ -1249,7 +1251,7 @@ class SmartCrusher(Transform):
         # ``policy.toin_read_only``. Same one-liner pattern the
         # ContentRouter uses for ``_runtime_target_ratio``. ``None``
         # when the caller didn't pass a policy (e.g. legacy direct-
-        # apply callers in tests) - ``_record_to_toin`` treats that
+        # apply callers in tests) — ``_record_to_toin`` treats that
         # as "no gate", matching pre-F2.2 behaviour.
         self._runtime_compression_policy = kwargs.get("compression_policy")
 
@@ -1273,12 +1275,15 @@ class SmartCrusher(Transform):
 
             # OpenAI-style: top-level role=tool with string content.
             if msg.get("role") == "tool":
-                # #1077: never re-compress headroom_retrieve results - they ARE
+                # #1077: never re-compress headroom_retrieve results — they ARE
                 # already-retrieved CCR content; compressing them again creates an
                 # unresolvable retrieval loop.
                 # ponytail: ceiling is tool_call_id lookup; if the id is missing we
                 # compress (conservative: unknown tool names don't get a free pass).
-                if tool_names_by_id.get(msg.get("tool_call_id") or "") == CCR_TOOL_NAME:
+                if is_tool_excluded(
+                    tool_names_by_id.get(msg.get("tool_call_id") or "") or "",
+                    (CCR_TOOL_NAME,),
+                ):
                     continue
                 content = msg.get("content", "")
                 if isinstance(content, str):
@@ -1304,11 +1309,14 @@ class SmartCrusher(Transform):
                 for i, block in enumerate(content):
                     if not isinstance(block, dict) or block.get("type") != "tool_result":
                         continue
-                    # #1077: skip headroom_retrieve results - compressing them
+                    # #1077: skip headroom_retrieve results — compressing them
                     # would produce a new <<ccr:hash>> marker the agent cannot
                     # redeem (infinite retrieval loop).
                     # ponytail: ceiling is tool_use_id lookup; unknown ids pass through.
-                    if tool_names_by_id.get(block.get("tool_use_id") or "") == CCR_TOOL_NAME:
+                    if is_tool_excluded(
+                        tool_names_by_id.get(block.get("tool_use_id") or "") or "",
+                        (CCR_TOOL_NAME,),
+                    ):
                         continue
                     tool_content = block.get("content", "")
                     if not isinstance(tool_content, str):
