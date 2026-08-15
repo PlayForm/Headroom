@@ -10,7 +10,7 @@ description = "Stable C ABI for headroom-core - compression, classification, CCR
 crate-type = ["cdylib"]
 
 [dependencies]
-headroom-core = { package = "aphrodite-headroom-core", path = "../headroom-core" }
+headroom-core = { package = "aphrodite-headroom", path = "../headroom-core" }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tracing = { workspace = true }

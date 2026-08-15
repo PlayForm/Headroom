@@ -58,7 +58,7 @@ url = "2"
 humantime = "2"
 bytesize = "1"
 tokio-util = { version = "0.7" }
-headroom-core = { package = "aphrodite-headroom-core", path = "../headroom-core" }
+headroom-core = { package = "aphrodite-headroom", path = "../headroom-core" }
 # Phase D PR-D1: native Bedrock InvokeModel route. SigV4 + AWS
 # default credential chain.
 aws-sigv4 = { workspace = true }

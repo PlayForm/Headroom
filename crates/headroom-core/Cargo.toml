@@ -1,5 +1,5 @@
 [package]
-name = "aphrodite-headroom-core"
+name = "aphrodite-headroom"
 version = "0.1.2"
 edition.workspace = true
 rust-version.workspace = true
