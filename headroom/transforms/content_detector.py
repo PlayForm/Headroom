@@ -133,9 +133,20 @@ _YAML_DOC_RE = re.compile(r"^---\s*$|^\.\.\.\s*$")
 _CONFIG_COMMENT_RE = re.compile(r"^\s*[#;]")
 
 # Log/build output patterns
+#
+# Order matters: indices 0-3 (ERROR and WARN families) are treated as
+# "error" matches by `_try_detect_log` (the `i < 4` check), contributing
+# extra to confidence. Each family is split into two patterns:
+#   * a case-insensitive pattern that requires log framing (`error[E0308]:`,
+#     `warning:`, `[ERROR]`, `ValueError:`) so bare lowercase identifiers
+#     like Go's `(string, error)` return idiom never trip log detection;
+#   * a case-sensitive bare-word pattern so conventionally UPPERCASE log
+#     levels (`ERROR Something happened`) still match.
 _LOG_PATTERNS = [
-    re.compile(r"\b(ERROR|FAIL|FAILED|FATAL|CRITICAL)\b", re.IGNORECASE),
-    re.compile(r"\b(WARN|WARNING)\b", re.IGNORECASE),
+    re.compile(r"(?i)\b(?:ERROR|FAIL|FAILED|FATAL|CRITICAL)\b\s*(?:[:\[(]|\])"),  # error family, framed
+    re.compile(r"\b(?:ERROR|FAIL|FAILED|FATAL|CRITICAL)\b"),  # error family, bare UPPERCASE level
+    re.compile(r"(?i)\b(?:WARN|WARNING)\b\s*(?:[:\[(]|\])"),  # warn family, framed
+    re.compile(r"\b(?:WARN|WARNING)\b"),  # warn family, bare UPPERCASE level
     re.compile(r"\b(INFO|DEBUG|TRACE)\b", re.IGNORECASE),
     re.compile(r"^\s*\d{4}-\d{2}-\d{2}"),  # timestamp
     re.compile(r"^\s*\[\d{2}:\d{2}:\d{2}\]"),  # time format
@@ -235,7 +246,7 @@ _JSON_DECODER = json.JSONDecoder()
 # WRAPPED payload to still count as JSON: a small structural wrapper (a harness
 # observation shell, an ``Exit code:`` prefix) around a JSON body passes, but a
 # prose/code blob that merely contains a JSON fragment does not. Fraction-based
-# so it is size-correct — a large JSON with a proportionally small wrapper passes,
+# so it is size-correct - a large JSON with a proportionally small wrapper passes,
 # a short mostly-prose string does not. (Pure JSON never reaches this check.)
 _JSON_MIN_BULK_FRACTION = 0.6
 
@@ -285,7 +296,7 @@ def normalize_concatenated_json(content: str) -> str | None:
 def _try_detect_json(content: str) -> DetectionResult | None:
     """Detect JSON by PARSING, not by surface patterns.
 
-    JSON is whatever parses as JSON — objects, arrays, and any nesting are all
+    JSON is whatever parses as JSON - objects, arrays, and any nesting are all
     equally JSON, so a leading-``[`` check misses every ``{…}`` config/data file.
     Tool output is often a JSON value wrapped in a little surrounding text (a
     harness observation shell, an ``Exit code:`` prefix); we decode one JSON value
@@ -329,7 +340,7 @@ def _try_detect_json(content: str) -> DetectionResult | None:
         except (ValueError, RecursionError):
             return None
         # Accept only when the decoded JSON is the BULK of the content (see
-        # _JSON_MIN_BULK_FRACTION) — a small structural wrapper around a JSON body,
+        # _JSON_MIN_BULK_FRACTION) - a small structural wrapper around a JSON body,
         # not a prose/code blob that merely contains a JSON fragment.
         if (end - start) < len(stripped) * _JSON_MIN_BULK_FRACTION:
             return None
@@ -504,7 +515,7 @@ def _try_detect_log(content: str) -> DetectionResult | None:
         for i, pattern in enumerate(_LOG_PATTERNS):
             if pattern.search(line):
                 pattern_matches += 1
-                if i < 2:  # ERROR or WARN patterns
+                if i < 4:  # ERROR or WARN families (framed + bare UPPERCASE)
                     error_matches += 1
                 break  # One pattern per line is enough
 
