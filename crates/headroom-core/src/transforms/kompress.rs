@@ -1,4 +1,4 @@
-//! Kompress — Rust port of `headroom.transforms.kompress_compressor`.
+//! Kompress - Rust port of `headroom.transforms.kompress_compressor`.
 //!
 //! A ModernBERT token compressor for prose / plain-text tool outputs.
 //! Where SmartCrusher/Log/Search/Diff are deterministic structural
@@ -10,7 +10,7 @@
 //!
 //! # Model layering
 //!
-//! - **Inference weights:** `chopratejas/kompress-v2-base` — the ONNX
+//! - **Inference weights:** `chopratejas/kompress-v2-base` - the ONNX
 //!   artifact (`onnx/kompress-int8-wo.onnx`, weight-only int8 via the
 //!   `com.microsoft` `MatMulNBits` contrib op; falls through to
 //!   `onnx/kompress-fp32.onnx` then `onnx/kompress-int8.onnx`). This is
@@ -23,7 +23,7 @@
 //!
 //! Inputs `input_ids` + `attention_mask` (both `int64`, shape
 //! `[batch, seq]`); output `final_scores` (`f32`, shape `[batch, seq]`)
-//! — per-token salience in `[0, 1]` with the dual-head logic baked into
+//! - per-token salience in `[0, 1]` with the dual-head logic baked into
 //! the graph. Keep decision is `score > 0.5`.
 //!
 //! # Compression path (mirrors the Python ONNX/proxy path exactly)
@@ -53,7 +53,7 @@
 //! This engine returns the compressed string only. CCR offload of the
 //! dropped words (so the model can retrieve the original on demand) is
 //! handled by the live-zone dispatcher via [`crate::ccr::CcrStore`],
-//! exactly as for the Search/Log/Diff compressors — not inside this
+//! exactly as for the Search/Log/Diff compressors - not inside this
 //! engine. The Python reference's inline `[N items compressed... hash=]`
 //! marker is intentionally **not** reproduced; the Rust side uses the
 //! canonical `<<ccr:HASH>>` marker convention.
@@ -80,14 +80,14 @@ pub const DEFAULT_CHUNK_WORDS: usize = 350;
 /// Keep a word when its max per-token score exceeds this. Matches the
 /// ONNX `get_keep_mask` hard-coded `> 0.5`.
 pub const DEFAULT_SCORE_THRESHOLD: f32 = 0.5;
-/// Inputs shorter than this many words pass through untouched — too
+/// Inputs shorter than this many words pass through untouched - too
 /// little signal for the model and the per-call cost dominates.
 pub const MIN_WORDS: usize = 10;
 /// Max ModernBERT sequence length per chunk (truncation bound).
 pub const MAX_SEQ_LEN: usize = 512;
 
 /// ONNX artifact candidates, tried in order. The first is a fp32 model whose
-/// input shape is frozen to a static `[1, MAX_SEQ_LEN]` — required by the
+/// input shape is frozen to a static `[1, MAX_SEQ_LEN]` - required by the
 /// OpenVINO **NPU** EP, which cannot compile dynamic `seq` (it hangs during
 /// graph compilation on the dynamic-shape variants). When a static model is
 /// loaded, `score_chunk` right-pads each chunk to its fixed length (detected
@@ -187,7 +187,7 @@ pub enum KompressError {
 /// A loaded Kompress model + tokenizer. Construct once (model load is
 /// expensive) and share; `compress` takes `&self`.
 ///
-/// ONNX inference is serialized behind a `Mutex` — matching the Python
+/// ONNX inference is serialized behind a `Mutex` - matching the Python
 /// reference, which caps ONNX execution to one concurrent call (the CPU
 /// provider does not parallelize the batch dimension for this model).
 pub struct Kompress {
@@ -228,7 +228,7 @@ impl Kompress {
 		Self { config, tokenizer, session: Mutex::new(session), static_seq }
 	}
 
-	/// Build from local artifact paths — no network. Used by tests and
+	/// Build from local artifact paths - no network. Used by tests and
 	/// the parity harness against the on-disk HuggingFace cache.
 	pub fn from_files(
 		tokenizer_path: impl AsRef<Path>,
@@ -245,7 +245,7 @@ impl Kompress {
 	}
 
 	/// Build by resolving artifacts from the HuggingFace Hub (cache-first,
-	/// downloading on miss). Blocking — call off the hot path. Tries the
+	/// downloading on miss). Blocking - call off the hot path. Tries the
 	/// [`ONNX_CANDIDATES`] in order.
 	pub fn from_pretrained(config: KompressConfig) -> Result<Self, KompressError> {
 		let api = hf_hub::api::sync::Api::new()
@@ -302,7 +302,7 @@ impl Kompress {
 			// `kompress_ready=false`. Name the repo + the roots searched so
 			// operators don't have to guess between "not downloaded" and
 			// "present but unreadable" (e.g. HF symlinks over `\\wsl$`, which
-			// native Windows can't follow — `path.exists()` returns false on
+			// native Windows can't follow - `path.exists()` returns false on
 			// the unresolved symlink). Cache-only, so this is a defer, not an
 			// error: the caller passes plain text through.
 			tracing::warn!(
@@ -311,7 +311,7 @@ impl Kompress {
 				tokenizer_repo = %config.tokenizer_repo,
 				searched_roots = ?hf_hub_roots(),
 				"Kompress deferred: tokenizer.json not found in HF cache \
-				 (not downloaded, or present but unreadable — e.g. HF symlinks \
+				 (not downloaded, or present but unreadable - e.g. HF symlinks \
 				 over \\\\wsl$ which native Windows cannot follow)"
 			);
 			return Ok(None);
@@ -330,7 +330,7 @@ impl Kompress {
 				},
 				Err(e) => {
 					// The ONNX file is present but the session would not
-					// build — e.g. the active ORT execution provider rejects
+					// build - e.g. the active ORT execution provider rejects
 					// the graph (OpenVINO/NPU cannot compile the int8
 					// weight-only `MatMulNBits` op). Loudly surface it and try
 					// the next candidate (fp32) rather than die silently.
@@ -365,7 +365,7 @@ impl Kompress {
 
 	/// Forced-ratio compression: keep the top `target_ratio` fraction of
 	/// words by score (at least one). `None` defers to the threshold path.
-	/// The proxy never sets this — only the user-facing API does.
+	/// The proxy never sets this - only the user-facing API does.
 	pub fn compress_with_ratio(&self, content: &str, target_ratio: Option<f64>) -> KompressResult {
 		self.compress_inner(content, target_ratio)
 	}
@@ -387,7 +387,7 @@ impl Kompress {
 				},
 				Err(_) => {
 					// A chunk that fails inference is treated as
-					// "nothing salient here" — matches the Python
+					// "nothing salient here" - matches the Python
 					// reference's per-call passthrough-on-error.
 					return self.passthrough(content, n_words);
 				},
@@ -431,12 +431,12 @@ impl Kompress {
 		// compile a dynamic `seq`) require a fixed `[1, static_seq]` input, so
 		// right-pad every chunk to that length. Real tokens occupy
 		// `0..real_seq`; the tail is padding with `attention_mask = 0`, which
-		// masks those positions out of self-attention — the scores at real
+		// masks those positions out of self-attention - the scores at real
 		// positions are identical to an unpadded run, so keep/discard decisions
 		// (hence parity) are unchanged. The tokenizer truncates to
 		// `MAX_SEQ_LEN`, so the chunk never exceeds a `static_seq` of that size.
 		// Dynamic models (`static_seq == None`) take the chunk's natural length
-		// and pay no padding cost — the default for CPU/GPU.
+		// and pay no padding cost - the default for CPU/GPU.
 		let seq = match self.static_seq {
 			Some(n) => {
 				debug_assert!(ids.len() <= n);
@@ -487,11 +487,11 @@ impl Kompress {
 		match target_ratio {
 			Some(ratio) => {
 				// Stable top-k: iterate words in ascending index order so
-				// equal scores break toward the lower word index — this
+				// equal scores break toward the lower word index - this
 				// matches CPython's stable `sorted()` over the
 				// insertion-ordered score dict (tokens emitted in word
 				// order).
-				let mut ordered: Vec<(usize, f32)> = word_scores.iter().map(|(&w, &s)| (w, s)).collect();
+				let mut ordered: Vec<(usize, f32)> = word_scores.iter().map(|&(&w, &s)| (w, s)).collect();
 				ordered.sort_by_key(|&(w, _)| w);
 				ordered.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 				let num_keep = ((ordered.len() as f64 * ratio) as usize).max(1);
@@ -546,7 +546,7 @@ fn build_session(path: &Path) -> Result<Session, Box<dyn std::error::Error + Sen
 /// Resolve `rel` (e.g. `["tokenizer.json"]` or `["onnx", "kompress-int8-wo.onnx"]`)
 /// inside the local HuggingFace cache for `repo` (`"owner/name"`), searching
 /// every snapshot under every candidate cache root. Returns `None` if not
-/// present — never touches the network.
+/// present - never touches the network.
 fn hf_cache_file(repo: &str, rel: &[&str]) -> Option<PathBuf> {
 	let repo_dir = format!("models--{}", repo.replace('/', "--"));
 	for hub in hf_hub_roots() {

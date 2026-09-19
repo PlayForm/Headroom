@@ -2,7 +2,7 @@
 //!
 //! Direct port of `headroom/transforms/anchor_selector.py`. Used by
 //! `smart_crusher::analyzer` (and the not-yet-ported planning layer)
-//! to allocate position-based anchor slots — the items that are kept
+//! to allocate position-based anchor slots - the items that are kept
 //! purely for their position in the array, not their relevance score.
 //!
 //! # What it does
@@ -41,7 +41,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 /// Configuration for dynamic anchor allocation.
 ///
 /// Direct port of Python `AnchorConfig` (`headroom/config.py:294-348`).
-/// Defaults must match Python byte-for-byte — they're consulted by
+/// Defaults must match Python byte-for-byte - they're consulted by
 /// every anchor decision and parity fixtures lock the resulting choices.
 #[derive(Debug, Clone)]
 pub struct AnchorConfig {
@@ -108,7 +108,7 @@ pub enum DataPattern {
 }
 
 impl DataPattern {
-	/// Mirrors `DataPattern.from_string` in Python — unknown strings
+	/// Mirrors `DataPattern.from_string` in Python - unknown strings
 	/// fall through to `Generic`.
 	pub fn from_string(s: &str) -> DataPattern {
 		match s.to_lowercase().as_str() {
@@ -295,12 +295,12 @@ fn calculate_structural_uniqueness(item: &Value, all_items: &[Value]) -> f64 {
 	let n_f = n as f64;
 	let common: HashSet<&String> = field_counts
 		.iter()
-		.filter(|(_, &c)| c as f64 >= n_f * 0.8)
+		.filter(|&(_, &c)| c as f64 >= n_f * 0.8)
 		.map(|(k, _)| *k)
 		.collect();
 	let rare: HashSet<&String> = field_counts
 		.iter()
-		.filter(|(_, &c)| (c as f64) < n_f * 0.2)
+		.filter(|&(_, &c)| (c as f64) < n_f * 0.2)
 		.map(|(k, _)| *k)
 		.collect();
 
@@ -326,7 +326,7 @@ fn calculate_structural_uniqueness(item: &Value, all_items: &[Value]) -> f64 {
 /// Compute a 16-hex-char MD5 hash of the item's content for dedup.
 ///
 /// Python: `md5(json.dumps(item, sort_keys=True, default=str)).hexdigest()[:16]`.
-/// The serialization MUST match Python byte-for-byte — different
+/// The serialization MUST match Python byte-for-byte - different
 /// formatting → different hash → different dedup behavior.
 pub fn compute_item_hash(item: &Value) -> String {
 	let content = python_json_dumps_sort_keys(item);
@@ -346,7 +346,7 @@ struct JsonFmt {
 	ensure_ascii: bool,
 }
 
-/// Python `json.dumps(value, sort_keys=True)` — exact format parity.
+/// Python `json.dumps(value, sort_keys=True)` - exact format parity.
 ///
 /// Differences from `serde_json::to_string`:
 /// 1. Separators: `, ` and `: ` (with spaces, not compact).
@@ -354,7 +354,7 @@ struct JsonFmt {
 /// 3. Non-ASCII strings are escaped to `\uXXXX` (Python default
 ///    `ensure_ascii=True`).
 /// 4. Numbers serialize the same as serde_json for finite f64; serde_json
-///    refuses NaN/Inf which JSON forbids — Python's json.dumps also
+///    refuses NaN/Inf which JSON forbids - Python's json.dumps also
 ///    refuses by default but `default=str` would coerce them. For
 ///    compute_item_hash inputs (already-parsed JSON) NaN/Inf are
 ///    impossible so we don't handle them here.
@@ -364,12 +364,12 @@ pub fn python_json_dumps_sort_keys(value: &Value) -> String {
 	out
 }
 
-/// Python `json.dumps(value)` — exact format parity, preserving
+/// Python `json.dumps(value)` - exact format parity, preserving
 /// object-key insertion order (matches the JSON parser's order via
 /// serde_json's `preserve_order` feature).
 ///
 /// Bytes differ from `to_string` because of the `, ` / `: ` separators
-/// and `\uXXXX` non-ASCII escapes — both Python defaults.
+/// and `\uXXXX` non-ASCII escapes - both Python defaults.
 pub fn python_json_dumps(value: &Value) -> String {
 	let mut out = String::new();
 	write_python_json_inner(
@@ -380,7 +380,7 @@ pub fn python_json_dumps(value: &Value) -> String {
 	out
 }
 
-/// Python `safe_json_dumps(value)` — compact separators `(",", ":")` +
+/// Python `safe_json_dumps(value)` - compact separators `(",", ":")` +
 /// `ensure_ascii=False`, preserving object-key insertion order. This is
 /// the format `SmartCrusher._smart_crush_content` uses to re-serialize
 /// crushed output, so the proxy's wire bytes match Python's exactly.
@@ -490,7 +490,7 @@ fn write_python_json_string(s: &str, out: &mut String, ensure_ascii: bool) {
 }
 
 // ============================================================================
-// AnchorSelector — the main selector
+// AnchorSelector - the main selector
 // ============================================================================
 
 /// Dynamic anchor selector. Stateless other than `config`.
@@ -503,7 +503,7 @@ impl AnchorSelector {
 		AnchorSelector { config }
 	}
 
-	/// Calculate the anchor budget — number of slots to allocate.
+	/// Calculate the anchor budget - number of slots to allocate.
 	/// Mirrors `calculate_anchor_budget` (Python `anchor_selector.py:364-391`).
 	pub fn calculate_anchor_budget(&self, array_size: usize, max_items: usize) -> usize {
 		if array_size <= max_items {
@@ -548,7 +548,7 @@ impl AnchorSelector {
 
 	/// Adjust weights based on query keywords. `+0.15` toward back on
 	/// recency keywords, `+0.15` toward front on historical. Returns
-	/// `base_weights` unchanged when no keywords match (or both match —
+	/// `base_weights` unchanged when no keywords match (or both match -
 	/// they cancel out).
 	pub fn adjust_weights_for_query(&self, base: AnchorWeights, query: Option<&str>) -> AnchorWeights {
 		let Some(query) = query.filter(|q| !q.is_empty()) else {
@@ -608,7 +608,7 @@ impl AnchorSelector {
 		let mut back_slots = 1.max((budget as f64 * weights.back) as usize);
 		let mut middle_slots = budget.saturating_sub(front_slots + back_slots);
 
-		// Ensure we don't exceed budget — reduce middle first, then back.
+		// Ensure we don't exceed budget - reduce middle first, then back.
 		let total = front_slots + middle_slots + back_slots;
 		if total > budget {
 			let mut excess = total - budget;
@@ -636,7 +636,7 @@ impl AnchorSelector {
 		anchors.extend(back_anchors.iter().copied());
 
 		// Middle region: [front_count, array_size - back_count)
-		// Note Python uses `len(front_anchors)` and `len(back_anchors)` — the
+		// Note Python uses `len(front_anchors)` and `len(back_anchors)` - the
 		// ACTUAL counts after dedup, not the slot-allocated counts. We mirror.
 		if middle_slots > 0 {
 			let middle_start = front_count;
@@ -746,7 +746,7 @@ impl AnchorSelector {
 
 		// Sort by score descending; ties broken by index ascending so
 		// results are deterministic (Python's sort is stable, but since
-		// we're sorting on tuples (idx, score) the input order matters —
+		// we're sorting on tuples (idx, score) the input order matters -
 		// we built candidates in increasing-idx order so stable sort
 		// yields the same effect).
 		candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));

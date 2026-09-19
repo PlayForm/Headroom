@@ -8,12 +8,12 @@
 //! because it depends on the TOIN `FieldSemantics` type, which isn't
 //! ported yet.
 //!
-//! # Bug #3 fix — `detect_rare_status_values`
+//! # Bug #3 fix - `detect_rare_status_values`
 //!
 //! Python's original guard at `smart_crusher.py:674`
 //! `if not (2 <= len(unique_values) <= 10): continue`
 //! caps cardinality at 10, so error-code domains with 50+ codes are
-//! skipped entirely — even when one or two codes appear at <1% rates
+//! skipped entirely - even when one or two codes appear at <1% rates
 //! and clearly deserve outlier flagging.
 //!
 //! The fix replaces the cap-and-dominance approach with a Pareto check:
@@ -76,16 +76,16 @@ pub fn detect_structural_outliers(items: &[Value]) -> Vec<usize> {
 	let n = items.len();
 	let common_fields: HashSet<String> = field_counts
 		.iter()
-		.filter(|(_, &c)| c as f64 >= n as f64 * 0.8)
+		.filter(|&(_, &c)| c as f64 >= n as f64 * 0.8)
 		.map(|(k, _)| (*k).to_string())
 		.collect();
 	let rare_fields: HashSet<&str> = field_counts
 		.iter()
-		.filter(|(_, &c)| (c as f64) < n as f64 * 0.2)
+		.filter(|&(_, &c)| (c as f64) < n as f64 * 0.2)
 		.map(|(k, _)| *k)
 		.collect();
 
-	// Use a BTreeSet for stable order — Python uses `set()` then `list(set(...))`
+	// Use a BTreeSet for stable order - Python uses `set()` then `list(set(...))`
 	// which is non-deterministic order; we pin to ascending for parity tests.
 	let mut outlier_set: BTreeSet<usize> = BTreeSet::new();
 
@@ -110,7 +110,7 @@ pub fn detect_structural_outliers(items: &[Value]) -> Vec<usize> {
 
 /// Detect items with rare values in status-like categorical fields.
 ///
-/// **Bug #3 fix** — see module-level doc. Algorithm:
+/// **Bug #3 fix** - see module-level doc. Algorithm:
 ///
 /// 1. Cardinality 2..=50 (was 2..=10 in Python).
 /// 2. Pareto check: top-K values covering ≥80% with `K ≤ 5`.
@@ -123,7 +123,7 @@ pub fn detect_rare_status_values(items: &[Value], common_fields: &HashSet<String
 	let mut outlier_indices: Vec<usize> = Vec::new();
 
 	// Iterate fields in sorted order for determinism. Python iterates
-	// a `set`, which has non-deterministic order — but the eventual
+	// a `set`, which has non-deterministic order - but the eventual
 	// output is deduped via the caller's set, so order here only
 	// affects which fields drive detection if multiple status-like
 	// fields exist. Sorting gives us a stable, fixture-friendly order.
@@ -146,7 +146,7 @@ pub fn detect_rare_status_values(items: &[Value], common_fields: &HashSet<String
 		// serialization. This stringification is only used for set-
 		// dedup and frequency counting, not surfaced to callers, so the
 		// python_repr-vs-json distinction we made for anchors doesn't
-		// matter here — the SAME stringification is used for both the
+		// matter here - the SAME stringification is used for both the
 		// "is this rare" computation and the per-item lookup, so the
 		// surface is internally consistent.
 		let stringify = |v: &Value| -> String {
@@ -290,7 +290,7 @@ mod tests {
 
 	#[test]
 	fn outliers_rare_field_flags_item() {
-		// 9 items with `{"a"}`, 1 item with extra `{"a", "x"}` — `x`
+		// 9 items with `{"a"}`, 1 item with extra `{"a", "x"}` - `x`
 		// appears in 10% of items, below the 20% rare-field threshold.
 		let mut items: Vec<Value> = (0..9).map(|i| json!({"a": i})).collect();
 		items.push(json!({"a": 9, "x": "rare"}));
@@ -386,7 +386,7 @@ mod tests {
 	#[test]
 	fn rare_status_nulls_filtered_from_cardinality() {
 		// Pinned Python parity: `unique_values = {str(v) for v in values
-		// if v is not None}` — nulls are excluded from the cardinality
+		// if v is not None}` - nulls are excluded from the cardinality
 		// computation. With 95×"ok" + 5×null, cardinality = 1 (just "ok"),
 		// which fails the 2..=50 gate and the field is skipped entirely.
 		// Pre-fix Python had the same behavior; the null-aware
@@ -481,7 +481,7 @@ mod tests {
 	fn error_keywords_skips_non_dict_items() {
 		let items: Vec<Value> = vec![
 			json!({"msg": "error"}),
-			json!("error string"), // not a dict — Python skips
+			json!("error string"), // not a dict - Python skips
 			json!({"msg": "error"}),
 		];
 		let errs = detect_error_items_for_preservation(&items, None);
