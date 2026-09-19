@@ -1,5 +1,14 @@
 //! headroom-core: foundation crate for the Rust port of Headroom.
 
+// Vendored fork: style lints suppressed under nightly clippy. The fork's
+// code is kept in sync with upstream PlayForm/Headroom; these mechanical
+// lints (collapsible_if: nested `if let` chains whose let-chain rewrites
+// require edition 2024; question_mark: `if let` + early-return rewrites)
+// fire under nightly clippy only when this crate is compiled at edition
+// 2024 via workspace inheritance. Suppressed here rather than rewriting
+// fork sources to keep the vendored diff minimal.
+#![allow(clippy::collapsible_if, clippy::question_mark)]
+
 pub mod auth_mode;
 pub mod cache_control;
 pub mod ccr;
