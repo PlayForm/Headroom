@@ -423,16 +423,16 @@ fn try_detect_log(content: &str) -> Option<DetectionResult> {
 	let mut pattern_matches: u32 = 0;
 	let mut error_matches: u32 = 0;
 	for line in &lines {
-			for (i, pattern) in LOG_PATTERNS.iter().enumerate() {
-				if pattern.is_match(line) {
-					pattern_matches += 1;
-					if i < 4 {
-						error_matches += 1;
-					}
-					break; // one pattern per line is enough
+		for (i, pattern) in LOG_PATTERNS.iter().enumerate() {
+			if pattern.is_match(line) {
+				pattern_matches += 1;
+				if i < 4 {
+					error_matches += 1;
 				}
+				break; // one pattern per line is enough
 			}
 		}
+	}
 	if pattern_matches == 0 {
 		return None;
 	}
@@ -677,8 +677,8 @@ impl Foo {
 	}
 
 	#[test]
-		fn go_code_detected() {
-			let content = "\
+	fn go_code_detected() {
+		let content = "\
 	package main
 
 	import \"fmt\"
@@ -693,41 +693,41 @@ impl Foo {
 
 	func helper() {}
 	";
-			let r = detect_content_type(content);
-			assert_eq!(r.content_type, ContentType::SourceCode);
-			assert_eq!(r.metadata.get("language").unwrap().as_str(), Some("go"));
-		}
+		let r = detect_content_type(content);
+		assert_eq!(r.content_type, ContentType::SourceCode);
+		assert_eq!(r.metadata.get("language").unwrap().as_str(), Some("go"));
+	}
 
-		// ── bench/corpus finding (code_go.go): the case-insensitive
-		// `\bERROR\b` log pattern matched the `error` in Go's `(string, error)`
-		// return idiom on nearly every function, and log detection runs before
-		// code detection, so idiomatic Go source was classified as `build`.
-		// The log heuristics are now gated on log framing (or conventionally
-		// UPPERCASE levels) instead of bare case-insensitive identifiers. ──
-		#[test]
-		fn go_source_with_error_returns_is_source_code_not_build() {
-			// Mirrors bench/corpus/code_go.go: many `(string, error)` returns.
-			let mut content = String::from("package fixture\n\nimport \"fmt\"\n\n");
-			for i in 0..8 {
-				content.push_str(&format!(
+	// ── bench/corpus finding (code_go.go): the case-insensitive
+	// `\bERROR\b` log pattern matched the `error` in Go's `(string, error)`
+	// return idiom on nearly every function, and log detection runs before
+	// code detection, so idiomatic Go source was classified as `build`.
+	// The log heuristics are now gated on log framing (or conventionally
+	// UPPERCASE levels) instead of bare case-insensitive identifiers. ──
+	#[test]
+	fn go_source_with_error_returns_is_source_code_not_build() {
+		// Mirrors bench/corpus/code_go.go: many `(string, error)` returns.
+		let mut content = String::from("package fixture\n\nimport \"fmt\"\n\n");
+		for i in 0..8 {
+			content.push_str(&format!(
 					"type Record{i} struct {{\n	ID   int64\n	Name string\n	Tags []string\n}}\n\n\
 	                 func Process{i}(r *Record{i}, depth int) (string, error) {{\n	return fmt.Sprintf(\"%d-%d\", r.ID, depth+{i}), nil\n}}\n\n"
 				));
-			}
-			let r = detect_content_type(&content);
-			assert_eq!(
-				r.content_type,
-				ContentType::SourceCode,
-				"idiomatic Go with (string, error) returns must not be classified as build: {r:?}"
-			);
-			assert_eq!(r.metadata.get("language").unwrap().as_str(), Some("go"));
 		}
+		let r = detect_content_type(&content);
+		assert_eq!(
+			r.content_type,
+			ContentType::SourceCode,
+			"idiomatic Go with (string, error) returns must not be classified as build: {r:?}"
+		);
+		assert_eq!(r.metadata.get("language").unwrap().as_str(), Some("go"));
+	}
 
-		#[test]
-		fn build_log_with_framed_errors_is_build() {
-			// Rust diagnostics (`error[E0308]:`, `warning:`) keep framing - build
-			// logs must still be detected.
-			let content = "\
+	#[test]
+	fn build_log_with_framed_errors_is_build() {
+		// Rust diagnostics (`error[E0308]:`, `warning:`) keep framing - build
+		// logs must still be detected.
+		let content = "\
 	   Compiling foo v0.1.0
 	error[E0308]: mismatched types
 	  --> src/lib.rs:90:17
@@ -735,31 +735,31 @@ impl Foo {
 	   Compiling bar v0.1.0
 	error: could not compile `foo`
 	";
-			let r = detect_content_type(content);
-			assert_eq!(r.content_type, ContentType::BuildOutput, "framed error/warning log: {r:?}");
-			assert!(r.confidence >= 0.5);
-		}
+		let r = detect_content_type(content);
+		assert_eq!(r.content_type, ContentType::BuildOutput, "framed error/warning log: {r:?}");
+		assert!(r.confidence >= 0.5);
+	}
 
-		#[test]
-		fn bare_uppercase_error_level_is_build() {
-			// Conventionally UPPERCASE log levels (`ERROR ...`, `[WARN] ...`)
-			// still trip log detection without colon/bracket framing.
-			let content = "\
+	#[test]
+	fn bare_uppercase_error_level_is_build() {
+		// Conventionally UPPERCASE log levels (`ERROR ...`, `[WARN] ...`)
+		// still trip log detection without colon/bracket framing.
+		let content = "\
 	INFO starting build
 	WARN deprecated API used
 	ERROR compilation failed
 	FAILED test_x
 	PASSED test_y
 	";
-			let r = detect_content_type(content);
-			assert_eq!(r.content_type, ContentType::BuildOutput, "uppercase levels: {r:?}");
-		}
+		let r = detect_content_type(content);
+		assert_eq!(r.content_type, ContentType::BuildOutput, "uppercase levels: {r:?}");
+	}
 
-		#[test]
-		fn bare_lowercase_error_identifier_is_not_build() {
-			// A bare lowercase `error` identifier (no log framing, no UPPERCASE
-			// level) must NOT classify content as build output.
-			let content = "\
+	#[test]
+	fn bare_lowercase_error_identifier_is_not_build() {
+		// A bare lowercase `error` identifier (no log framing, no UPPERCASE
+		// level) must NOT classify content as build output.
+		let content = "\
 	function handle(data) {
 	    const error = validate(data);
 	    if (error) {
@@ -768,9 +768,9 @@ impl Foo {
 	    return null;
 	}
 	";
-			let r = detect_content_type(content);
-			assert_ne!(r.content_type, ContentType::BuildOutput, "bare lowercase error: {r:?}");
-		}
+		let r = detect_content_type(content);
+		assert_ne!(r.content_type, ContentType::BuildOutput, "bare lowercase error: {r:?}");
+	}
 
 	#[test]
 	fn fallback_to_plain_text() {

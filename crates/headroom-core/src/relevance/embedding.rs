@@ -214,46 +214,44 @@ impl RelevanceScorer for EmbeddingScorer {
 /// BM25 fallback path exactly as it does when embeddings are stubbed.
 #[cfg(not(feature = "ml"))]
 pub struct EmbeddingScorer {
-    pub model_name: String,
+	pub model_name: String,
 }
 
 #[cfg(not(feature = "ml"))]
 impl Default for EmbeddingScorer {
-    fn default() -> Self {
-        EmbeddingScorer {
-            model_name: "BAAI/bge-small-en-v1.5".to_string(),
-        }
-    }
+	fn default() -> Self {
+		EmbeddingScorer { model_name: "BAAI/bge-small-en-v1.5".to_string() }
+	}
 }
 
 #[cfg(not(feature = "ml"))]
 impl RelevanceScorer for EmbeddingScorer {
-    fn score(&self, item: &str, context: &str) -> RelevanceScore {
-        if item.is_empty() || context.is_empty() {
-            return RelevanceScore::empty("Embedding: empty input");
-        }
-        RelevanceScore::empty("Embedding: model not available")
-    }
+	fn score(&self, item: &str, context: &str) -> RelevanceScore {
+		if item.is_empty() || context.is_empty() {
+			return RelevanceScore::empty("Embedding: empty input");
+		}
+		RelevanceScore::empty("Embedding: model not available")
+	}
 
-    fn score_batch(&self, items: &[&str], context: &str) -> Vec<RelevanceScore> {
-        if items.is_empty() {
-            return Vec::new();
-        }
-        if context.is_empty() {
-            return items
-                .iter()
-                .map(|_| RelevanceScore::empty("Embedding: empty context"))
-                .collect();
-        }
-        items
-            .iter()
-            .map(|_| RelevanceScore::empty("Embedding: model not available"))
-            .collect()
-    }
+	fn score_batch(&self, items: &[&str], context: &str) -> Vec<RelevanceScore> {
+		if items.is_empty() {
+			return Vec::new();
+		}
+		if context.is_empty() {
+			return items
+				.iter()
+				.map(|_| RelevanceScore::empty("Embedding: empty context"))
+				.collect();
+		}
+		items
+			.iter()
+			.map(|_| RelevanceScore::empty("Embedding: model not available"))
+			.collect()
+	}
 
-    fn is_available(&self) -> bool {
-        false
-    }
+	fn is_available(&self) -> bool {
+		false
+	}
 }
 
 /// Cosine similarity for two vectors. Clamped to `[0, 1]` since we
@@ -293,10 +291,10 @@ mod tests {
 	// download). Without the env var, only the offline-safe stub
 	// path is exercised.
 
-    #[cfg(feature = "ml")]
-    fn fastembed_enabled() -> bool {
-        std::env::var("RUN_FASTEMBED_TESTS").is_ok()
-    }
+	#[cfg(feature = "ml")]
+	fn fastembed_enabled() -> bool {
+		std::env::var("RUN_FASTEMBED_TESTS").is_ok()
+	}
 
 	/// Construct a stub scorer with `model = None` for offline-safe
 	/// tests of the unavailable-path behavior.
@@ -305,19 +303,19 @@ mod tests {
 		EmbeddingScorer { model_name: "test".to_string(), model: None }
 	}
 
-    /// In the lexical-only build the scorer is always unavailable, so
-    /// `default()` already gives the stub we want to exercise.
-    #[cfg(not(feature = "ml"))]
-    fn unavailable_scorer() -> EmbeddingScorer {
-        EmbeddingScorer::default()
-    }
+	/// In the lexical-only build the scorer is always unavailable, so
+	/// `default()` already gives the stub we want to exercise.
+	#[cfg(not(feature = "ml"))]
+	fn unavailable_scorer() -> EmbeddingScorer {
+		EmbeddingScorer::default()
+	}
 
-    #[test]
-    fn cosine_similarity_orthogonal_vectors() {
-        let a = vec![1.0_f32, 0.0, 0.0, 0.0];
-        let b = vec![0.0_f32, 1.0, 0.0, 0.0];
-        assert_eq!(cosine_similarity(&a, &b), 0.0);
-    }
+	#[test]
+	fn cosine_similarity_orthogonal_vectors() {
+		let a = vec![1.0_f32, 0.0, 0.0, 0.0];
+		let b = vec![0.0_f32, 1.0, 0.0, 0.0];
+		assert_eq!(cosine_similarity(&a, &b), 0.0);
+	}
 
 	#[test]
 	fn cosine_similarity_identical_vectors() {
@@ -387,73 +385,73 @@ mod tests {
 
 	// ---------- AVX2 CPU guard (issue #1723) ----------
 
-    #[cfg(feature = "ml")]
-    #[test]
-    fn onnx_guard_matches_cpu_features() {
-        let supported = crate::onnx_cpu::onnx_runtime_supported_by_cpu();
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        assert_eq!(supported, std::is_x86_feature_detected!("avx2"));
-        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-        assert!(supported);
-    }
+	#[cfg(feature = "ml")]
+	#[test]
+	fn onnx_guard_matches_cpu_features() {
+		let supported = crate::onnx_cpu::onnx_runtime_supported_by_cpu();
+		#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+		assert_eq!(supported, std::is_x86_feature_detected!("avx2"));
+		#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+		assert!(supported);
+	}
 
-    #[cfg(feature = "ml")]
-    #[test]
-    fn try_new_errors_on_unsupported_cpu_instead_of_sigill() {
-        // On a no-AVX2 host the guard must turn the SIGILL into a plain Err
-        // so callers fall back to BM25. On AVX2 CI runners the guard passes and
-        // there is nothing to assert (loading the model would need network).
-        if crate::onnx_cpu::onnx_runtime_supported_by_cpu() {
-            return;
-        }
-        match EmbeddingScorer::try_new() {
-            Err(err) => assert!(err.contains("AVX2"), "unexpected error: {err}"),
-            Ok(_) => panic!("ONNX backend must not load on a no-AVX2 CPU"),
-        }
-    }
+	#[cfg(feature = "ml")]
+	#[test]
+	fn try_new_errors_on_unsupported_cpu_instead_of_sigill() {
+		// On a no-AVX2 host the guard must turn the SIGILL into a plain Err
+		// so callers fall back to BM25. On AVX2 CI runners the guard passes and
+		// there is nothing to assert (loading the model would need network).
+		if crate::onnx_cpu::onnx_runtime_supported_by_cpu() {
+			return;
+		}
+		match EmbeddingScorer::try_new() {
+			Err(err) => assert!(err.contains("AVX2"), "unexpected error: {err}"),
+			Ok(_) => panic!("ONNX backend must not load on a no-AVX2 CPU"),
+		}
+	}
 
 	// ---------- model-backed tests (gated on RUN_FASTEMBED_TESTS) ----------
 
-    #[cfg(feature = "ml")]
-    #[test]
-    fn fastembed_loads_default_model() {
-        if !fastembed_enabled() {
-            return;
-        }
-        let s = EmbeddingScorer::try_new().expect("model loads");
-        assert!(s.is_available());
-        assert_eq!(s.model_name, "BGESmallENV15");
-    }
+	#[cfg(feature = "ml")]
+	#[test]
+	fn fastembed_loads_default_model() {
+		if !fastembed_enabled() {
+			return;
+		}
+		let s = EmbeddingScorer::try_new().expect("model loads");
+		assert!(s.is_available());
+		assert_eq!(s.model_name, "BGESmallENV15");
+	}
 
-    #[cfg(feature = "ml")]
-    #[test]
-    fn fastembed_semantic_match_outranks_unrelated() {
-        if !fastembed_enabled() {
-            return;
-        }
-        let s = EmbeddingScorer::try_new().expect("model loads");
-        let related = s.score("authentication failed for user", "login error");
-        let unrelated = s.score("the weather is nice today", "login error");
-        assert!(
-            related.score > unrelated.score,
-            "semantically-related text should score higher: related={}, unrelated={}",
-            related.score,
-            unrelated.score
-        );
-    }
+	#[cfg(feature = "ml")]
+	#[test]
+	fn fastembed_semantic_match_outranks_unrelated() {
+		if !fastembed_enabled() {
+			return;
+		}
+		let s = EmbeddingScorer::try_new().expect("model loads");
+		let related = s.score("authentication failed for user", "login error");
+		let unrelated = s.score("the weather is nice today", "login error");
+		assert!(
+			related.score > unrelated.score,
+			"semantically-related text should score higher: related={}, unrelated={}",
+			related.score,
+			unrelated.score
+		);
+	}
 
-    #[cfg(feature = "ml")]
-    #[test]
-    fn fastembed_batch_returns_one_score_per_item() {
-        if !fastembed_enabled() {
-            return;
-        }
-        let s = EmbeddingScorer::try_new().expect("model loads");
-        let items = ["foo", "bar", "baz"];
-        let scores = s.score_batch(&items, "query text");
-        assert_eq!(scores.len(), 3);
-        for sc in scores {
-            assert!((0.0..=1.0).contains(&sc.score));
-        }
-    }
+	#[cfg(feature = "ml")]
+	#[test]
+	fn fastembed_batch_returns_one_score_per_item() {
+		if !fastembed_enabled() {
+			return;
+		}
+		let s = EmbeddingScorer::try_new().expect("model loads");
+		let items = ["foo", "bar", "baz"];
+		let scores = s.score_batch(&items, "query text");
+		assert_eq!(scores.len(), 3);
+		for sc in scores {
+			assert!((0.0..=1.0).contains(&sc.score));
+		}
+	}
 }

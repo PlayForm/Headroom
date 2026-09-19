@@ -37,17 +37,13 @@ pub mod text_crusher;
 pub mod unidiff_detector;
 
 pub use code_compressor::{
-	detect_language, CodeAwareCompressor, CodeCompressionResult, CodeCompressorConfig,
-	CodeLanguage, DocstringMode,
+	detect_language, CodeAwareCompressor, CodeCompressionResult, CodeCompressorConfig, CodeLanguage, DocstringMode,
 };
 pub use content_detector::{detect_content_type, is_json_array_of_dicts, ContentType, DetectionResult};
 pub use detection::detect;
 pub use diff_compressor::{DiffCompressionResult, DiffCompressor, DiffCompressorConfig, DiffCompressorStats};
 #[cfg(feature = "ml")]
-pub use kompress::{
-	Kompress, KompressConfig, KompressError, KompressResult, DEFAULT_MODEL_ID,
-	DEFAULT_TOKENIZER_REPO,
-};
+pub use kompress::{Kompress, KompressConfig, KompressError, KompressResult, DEFAULT_MODEL_ID, DEFAULT_TOKENIZER_REPO};
 pub use live_zone::{
 	compress_anthropic_live_zone, compress_openai_chat_live_zone, compress_openai_responses_live_zone,
 	summarize_openai_responses_no_change_reason, AuthMode, BlockAction, BlockOutcome, CompressionManifest,
@@ -59,10 +55,9 @@ pub use log_compressor::{
 #[cfg(feature = "ml")]
 pub use magika_detector::{magika_detect, map_magika_label, MagikaDetectorError};
 pub use pipeline::{
-    CompressionContext, CompressionPipeline, CompressionPipelineBuilder, DiffNoise, DiffOffload,
-    JsonMinifier, JsonOffload, LogOffload, LogTemplate, OffloadOutput, OffloadTransform,
-    PipelineConfig, PipelineResult, ProseFieldOffload, ReformatOutput, ReformatTransform,
-    TransformError,
+	CompressionContext, CompressionPipeline, CompressionPipelineBuilder, DiffNoise, DiffOffload, JsonMinifier,
+	JsonOffload, LogOffload, LogTemplate, OffloadOutput, OffloadTransform, PipelineConfig, PipelineResult,
+	ProseFieldOffload, ReformatOutput, ReformatTransform, TransformError,
 };
 pub use recommendations::{Recommendation, RecommendationStore, RECOMMENDATIONS_PATH_ENV_VAR};
 pub use safety::{tool_pair_indices, ToolPair};

@@ -20,7 +20,7 @@ use std::{
 use headroom_core::transforms::kompress::{Kompress, KompressConfig};
 use serde_json::Value;
 
-fn hf_cache_file(repo_dir:&str, rel:&[&str]) -> Option<PathBuf> {
+fn hf_cache_file(repo_dir: &str, rel: &[&str]) -> Option<PathBuf> {
 	let home = std::env::var("HOME").ok()?;
 	let snapshots = Path::new(&home).join(".cache/huggingface/hub").join(repo_dir).join("snapshots");
 	for snap in fs::read_dir(snapshots).ok()?.filter_map(|e| e.ok()) {
@@ -59,7 +59,7 @@ fn kompress_matches_python_fixtures_byte_for_byte() {
 		Kompress::from_files(&tok, &onnx, KompressConfig::default()).expect("load kompress from local files");
 
 	let mut checked = 0usize;
-	let mut paths:Vec<PathBuf> = fs::read_dir(&fixtures_dir)
+	let mut paths: Vec<PathBuf> = fs::read_dir(&fixtures_dir)
 		.expect("read fixtures dir")
 		.filter_map(|e| e.ok())
 		.map(|e| e.path())
@@ -71,7 +71,7 @@ fn kompress_matches_python_fixtures_byte_for_byte() {
 	paths.sort();
 
 	for path in paths {
-		let fx:Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+		let fx: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
 		let name = path.file_name().unwrap().to_string_lossy().to_string();
 		// Standard parity fixture: {transform, input, config, output}.
 		let content = fx["input"].as_str().expect("fixture.input string");

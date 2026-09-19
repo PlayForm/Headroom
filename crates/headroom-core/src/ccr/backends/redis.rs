@@ -60,8 +60,7 @@ impl RedisCcrStore {
 		// signal.
 		let mut conn = client.get_connection()?;
 		let _: String = redis::cmd("PING").query(&mut conn)?;
-		let max_lifetime_seconds =
-			max_lifetime_for(std::time::Duration::from_secs(default_ttl_seconds)).as_secs();
+		let max_lifetime_seconds = max_lifetime_for(std::time::Duration::from_secs(default_ttl_seconds)).as_secs();
 		Ok(Self { client, key_prefix, default_ttl_seconds, max_lifetime_seconds })
 	}
 
@@ -111,8 +110,7 @@ impl CcrStore for RedisCcrStore {
 		// Companion max-lifetime marker: its remaining TTL caps every
 		// idle-window re-arm in `get`, so constant access cannot pin an
 		// entry past `max_lifetime_seconds`.
-		let born: redis::RedisResult<()> =
-			conn.set_ex(self.born_key_for(hash), 1_u8, self.max_lifetime_seconds);
+		let born: redis::RedisResult<()> = conn.set_ex(self.born_key_for(hash), 1_u8, self.max_lifetime_seconds);
 		if let Err(err) = born {
 			tracing::warn!(
 				target = "ccr.redis",
@@ -162,8 +160,7 @@ impl CcrStore for RedisCcrStore {
 		} else {
 			// Legacy entry written by a pre-sliding build (no born key):
 			// backfill the ceiling from now rather than dropping data.
-			let backfill: redis::RedisResult<()> =
-				conn.set_ex(&born_key, 1_u8, self.max_lifetime_seconds);
+			let backfill: redis::RedisResult<()> = conn.set_ex(&born_key, 1_u8, self.max_lifetime_seconds);
 			if let Err(err) = backfill {
 				tracing::warn!(
 					target = "ccr.redis",

@@ -50,9 +50,7 @@ use md5::{Digest, Md5};
 use crate::ccr::CcrStore;
 use crate::transforms::pipeline::config::{JsonOffloadConfig, PipelineConfig, ProseFieldConfig};
 use crate::transforms::pipeline::offloads::prose_field::ProseFieldOffload;
-use crate::transforms::pipeline::traits::{
-    CompressionContext, OffloadOutput, OffloadTransform, TransformError,
-};
+use crate::transforms::pipeline::traits::{CompressionContext, OffloadOutput, OffloadTransform, TransformError};
 use crate::transforms::smart_crusher::{SmartCrusher, SmartCrusherConfig};
 use crate::transforms::ContentType;
 
@@ -62,54 +60,50 @@ const NAME: &str = "json_offload";
 const CONFIDENCE: f32 = 0.85;
 
 pub struct JsonOffload {
-    crusher: SmartCrusher,
-    config: JsonOffloadConfig,
-    prose: ProseFieldOffload,
+	crusher: SmartCrusher,
+	config: JsonOffloadConfig,
+	prose: ProseFieldOffload,
 }
 
 impl JsonOffload {
-    /// Default constructor — builds SmartCrusher with the OSS default
-    /// composition (scorer + constraints + compaction stage + internal
-    /// CCR store). The internal store handles SmartCrusher's per-array
-    /// markers; the wrapper still emits its own outer marker that
-    /// resolves in the orchestrator-supplied store.
-    pub fn new(config: JsonOffloadConfig) -> Self {
-        Self {
-            crusher: SmartCrusher::new(SmartCrusherConfig::default()),
-            config,
-            prose: ProseFieldOffload::new(PipelineConfig::default().offload.prose_field),
-        }
-    }
+	/// Default constructor — builds SmartCrusher with the OSS default
+	/// composition (scorer + constraints + compaction stage + internal
+	/// CCR store). The internal store handles SmartCrusher's per-array
+	/// markers; the wrapper still emits its own outer marker that
+	/// resolves in the orchestrator-supplied store.
+	pub fn new(config: JsonOffloadConfig) -> Self {
+		Self {
+			crusher: SmartCrusher::new(SmartCrusherConfig::default()),
+			config,
+			prose: ProseFieldOffload::new(PipelineConfig::default().offload.prose_field),
+		}
+	}
 
-    pub fn from_pipeline(config: &PipelineConfig) -> Self {
-        Self {
-            crusher: SmartCrusher::new(SmartCrusherConfig::default()),
-            config: config.offload.json,
-            prose: ProseFieldOffload::new(config.offload.prose_field),
-        }
-    }
+	pub fn from_pipeline(config: &PipelineConfig) -> Self {
+		Self {
+			crusher: SmartCrusher::new(SmartCrusherConfig::default()),
+			config: config.offload.json,
+			prose: ProseFieldOffload::new(config.offload.prose_field),
+		}
+	}
 
-    /// Custom constructor — used by tests that want a stubbed crusher
-    /// or a custom SmartCrusher config.
-    pub fn with_crusher(crusher: SmartCrusher, config: JsonOffloadConfig) -> Self {
-        Self {
-            crusher,
-            config,
-            prose: ProseFieldOffload::new(PipelineConfig::default().offload.prose_field),
-        }
-    }
+	/// Custom constructor — used by tests that want a stubbed crusher
+	/// or a custom SmartCrusher config.
+	pub fn with_crusher(crusher: SmartCrusher, config: JsonOffloadConfig) -> Self {
+		Self {
+			crusher,
+			config,
+			prose: ProseFieldOffload::new(PipelineConfig::default().offload.prose_field),
+		}
+	}
 
-    pub fn with_crusher_and_prose(
-        crusher: SmartCrusher,
-        config: JsonOffloadConfig,
-        prose_config: ProseFieldConfig,
-    ) -> Self {
-        Self {
-            crusher,
-            config,
-            prose: ProseFieldOffload::new(prose_config),
-        }
-    }
+	pub fn with_crusher_and_prose(
+		crusher: SmartCrusher,
+		config: JsonOffloadConfig,
+		prose_config: ProseFieldConfig,
+	) -> Self {
+		Self { crusher, config, prose: ProseFieldOffload::new(prose_config) }
+	}
 }
 
 impl OffloadTransform for JsonOffload {
@@ -142,32 +136,27 @@ impl OffloadTransform for JsonOffload {
 		(separators as f32 / saturation as f32).clamp(0.0, 1.0)
 	}
 
-    fn apply(
-        &self,
-        content: &str,
-        ctx: &CompressionContext,
-        store: &dyn CcrStore,
-    ) -> Result<OffloadOutput, TransformError> {
-        let prose = &self.prose;
-        let prose_hook = |leaf: &str, query: &str| {
-            let leaf_ctx = CompressionContext::with_query(query);
-            prose
-                .apply(leaf, &leaf_ctx, store)
-                .ok()
-                .map(|output| (output.output, output.cache_key))
-        };
-        let result = self
-            .crusher
-            .crush_with_prose_hook(content, &ctx.query, 0.0, &prose_hook);
-        if !result.was_modified {
-            return Err(TransformError::skipped(
-                NAME,
-                "smart crusher returned passthrough",
-            ));
-        }
-        if result.compressed.len() >= content.len() {
-            return Err(TransformError::skipped(NAME, "no savings after crush"));
-        }
+	fn apply(
+		&self,
+		content: &str,
+		ctx: &CompressionContext,
+		store: &dyn CcrStore,
+	) -> Result<OffloadOutput, TransformError> {
+		let prose = &self.prose;
+		let prose_hook = |leaf: &str, query: &str| {
+			let leaf_ctx = CompressionContext::with_query(query);
+			prose
+				.apply(leaf, &leaf_ctx, store)
+				.ok()
+				.map(|output| (output.output, output.cache_key))
+		};
+		let result = self.crusher.crush_with_prose_hook(content, &ctx.query, 0.0, &prose_hook);
+		if !result.was_modified {
+			return Err(TransformError::skipped(NAME, "smart crusher returned passthrough"));
+		}
+		if result.compressed.len() >= content.len() {
+			return Err(TransformError::skipped(NAME, "no savings after crush"));
+		}
 
 		// Wrapper-level CCR: hash the WHOLE original input, stash it
 		// through the orchestrator-supplied store, append a marker so
@@ -233,10 +222,10 @@ mod tests {
 		JsonOffload::new(cfg())
 	}
 
-    #[test]
-    fn from_pipeline_uses_overrideable_prose_config() {
-        let config = PipelineConfig::from_toml_str(
-            r#"
+	#[test]
+	fn from_pipeline_uses_overrideable_prose_config() {
+		let config = PipelineConfig::from_toml_str(
+			r#"
             [pipeline]
             reformat_target_ratio = 0.5
             bloat_threshold = 0.5
@@ -277,68 +266,63 @@ mod tests {
             lockfile_suffixes = ["Cargo.lock"]
             drop_whitespace_only_hunks = true
         "#,
-        )
-        .expect("override parses");
+		)
+		.expect("override parses");
 
-        let offload = JsonOffload::from_pipeline(&config);
-        assert_eq!(offload.prose.config(), config.offload.prose_field);
-    }
+		let offload = JsonOffload::from_pipeline(&config);
+		assert_eq!(offload.prose.config(), config.offload.prose_field);
+	}
 
-    #[test]
-    fn prose_hook_ignores_diff_shaped_leaf() {
-        let diff = format!(
-            "diff --git a/foo.py b/foo.py\n--- a/foo.py\n+++ b/foo.py\n@@ -1,20 +1,20 @@\n{}",
-            (0..20)
-                .map(|i| format!("-old line {i}\n+new line {i}"))
-                .collect::<Vec<_>>()
-                .join("\n")
-        );
-        let input = serde_json::json!([{"description": diff}]).to_string();
-        let store = InMemoryCcrStore::new();
-        let output = offload()
-            .apply(&input, &CompressionContext::default(), &store)
-            .expect("diff-shaped leaf should still process through the direct offload path");
-        let marker = output
-            .output
-            .split("<<ccr:")
-            .nth(1)
-            .and_then(|tail| tail.split(">>").next())
-            .expect("direct offload should still emit a leaf marker");
-        assert!(
-            marker.contains(",string,"),
-            "diff leaf should stay on the opaque string route, got {marker}"
-        );
-    }
+	#[test]
+	fn prose_hook_ignores_diff_shaped_leaf() {
+		let diff = format!(
+			"diff --git a/foo.py b/foo.py\n--- a/foo.py\n+++ b/foo.py\n@@ -1,20 +1,20 @@\n{}",
+			(0..20)
+				.map(|i| format!("-old line {i}\n+new line {i}"))
+				.collect::<Vec<_>>()
+				.join("\n")
+		);
+		let input = serde_json::json!([{"description": diff}]).to_string();
+		let store = InMemoryCcrStore::new();
+		let output = offload()
+			.apply(&input, &CompressionContext::default(), &store)
+			.expect("diff-shaped leaf should still process through the direct offload path");
+		let marker = output
+			.output
+			.split("<<ccr:")
+			.nth(1)
+			.and_then(|tail| tail.split(">>").next())
+			.expect("direct offload should still emit a leaf marker");
+		assert!(
+			marker.contains(",string,"),
+			"diff leaf should stay on the opaque string route, got {marker}"
+		);
+	}
 
-    #[test]
-    fn prose_hook_preserves_opaque_html_leaf() {
-        let html = "<html><body><p>".to_string() + &"x".repeat(300) + "</p></body></html>";
-        let input = serde_json::json!([{"summary": html}]).to_string();
-        let store = InMemoryCcrStore::new();
-        let result = offload()
-            .apply(&input, &CompressionContext::with_query("recovery"), &store)
-            .expect("structured html should still process");
-        assert!(result.output.contains(",html,"));
-    }
+	#[test]
+	fn prose_hook_preserves_opaque_html_leaf() {
+		let html = "<html><body><p>".to_string() + &"x".repeat(300) + "</p></body></html>";
+		let input = serde_json::json!([{"summary": html}]).to_string();
+		let store = InMemoryCcrStore::new();
+		let result = offload()
+			.apply(&input, &CompressionContext::with_query("recovery"), &store)
+			.expect("structured html should still process");
+		assert!(result.output.contains(",html,"));
+	}
 
-    /// Build a JSON array of N similar dicts with id + name + value.
-    /// Compact JSON (no extra whitespace) so byte counts are predictable.
-    fn build_tabular_array(n: usize) -> String {
-        let mut s = String::from("[");
-        for i in 0..n {
-            if i > 0 {
-                s.push(',');
-            }
-            s.push_str(&format!(
-                "{{\"id\":{},\"name\":\"item-{}\",\"value\":{}}}",
-                i,
-                i,
-                i * 100
-            ));
-        }
-        s.push(']');
-        s
-    }
+	/// Build a JSON array of N similar dicts with id + name + value.
+	/// Compact JSON (no extra whitespace) so byte counts are predictable.
+	fn build_tabular_array(n: usize) -> String {
+		let mut s = String::from("[");
+		for i in 0..n {
+			if i > 0 {
+				s.push(',');
+			}
+			s.push_str(&format!("{{\"id\":{},\"name\":\"item-{}\",\"value\":{}}}", i, i, i * 100));
+		}
+		s.push(']');
+		s
+	}
 
 	#[test]
 	fn name_and_applies_to() {

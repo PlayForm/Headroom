@@ -195,10 +195,7 @@ impl SqliteCcrStore {
 				"ALTER TABLE ccr_entries ADD COLUMN last_accessed INTEGER NOT NULL DEFAULT 0",
 				[],
 			)?;
-			conn.execute(
-				"UPDATE ccr_entries SET last_accessed = created_at WHERE last_accessed = 0",
-				[],
-			)?;
+			conn.execute("UPDATE ccr_entries SET last_accessed = created_at WHERE last_accessed = 0", [])?;
 		}
 		Ok(())
 	}
@@ -449,53 +446,52 @@ impl CcrStore for SqliteCcrStore {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+	use super::*;
 
-    fn store_with_row(
-        idle_ttl: u64,
-        max_lifetime: u64,
-        created_at: u64,
-        last_accessed: u64,
-    ) -> (tempfile::TempDir, SqliteCcrStore, String) {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let store =
-            SqliteCcrStore::open_with_ttls(dir.path().join("ccr.sqlite"), idle_ttl, max_lifetime)
-                .expect("open sqlite store");
-        let hash = "boundary-entry".to_string();
-        {
-            let conn = store.conn.lock().expect("ccr sqlite mutex poisoned");
-            conn.execute(
-                "INSERT INTO ccr_entries
+	fn store_with_row(
+		idle_ttl: u64,
+		max_lifetime: u64,
+		created_at: u64,
+		last_accessed: u64,
+	) -> (tempfile::TempDir, SqliteCcrStore, String) {
+		let dir = tempfile::tempdir().expect("tempdir");
+		let store = SqliteCcrStore::open_with_ttls(dir.path().join("ccr.sqlite"), idle_ttl, max_lifetime)
+			.expect("open sqlite store");
+		let hash = "boundary-entry".to_string();
+		{
+			let conn = store.conn.lock().expect("ccr sqlite mutex poisoned");
+			conn.execute(
+				"INSERT INTO ccr_entries
                     (hash, original, created_at, ttl_seconds, last_accessed)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![
-                    &hash,
-                    b"payload".as_slice(),
-                    created_at as i64,
-                    idle_ttl as i64,
-                    last_accessed as i64,
-                ],
-            )
-            .expect("insert boundary row");
-        }
-        (dir, store, hash)
-    }
+				params![
+					&hash,
+					b"payload".as_slice(),
+					created_at as i64,
+					idle_ttl as i64,
+					last_accessed as i64,
+				],
+			)
+			.expect("insert boundary row");
+		}
+		(dir, store, hash)
+	}
 
-    #[test]
-    fn exact_idle_ttl_boundary_is_still_valid() {
-        let (_dir, store, hash) = store_with_row(5, 20, 100, 100);
+	#[test]
+	fn exact_idle_ttl_boundary_is_still_valid() {
+		let (_dir, store, hash) = store_with_row(5, 20, 100, 100);
 
-        assert_eq!(store.get_at(&hash, 105).as_deref(), Some("payload"));
-        assert_eq!(store.get_at(&hash, 111), None);
-        assert_eq!(store.len(), 0, "expired row must be purged");
-    }
+		assert_eq!(store.get_at(&hash, 105).as_deref(), Some("payload"));
+		assert_eq!(store.get_at(&hash, 111), None);
+		assert_eq!(store.len(), 0, "expired row must be purged");
+	}
 
-    #[test]
-    fn exact_max_lifetime_boundary_is_still_valid() {
-        let (_dir, store, hash) = store_with_row(5, 10, 100, 108);
+	#[test]
+	fn exact_max_lifetime_boundary_is_still_valid() {
+		let (_dir, store, hash) = store_with_row(5, 10, 100, 108);
 
-        assert_eq!(store.get_at(&hash, 110).as_deref(), Some("payload"));
-        assert_eq!(store.get_at(&hash, 111), None);
-        assert_eq!(store.len(), 0, "expired row must be purged");
-    }
+		assert_eq!(store.get_at(&hash, 110).as_deref(), Some("payload"));
+		assert_eq!(store.get_at(&hash, 111), None);
+		assert_eq!(store.len(), 0, "expired row must be purged");
+	}
 }

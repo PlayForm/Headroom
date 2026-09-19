@@ -91,11 +91,11 @@ static DYNAMIC_ORT_INIT: OnceLock<Result<PathBuf, String>> = OnceLock::new();
 /// `OnceLock` init), and the stuck thread then wedges process exit in
 /// `ort`'s `dl_fini` environment teardown (#1715 CI hang).
 pub(crate) fn dynamic_ort_loader_ready() -> Result<(), String> {
-    DYNAMIC_ORT_INIT
-        .get_or_init(initialize_dynamic_ort)
-        .as_ref()
-        .map(|_| ())
-        .map_err(Clone::clone)
+	DYNAMIC_ORT_INIT
+		.get_or_init(initialize_dynamic_ort)
+		.as_ref()
+		.map(|_| ())
+		.map_err(Clone::clone)
 }
 
 fn initialize_dynamic_ort() -> Result<PathBuf, String> {
@@ -222,15 +222,15 @@ fn onnxruntime_candidates_under(root: &Path) -> Vec<PathBuf> {
 		]
 	}
 
-    #[cfg(not(target_os = "windows"))]
-    {
-        let mut candidates = Vec::new();
-        for site_packages in python_site_packages_dirs(root) {
-            let capi = site_packages.join("onnxruntime").join("capi");
-            candidates.extend(onnxruntime_dylibs_in(&capi));
-        }
-        candidates
-    }
+	#[cfg(not(target_os = "windows"))]
+	{
+		let mut candidates = Vec::new();
+		for site_packages in python_site_packages_dirs(root) {
+			let capi = site_packages.join("onnxruntime").join("capi");
+			candidates.extend(onnxruntime_dylibs_in(&capi));
+		}
+		candidates
+	}
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -257,22 +257,19 @@ fn python_site_packages_dirs(root: &Path) -> Vec<PathBuf> {
 
 #[cfg(not(target_os = "windows"))]
 fn onnxruntime_dylibs_in(capi: &Path) -> Vec<PathBuf> {
-    let mut dylibs = std::fs::read_dir(capi)
-        .ok()
-        .into_iter()
-        .flat_map(|entries| entries.filter_map(Result::ok))
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| {
-                    name.starts_with("libonnxruntime")
-                        && (name.ends_with(".dylib") || name.contains(".so"))
-                })
-        })
-        .collect::<Vec<_>>();
-    dylibs.sort();
-    dylibs
+	let mut dylibs = std::fs::read_dir(capi)
+		.ok()
+		.into_iter()
+		.flat_map(|entries| entries.filter_map(Result::ok))
+		.map(|entry| entry.path())
+		.filter(|path| {
+			path.file_name().and_then(|name| name.to_str()).is_some_and(|name| {
+				name.starts_with("libonnxruntime") && (name.ends_with(".dylib") || name.contains(".so"))
+			})
+		})
+		.collect::<Vec<_>>();
+	dylibs.sort();
+	dylibs
 }
 
 fn dedup_existing_files(paths: Vec<PathBuf>) -> Vec<PathBuf> {
