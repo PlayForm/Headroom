@@ -1,5 +1,5 @@
 //! headroom-ffi: Full Aphrodite plugin runtime as a C ABI cdylib.
-//! 14 functions — init, destroy, classify, compress, retrieve, transform,
+//! 14 functions - init, destroy, classify, compress, retrieve, transform,
 //! terminal, session_start, catalog, stats, reload, config_get/set, search.
 
 mod hooks;
@@ -51,12 +51,12 @@ fn to_json_ok(v: &serde_json::Value) -> *mut c_char {
 
 // ── C ABI ────────────────────────────────────────────────────────────
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn aphrodite_version() -> *mut c_char {
 	CString::new(env!("CARGO_PKG_VERSION")).unwrap().into_raw()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn aphrodite_free_string(s: *mut c_char) {
 	if !s.is_null() {
 		unsafe {
@@ -65,7 +65,7 @@ pub extern "C" fn aphrodite_free_string(s: *mut c_char) {
 	}
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn aphrodite_hooks() -> *mut c_char {
 	CString::new(
 		serde_json::json!([
@@ -81,7 +81,7 @@ pub extern "C" fn aphrodite_hooks() -> *mut c_char {
 	.into_raw()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn aphrodite_init(config_path: *const c_char) -> *mut c_char {
 	let path = unsafe { CStr::from_ptr(config_path) }.to_string_lossy();
 	let mut state = AphroditeState::default();
@@ -108,21 +108,21 @@ pub extern "C" fn aphrodite_init(config_path: *const c_char) -> *mut c_char {
 	CString::new(alloc_handle(state).to_string()).unwrap().into_raw()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn aphrodite_destroy(handle: *const c_char) {
 	if let Ok(hid) = unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse::<usize>() {
 		handles().as_mut().map(|m| m.remove(&hid));
 	}
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn aphrodite_classify(content: *const c_char) -> *mut c_char {
 	let c = unsafe { CStr::from_ptr(content) }.to_string_lossy();
 	let ct = transforms::detect(&c);
 	to_json_ok(&serde_json::json!({"type":ct.as_str(),"lines":c.lines().count(),"bytes":c.len()}))
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn aphrodite_call_hook(hook: *const c_char, args: *const c_char) -> *mut c_char {
 	let name = unsafe { CStr::from_ptr(hook) }.to_string_lossy();
 	let args_str = unsafe { CStr::from_ptr(args) }.to_string_lossy();
@@ -146,7 +146,7 @@ pub extern "C" fn aphrodite_call_hook(hook: *const c_char, args: *const c_char) 
 
 macro_rules! stateful {
     ($name:ident, |$s:ident, $($arg:ident : $ty:ty),*| $body:expr) => {
-        #[no_mangle] pub extern "C" fn $name(handle: *const c_char, $($arg: *const c_char),*) -> *mut c_char {
+        #[unsafe(no_mangle)] pub extern "C" fn $name(handle: *const c_char, $($arg: *const c_char),*) -> *mut c_char {
             let hid = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse::<usize>() { Ok(id) => id, Err(_) => return to_json_error("invalid handle") };
             $(let $arg = unsafe { CStr::from_ptr($arg) }.to_string_lossy();)*
             match with_state(hid, |$s| $body) {
@@ -183,10 +183,10 @@ stateful!(aphrodite_compress, |s, content: *const c_char, hint: *const c_char| {
 	serde_json::json!({"hash":hash,"type":t,"size":content.len(),"preview":preview,"marker":marker})
 });
 
-// aphrodite_retrieve is a manual override below — returns raw content, not JSON
+// aphrodite_retrieve is a manual override below - returns raw content, not JSON
 
 // Override: retrieve returns raw content, not JSON-wrapped
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn aphrodite_retrieve(handle: *const c_char, hash: *const c_char) -> *mut c_char {
 	let hid = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse::<usize>() {
 		Ok(id) => id,
@@ -211,7 +211,7 @@ stateful!(aphrodite_terminal, |s, content: *const c_char| {
 	hooks::transform_terminal_output(s, &content)
 });
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn aphrodite_session_start(handle: *const c_char) -> *mut c_char {
 	let hid = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse::<usize>() {
 		Ok(id) => id,
@@ -223,7 +223,7 @@ pub extern "C" fn aphrodite_session_start(handle: *const c_char) -> *mut c_char 
 	}
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn aphrodite_catalog(handle: *const c_char, mode: *const c_char) -> *mut c_char {
 	let hid = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse::<usize>() {
 		Ok(id) => id,
@@ -250,7 +250,7 @@ pub extern "C" fn aphrodite_catalog(handle: *const c_char, mode: *const c_char) 
 	}
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn aphrodite_stats(handle: *const c_char) -> *mut c_char {
 	let hid = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse::<usize>() {
 		Ok(id) => id,
@@ -268,7 +268,7 @@ pub extern "C" fn aphrodite_stats(handle: *const c_char) -> *mut c_char {
 	}
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn aphrodite_reload(handle: *const c_char, path: *const c_char) -> *mut c_char {
 	let hid = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse::<usize>() {
 		Ok(id) => id,
@@ -294,7 +294,7 @@ pub extern "C" fn aphrodite_reload(handle: *const c_char, path: *const c_char) -
 	}
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn aphrodite_search(handle: *const c_char, query: *const c_char) -> *mut c_char {
 	let hid = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse::<usize>() {
 		Ok(id) => id,
@@ -313,7 +313,7 @@ pub extern "C" fn aphrodite_search(handle: *const c_char, query: *const c_char) 
 	}
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn aphrodite_config_get(handle: *const c_char, key: *const c_char) -> *mut c_char {
 	let hid = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse::<usize>() {
 		Ok(id) => id,
@@ -337,7 +337,7 @@ pub extern "C" fn aphrodite_config_get(handle: *const c_char, key: *const c_char
 	}
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn aphrodite_config_set(handle: *const c_char, key: *const c_char, value: *const c_char) -> *mut c_char {
 	let hid = match unsafe { CStr::from_ptr(handle) }.to_string_lossy().parse::<usize>() {
 		Ok(id) => id,
