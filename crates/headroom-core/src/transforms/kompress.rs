@@ -491,7 +491,7 @@ impl Kompress {
 				// matches CPython's stable `sorted()` over the
 				// insertion-ordered score dict (tokens emitted in word
 				// order).
-				let mut ordered: Vec<(usize, f32)> = word_scores.iter().map(|&(&w, &s)| (w, s)).collect();
+				let mut ordered: Vec<(usize, f32)> = word_scores.iter().map(|(&w, &s)| (w, s)).collect();
 				ordered.sort_by_key(|&(w, _)| w);
 				ordered.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 				let num_keep = ((ordered.len() as f64 * ratio) as usize).max(1);

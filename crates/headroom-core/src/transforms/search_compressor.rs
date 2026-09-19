@@ -683,7 +683,7 @@ enum ScanTier {
 /// body. `.md`, `.sql`, `.log`, `.7z` all still qualify.
 fn has_extension_dot(tok: &str) -> bool {
 	let b = tok.as_bytes();
-	b.iter().enumerate().any(|&(i, &c)| {
+	b.iter().enumerate().any(|(i, &c)| {
 		if c != b'.' || i + 1 == b.len() {
 			return false;
 		}
