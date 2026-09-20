@@ -16,11 +16,11 @@ serde_json = { workspace = true }
 bytes = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-tiktoken-rs = "0.12"
+tiktoken-rs = "0.12.0"
 # `tokenizers` is the HuggingFace pure-Rust tokenizer crate. Default features
 # pull in `onig` for the BPE pre-tokenizer regex; that vendors oniguruma so it
 # builds without a system dep on macOS/Linux.
-tokenizers = "0.23"
+tokenizers = "0.23.2"
 # `hf-hub` is the HuggingFace Hub client. We use the blocking `ureq` transport
 # with `rustls` (no system OpenSSL dep - keeps the binary static-linkable for
 # AWS deploys). `from_pretrained` is called once at startup, so blocking is
@@ -28,24 +28,24 @@ tokenizers = "0.23"
 # NOTE: pinned to 0.5 - hf-hub 1.0 renamed the `ureq` feature to `blocking`
 # and dropped the API surface `api::sync::Api` relies on; the `ml` feature is
 # OFF for the shipped aphrodite build anyway (default-features = false).
-hf-hub = { version = "0.5", default-features = false, features = [
+hf-hub = { version = "0.5.0", default-features = false, features = [
 	"ureq",
 	"rustls-tls",
 ] }
 # `md5` for the CCR cache_key. Python's compression_store hashes the original
 # diff with MD5 truncated to 24 hex chars; we must match byte-for-byte.
-md-5 = "0.11"
+md-5 = "0.11.0"
 # `sha2` for `_hash_field_name` in smart_crusher (SHA-256 truncated to 16
 # hex chars). Python uses `hashlib.sha256` so we need byte-exact parity.
-sha2 = "0.11"
+sha2 = "0.11.0"
 # `dashmap` for the CCR storage backend. Concurrent HashMap with sharded
 # locking - distinct keys hashed to different shards never contend, so
 # multi-worker proxy load doesn't queue on a single Mutex. Lock-free
 # reads inside each shard via RwLock semantics.
-dashmap = "6"
+dashmap = "6.2.1"
 # `regex` is already a transitive dep of tokenizers; depend on it directly so
 # our hunk-header parser and priority-pattern matcher have a stable surface.
-regex = "1"
+regex = "1.13.1"
 # CJK sentence + word segmentation for TextCrusher (#1171). CJK has no spaces or
 # ASCII terminators, so the default ASCII splitter/tokenizer collapses a whole
 # CJK paragraph into one segment/one token -> 0% compression. ICU4X's UAX#29
@@ -61,7 +61,7 @@ regex = "1"
 # - `compiled_data` only (no `auto`/`lstm`): LSTM models cover SE-Asian scripts
 #   (Thai/Lao), not CJK -- CJK uses the dictionary, so `auto` would pull in libm
 #   for nothing. Required for CJK; pure-ASCII paths are unchanged.
-icu_segmenter = { version = "2.3", features = ["compiled_data"] }
+icu_segmenter = { version = "2.3.0", features = ["compiled_data"] }
 # `flate2` for `_validate_with_zlib` in `adaptive_sizer`. Python's adaptive
 # sizing pipeline uses `zlib.compress(..., level=1)` to validate the chosen
 # K against compression-ratio diversity. We use the default `miniz_oxide`
@@ -70,7 +70,7 @@ icu_segmenter = { version = "2.3", features = ["compiled_data"] }
 # >15% ratio divergence so small per-byte differences don't change the
 # outcome - but if a parity fixture flakes here, swap to
 # `features = ["zlib"]` to link against system libz for byte-equal output.
-flate2 = "1"
+flate2 = "1.1.10"
 # `fastembed` is the Rust port of the Python fastembed library. Used by
 # `relevance::EmbeddingScorer` for sentence embeddings in semantic relevance
 # scoring. Default features pull in `ort` (ONNX Runtime) with auto-download
@@ -92,7 +92,7 @@ flate2 = "1"
 # crate depends on `ort`, which is already in our dep tree via
 # `fastembed`, so adding it doesn't pull a new ML runtime - both
 # crates share the ONNX Runtime singleton.
-magika = { version = "1", optional = true }
+magika = { version = "1.1.0", optional = true }
 # `unidiff` is the Stage-3d Tier-2 diff detector. We use the parser
 # itself as the "is this a diff?" oracle - anything that successfully
 # parses to ≥1 PatchedFile is a diff. The deterministic parser
@@ -100,51 +100,51 @@ magika = { version = "1", optional = true }
 # headers, prose-prefixed diffs, truncated outputs). Default features
 # bring `encoding_rs` for non-UTF8 sniffing - we keep them on for
 # compatibility with arbitrary tool outputs.
-unidiff = "0.4"
+unidiff = "0.4.1"
 # `aho-corasick` powers the Tier-3 KeywordDetector in `signals/`.
 # A single deterministic-finite-automaton scan finds every keyword
 # in a line in O(n + m) - orders of magnitude faster than running N
 # regex .search() calls and harder to misuse. Word-boundary checks
 # happen as a post-filter on the byte offsets the automaton returns.
 # Default features (std, perf-literal) keep the build small.
-aho-corasick = "1"
+aho-corasick = "1.1.5"
 # `rayon` powers the pipeline orchestrator's parallel reformat-vs-bloat
 # evaluation: while a worker thread runs the structural reformat passes,
 # another set of threads run the per-offload bloat estimators in parallel.
 # Reformat completion + all bloat estimates need to be ready before the
 # orchestrator can decide which offloads to actually execute, so two-phase
 # join semantics (`rayon::join` + `par_iter`) are exactly what we need.
-rayon = "1"
+rayon = "1.12.0"
 # `toml` reads the default pipeline configuration shipped at
 # `config/pipeline.toml`. The defaults embed via `include_str!` so a
 # stock binary needs no external file; production deployments override
 # by loading their own TOML at startup.
-toml = "1.1"
+toml = "1.1.6+spec-1.1.0"
 # `blake3` powers `ccr::compute_key`. Produces collision-resistant
 # 40-char hex prefixes for the CCR `<<<ccr:HASH>>>` marker. Pure-Rust
 # by default, no system dep, no SIMD-feature-gated flag (the crate
 # auto-detects). Note: Python plugin uses SHA-256 independently -
 # hashes from the two languages will differ, but both are consistent
 # internally.
-blake3 = "1"
+blake3 = "1.8.7"
 # `rusqlite` for the SQLite-backed CCR store (the production default).
 # `bundled` builds SQLite from source so deploys do not need a system
 # libsqlite3 - matters for Lambda / container builds where the host
 # image may lag behind. Sub-1 MB binary cost. WAL is enabled at
 # connection-open time (see `ccr/backends/sqlite.rs`); no extra feature
 # flags required.
-rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 # `redis` for the optional multi-worker CCR backend. Cfg-gated behind
 # the `redis` feature so deploys that don't need it pay no compile
 # cost. Default features include the sync `Connection` API used in
 # `ccr/backends/redis.rs`; `tokio-comp` would pull `tokio` into the
 # core crate, which we do not want.
-redis = { version = "1.7", optional = true, default-features = false }
+redis = { version = "1.7.0", optional = true, default-features = false }
 # `http` powers the auth-mode classifier (Phase F PR-F1). The proxy
 # crate already depends on this - pulling it into core lets the
 # classifier live with the other Phase B/F policy primitives without
 # cycling through the proxy crate. Tiny crate (no I/O, just types).
-http = "1"
+http = "1.5.0"
 # tree-sitter + per-language grammars for the CodeCompressor AST port.
 # Versions are pinned to EXACTLY match the Python reference grammars
 # (`tree-sitter-<lang>` PyPI wheels) so the Rust and Python parsers emit
@@ -181,7 +181,7 @@ tree-sitter-cpp = "=0.23.4"
 # everywhere - which is exactly what the fork's macOS-x86_64 and
 # Windows blocks already did. `optional = true` wires both crates into
 # upstream's new `ml` feature gate below.
-fastembed = { version = "5", default-features = false, optional = true, features = [
+fastembed = { version = "7.0.1", default-features = false, optional = true, features = [
 	"hf-hub-rustls-tls",
 	"ort-load-dynamic",
 	"image-models",
@@ -219,9 +219,9 @@ ml = ["dep:ort", "dep:fastembed", "dep:magika"]
 redis = ["dep:redis"]
 
 [dev-dependencies]
-proptest = "1"
-criterion = { version = "0.8", features = ["html_reports"] }
-tempfile = "3"
+proptest = "1.11.0"
+criterion = { version = "0.8.2", features = ["html_reports"] }
+tempfile = "3.27.0"
 
 [[bench]]
 name = "tokenizer"
