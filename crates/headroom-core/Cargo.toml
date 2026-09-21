@@ -181,7 +181,7 @@ tree-sitter-cpp = "=0.23.4"
 # everywhere - which is exactly what the fork's macOS-x86_64 and
 # Windows blocks already did. `optional = true` wires both crates into
 # upstream's new `ml` feature gate below.
-fastembed = { version = "7.0.1", default-features = false, optional = true, features = [
+fastembed = { version = "5", default-features = false, optional = true, features = [
 	"hf-hub-rustls-tls",
 	"ort-load-dynamic",
 	"image-models",
