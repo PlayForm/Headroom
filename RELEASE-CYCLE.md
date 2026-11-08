@@ -16,7 +16,7 @@ state.
 | 0.1.1 | `e6c3df82` (2026-07-13) | - (no fork tag) | `version = "0.1.1"` (historical) | published 2026-07-13 |
 | 0.1.2 | `c6b61470` (2026-07-14) | - (no fork tag) | `version = "0.1.2"` (committed through `Aphrodite/v1.5.0`, 2026-09-20) | published 2026-07-14 |
 | 0.1.3 | `02706ea1` (2026-09-19) | `aphrodite-v0.10.0` | `version = "0.1.3"` | published 2026-09-20 - **max_version before 0.2.0** |
-| 0.2.0 (pending) | `20be515b` (2026-11-08; store retention + index-driven sweep + fork-workspace build/lint fixes) | `aphrodite-v0.11.0` (proposed) | `version = "0.2.0"` (committed) | not published |
+| 0.2.0 (pending) | `d4558b7c` (2026-11-08; merge of upstream `bb8d18a5` carrying store retention + index-driven sweep + fork-workspace build/lint fixes) | `aphrodite-v0.11.0` (proposed) | `version = "0.2.0"` (committed) | not published |
 
 Rules:
 
@@ -96,11 +96,11 @@ publishes the previously-recorded commit's tree - the 1.5.0-class gap.
 
 | Item | Value |
 |---|---|
-| Fork HEAD | `20be515b` (2026-11-08; `git describe`: `aphrodite-v0.10.0-3-g20be515b`) |
+| Fork HEAD | `d4558b7c` (2026-11-08; merge commit, parents `62b09ccf` × `bb8d18a5` - the upstream sync carrying the store-retention line) |
 | Crate version @ fork HEAD | `0.2.0` (committed in `20be515b`) |
 | Crate version, fork working tree | `0.2.0` (clean) |
-| Unpublished since 0.1.3 | `02706ea1..HEAD` = 3 commits (`41e3602b`, `fc58ee39` dep updates + `20be515b` store retention / fork-workspace fixes) |
-| Parent gitlink (committed) | `fc58ee39` - **one commit behind fork HEAD; the float to `20be515b` is pending** |
+| Unpublished since 0.1.3 | `02706ea1..HEAD` = 5 commits (`41e3602b`, `fc58ee39` dep updates; `20be515b` store retention / fork-workspace fixes; `152a1760`, `62b09ccf` deps/changelog + `d4558b7c` upstream sync) |
+| Parent gitlink (committed) | `62b09ccf` - **one commit behind fork HEAD; the float to `d4558b7c` is pending** |
 | Parent pin, committed | `0.2.0` |
 | Parent pin, working tree | `0.2.0` (clean) |
 | Parent binary | committed `1.8.0` (untagged); `BINARY_VERSION` still `1.7.0` by design |
