@@ -29,19 +29,19 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 bytes = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { version = "0.3", features = [
+tracing-subscriber = { version = "0.3.23", features = [
 	"json",
 	"env-filter",
 	"fmt",
 ] }
-http = "1"
-crc32fast = "1"
+http = "1.5.0"
+crc32fast = "1.5.4"
 
 [dev-dependencies]
-reqwest = { version = "0.12", default-features = false, features = [
+reqwest = { version = "0.12.28", default-features = false, features = [
 	"rustls-tls",
 	"json",
 	"stream",
 ] }
 tower = { workspace = true, features = ["util"] }
-http-body-util = "0.1"
+http-body-util = "0.1.5"

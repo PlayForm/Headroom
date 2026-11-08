@@ -28,7 +28,9 @@ impl ProseFieldOffload {
 		content.len() >= self.config.min_bytes && detect_content_type(content).content_type == ContentType::PlainText
 	}
 
-	fn compress(&self, content: &str, query: &str) -> Option<(String, String)> {
+	/// Returns `(output, key)`. The key hashes `ccr_source`, the payload
+	/// the caller will store; `content` is only the text compressed.
+	fn compress(&self, content: &str, query: &str, ccr_source: &str) -> Option<(String, String)> {
 		if !self.eligible(content) {
 			return None;
 		}
@@ -37,7 +39,7 @@ impl ProseFieldOffload {
 			return None;
 		}
 
-		let key = compute_key(content.as_bytes());
+		let key = compute_key(ccr_source.as_bytes());
 		let output = format!("{}\n{}", result.compressed, marker_for(&key));
 		(output.len() < content.len()).then_some((output, key))
 	}
@@ -68,11 +70,12 @@ impl OffloadTransform for ProseFieldOffload {
 		content: &str,
 		ctx: &CompressionContext,
 		store: &dyn CcrStore,
+		ccr_source: &str,
 	) -> Result<OffloadOutput, TransformError> {
-		let Some((output, key)) = self.compress(content, &ctx.query) else {
+		let Some((output, key)) = self.compress(content, &ctx.query, ccr_source) else {
 			return Err(TransformError::skipped(NAME, "prose compression not worth it"));
 		};
-		store.put(&key, content);
+		store.put(&key, ccr_source);
 		Ok(OffloadOutput::from_lengths(content.len(), output, key))
 	}
 
@@ -108,7 +111,7 @@ mod tests {
 	fn short_plain_text_is_byte_identical() {
 		let input = "A short note.";
 		let store = InMemoryCcrStore::new();
-		let result = offload().apply(input, &CompressionContext::default(), &store);
+		let result = offload().apply(input, &CompressionContext::default(), &store, input);
 		assert!(result.is_err());
 		assert!(store.is_empty());
 	}
@@ -117,7 +120,7 @@ mod tests {
 	fn long_low_segment_text_is_byte_identical() {
 		let input = "A".repeat(300);
 		let store = InMemoryCcrStore::new();
-		let result = offload().apply(&input, &CompressionContext::default(), &store);
+		let result = offload().apply(&input, &CompressionContext::default(), &store, &input);
 		assert!(result.is_err());
 		assert!(store.is_empty());
 	}
@@ -144,8 +147,8 @@ mod tests {
 	fn query_changes_selection_deterministically() {
 		let input = prose();
 		let crusher = offload();
-		let a = crusher.compress(&input, "recovery").unwrap();
-		let b = crusher.compress(&input, "recovery").unwrap();
+		let a = crusher.compress(&input, "recovery", &input).unwrap();
+		let b = crusher.compress(&input, "recovery", &input).unwrap();
 		assert_eq!(a, b);
 		assert!(a.0.contains("recovery"));
 		assert!(!a.0.contains("Segment 1 explains general context without the key term present."));

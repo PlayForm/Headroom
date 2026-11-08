@@ -81,9 +81,9 @@
 //!
 //! | Mode         | live_zone_only | cache_aligner_enabled | volatile_token_threshold | max_lossy_ratio | toin_read_only |
 //! |--------------|----------------|-----------------------|--------------------------|-----------------|----------------|
-//! | Payg         | false          | true                  | 256                      | 0.30            | false          |
-//! | OAuth        | false          | true (= PAYG today)   | 256 (= PAYG today)       | 0.30 (= PAYG)   | false (= PAYG) |
-//! | Subscription | true           | false                 | 64                       | 0.20            | true           |
+//! | Payg         | false          | true                  | 128                      | 0.45            | false          |
+//! | OAuth        | false          | true (= PAYG today)   | 128 (= PAYG today)       | 0.45 (= PAYG)   | false (= PAYG) |
+//! | Subscription | true           | false                 | 32                       | 0.25            | true           |
 //!
 //! OAuth starts identical to PAYG. F2.2-followup will divide them once
 //! telemetry from F2.1's bake on `main` shows what each mode actually
@@ -113,32 +113,45 @@ use crate::auth_mode::AuthMode;
 // by editing these constants and shipping a new build, which is the
 // same pattern the F2.1 fields use.
 
-/// PAYG: coding-tuned — let volatile content noise up to ~256 tokens slip
+/// PAYG: aggressive — let volatile content noise up to ~128 tokens slip
 /// before flagging. Higher than Subscription because PAYG users opt in
-/// to compression but still need code semantics intact for preview.
-pub(crate) const VOLATILE_TOKEN_THRESHOLD_PAYG: u32 = 256;
+/// to aggressive compression.
+pub(crate) const VOLATILE_TOKEN_THRESHOLD_PAYG: u32 = 128;
 
-/// Subscription: conservative — flag volatile content early (64
-/// tokens) so cache prefixes stay stable. Loosened from 32 for coding.
-pub(crate) const VOLATILE_TOKEN_THRESHOLD_SUBSCRIPTION: u32 = 64;
+/// Subscription: conservative — flag volatile content earlier (32
+/// tokens) so cache prefixes stay stable.
+pub(crate) const VOLATILE_TOKEN_THRESHOLD_SUBSCRIPTION: u32 = 32;
 
-/// PAYG: cap lossy compression at 30% of original tokens. Coding-tuned:
-/// lower than old 0.45 to preserve semantics and code structure in preview.
-pub(crate) const MAX_LOSSY_RATIO_PAYG: f32 = 0.30;
+/// PAYG: cap lossy compression at 45% of original tokens. Aggressive
+/// but bounded — F2.1 had no cap (effectively `1.0`), F2.2 introduces
+/// one.
+pub(crate) const MAX_LOSSY_RATIO_PAYG: f32 = 0.45;
 
-/// Subscription: conservative cap at 20%. Cache stability over savings,
-/// but loosened from 0.25 for coding/preview semantics.
-pub(crate) const MAX_LOSSY_RATIO_SUBSCRIPTION: f32 = 0.20;
+/// Subscription: conservative cap at 25%. Cache stability over savings.
+pub(crate) const MAX_LOSSY_RATIO_SUBSCRIPTION: f32 = 0.25;
 
 /// Anthropic prompt-cache write multiplier: a `cache_creation` token
 /// costs 1.25× a plain input token (5-minute TTL tier). Input to the
 /// net-cost mutation formula (#856).
 pub const CACHE_WRITE_MULTIPLIER: f32 = 1.25;
 
+/// Anthropic prompt-cache write multiplier for the 1-hour TTL tier.
+pub const CACHE_WRITE_MULTIPLIER_1H: f32 = 2.0;
+
 /// Anthropic prompt-cache read multiplier: a `cache_read` token costs
 /// 0.1× a plain input token. Input to the net-cost mutation formula
 /// (#856).
 pub const CACHE_READ_MULTIPLIER: f32 = 0.1;
+
+/// Return the cache-write multiplier for a prompt-cache TTL tier.
+///
+/// Invalid, missing, and non-positive values retain the 5-minute default.
+pub fn cache_write_multiplier_for_ttl(ttl_seconds: Option<f32>) -> f32 {
+	match ttl_seconds {
+		Some(ttl) if ttl.is_finite() && ttl >= 3_600.0 => CACHE_WRITE_MULTIPLIER_1H,
+		_ => CACHE_WRITE_MULTIPLIER,
+	}
+}
 
 /// Per-auth-mode policy that downstream compression stages consult.
 ///
@@ -263,7 +276,20 @@ impl CompressionPolicy {
 	/// `expected_reads` to `>= 0` (NaN → 0), `p_alive` to `[0, 1]`
 	/// (NaN → 1, the conservative full-penalty assumption).
 	pub fn net_mutation_gain(&self, delta_t: u32, suffix_tokens: u32, expected_reads: f32, p_alive: f32) -> f32 {
-		let w = CACHE_WRITE_MULTIPLIER;
+		self.net_mutation_gain_with_write_multiplier(delta_t, suffix_tokens, expected_reads, p_alive, None)
+	}
+
+	/// Variant of [`Self::net_mutation_gain`] with an explicit cache-write
+	/// multiplier. `None` uses the 5-minute default.
+	pub fn net_mutation_gain_with_write_multiplier(
+		&self,
+		delta_t: u32,
+		suffix_tokens: u32,
+		expected_reads: f32,
+		p_alive: f32,
+		write_multiplier: Option<f32>,
+	) -> f32 {
+		let w = write_multiplier.unwrap_or(CACHE_WRITE_MULTIPLIER);
 		let r = CACHE_READ_MULTIPLIER;
 		// f32::max ignores NaN (returns the other operand), so NaN reads
 		// land on 0.0; clamp would propagate NaN, so guard alive explicitly.
@@ -282,7 +308,21 @@ impl CompressionPolicy {
 	/// Decision form of [`Self::net_mutation_gain`]: mutate iff the
 	/// gain is strictly positive.
 	pub fn should_mutate_deep(&self, delta_t: u32, suffix_tokens: u32, expected_reads: f32, p_alive: f32) -> bool {
-		self.net_mutation_gain(delta_t, suffix_tokens, expected_reads, p_alive) > 0.0
+		self.should_mutate_deep_with_write_multiplier(delta_t, suffix_tokens, expected_reads, p_alive, None)
+	}
+
+	/// Variant of [`Self::should_mutate_deep`] with an explicit cache-write
+	/// multiplier. `None` uses the 5-minute default.
+	pub fn should_mutate_deep_with_write_multiplier(
+		&self,
+		delta_t: u32,
+		suffix_tokens: u32,
+		expected_reads: f32,
+		p_alive: f32,
+		write_multiplier: Option<f32>,
+	) -> bool {
+		self.net_mutation_gain_with_write_multiplier(delta_t, suffix_tokens, expected_reads, p_alive, write_multiplier)
+			> 0.0
 	}
 
 	/// Remaining-read count at which a warm-cache (P_alive = 1)
@@ -298,10 +338,21 @@ impl CompressionPolicy {
 	/// session lasts N more turns"). Returns 0 when `delta_t` is 0
 	/// (no savings — callers gate on `delta_t > 0`).
 	pub fn break_even_reads(&self, delta_t: u32, suffix_tokens: u32) -> f32 {
+		self.break_even_reads_with_write_multiplier(delta_t, suffix_tokens, None)
+	}
+
+	/// Variant of [`Self::break_even_reads`] with an explicit cache-write
+	/// multiplier. `None` uses the 5-minute default.
+	pub fn break_even_reads_with_write_multiplier(
+		&self,
+		delta_t: u32,
+		suffix_tokens: u32,
+		write_multiplier: Option<f32>,
+	) -> f32 {
 		if delta_t == 0 {
 			return 0.0;
 		}
-		let w = CACHE_WRITE_MULTIPLIER;
+		let w = write_multiplier.unwrap_or(CACHE_WRITE_MULTIPLIER);
 		let r = CACHE_READ_MULTIPLIER;
 		((w - r) / r) * ((suffix_tokens as f32) / (delta_t as f32))
 	}
@@ -326,12 +377,12 @@ mod tests {
 		// raise them once bake telemetry confirms savings.
 		let p = CompressionPolicy::for_mode(AuthMode::Payg);
 		assert_eq!(
-			p.volatile_token_threshold, 256,
+			p.volatile_token_threshold, 128,
 			"PAYG volatile threshold is the relaxed default; F2.2-followup will tune"
 		);
 		assert!(
-			(p.max_lossy_ratio - 0.30).abs() < f32::EPSILON,
-			"PAYG max_lossy_ratio caps lossy paths at 0.30 (coding-tuned)"
+			(p.max_lossy_ratio - 0.45).abs() < f32::EPSILON,
+			"PAYG max_lossy_ratio caps lossy paths at 0.45; F2.2-followup will tune"
 		);
 		assert!(
 			!p.toin_read_only,
@@ -376,12 +427,12 @@ mod tests {
 		// mutated from cache-stability-sensitive traffic.
 		let p = CompressionPolicy::for_mode(AuthMode::Subscription);
 		assert_eq!(
-			p.volatile_token_threshold, 64,
+			p.volatile_token_threshold, 32,
 			"Subscription volatile threshold flags content earlier (cache stability)"
 		);
 		assert!(
-			(p.max_lossy_ratio - 0.20).abs() < f32::EPSILON,
-			"Subscription max_lossy_ratio caps lossy paths at 0.20 (conservative, coding-tuned)"
+			(p.max_lossy_ratio - 0.25).abs() < f32::EPSILON,
+			"Subscription max_lossy_ratio caps lossy paths at 0.25 (conservative)"
 		);
 		assert!(
 			p.toin_read_only,
@@ -428,6 +479,19 @@ mod tests {
 		let gain = p.net_mutation_gain(50_000, 10_000, 3.0, 1.0);
 		assert!((gain - 3_500.0).abs() < 1.0, "gain = {gain}");
 		assert!(p.should_mutate_deep(50_000, 10_000, 3.0, 1.0));
+	}
+
+	#[test]
+	fn net_gain_big_shave_shallow_suffix_is_loss_at_1h_tier() {
+		let p = CompressionPolicy::for_mode(AuthMode::Payg);
+		let default_gain = p.net_mutation_gain(50_000, 10_000, 3.0, 1.0);
+		assert!(default_gain > 0.0, "default gain = {default_gain}");
+
+		let gain = p.net_mutation_gain_with_write_multiplier(50_000, 10_000, 3.0, 1.0, Some(CACHE_WRITE_MULTIPLIER_1H));
+		assert!((gain - (-4_000.0)).abs() < 1.0, "gain = {gain}");
+		assert!(
+			!p.should_mutate_deep_with_write_multiplier(50_000, 10_000, 3.0, 1.0, Some(CACHE_WRITE_MULTIPLIER_1H),)
+		);
 	}
 
 	#[test]

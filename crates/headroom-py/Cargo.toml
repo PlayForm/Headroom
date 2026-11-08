@@ -15,7 +15,7 @@ build = "build.rs"
 # Compile the C shim into a static library that links into _core.so.
 # `cc` is already transitively in our build graph (used by aws-lc-rs,
 # zstd-sys, ring, etc) so this is not a new cold dep.
-cc = "1"
+cc = "1.10.0"
 
 [lib]
 name = "_core"

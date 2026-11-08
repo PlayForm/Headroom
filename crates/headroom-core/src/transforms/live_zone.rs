@@ -49,15 +49,20 @@
 //!
 //! - **PR-B2** shipped the dispatcher *skeleton*: identify live-zone
 //!   blocks, route to no-op compressors, always return `NoChange`.
-//! - **PR-B3** (this PR) wires per-content-type compressors:
+//! - **PR-B3** wired the first per-content-type compressors:
 //!   `JsonArray` → SmartCrusher; `BuildOutput` → LogCompressor;
-//!   `SearchResults` → SearchCompressor; `GitDiff` → DiffCompressor;
-//!   `SourceCode` / `PlainText` / `Html` → no-op (B4 + a Rust
-//!   code-compressor port follow-up).
-//! - **PR-B4** adds the tokenizer-validation gate (per-block
+//!   `SearchResults` → SearchCompressor; `GitDiff` → DiffCompressor —
+//!   leaving `SourceCode` / `PlainText` / `Html` as documented no-ops.
+//! - **PR-B4** specifies the tokenizer-validation gate (per-block
 //!   `compressed.tokens >= original.tokens` → fall back) and the
-//!   per-content-type byte threshold below which compression is
-//!   skipped.
+//!   per-content-type byte thresholds. The gate and the threshold
+//!   plumbing already shipped; **this PR** completes the item by wiring
+//!   the two remaining compressor arms — `SourceCode` →
+//!   CodeAwareCompressor (falling back to cached Kompress when the
+//!   compressor returns its input unchanged) and `PlainText` → cached
+//!   Kompress — and by moving the `SourceCode` / `PlainText` thresholds
+//!   off their placeholder 512 to the specified 2048 / 5120. `Html`
+//!   stays no-op.
 //! - **PR-B7** wires CCR retrieval-marker injection.
 //!
 //! # Cache safety invariant
@@ -96,14 +101,21 @@
 
 use std::{collections::HashSet, sync::OnceLock};
 
+#[cfg(feature = "ml")]
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::Value;
 use thiserror::Error;
 
+use super::code_compressor::{CodeAwareCompressor, CodeCompressorConfig};
 use super::content_detector::{detect_content_type, ContentType};
 use super::diff_compressor::{DiffCompressor, DiffCompressorConfig};
+#[cfg(feature = "ml")]
+use super::kompress::{Kompress, KompressConfig};
 use super::log_compressor::{LogCompressor, LogCompressorConfig};
+use super::pipeline::JsonMinifier;
 use super::search_compressor::{SearchCompressor, SearchCompressorConfig};
 use super::smart_crusher::{SmartCrusher, SmartCrusherConfig};
 use crate::ccr::{compute_key, marker_for, CcrStore};
@@ -119,6 +131,14 @@ const STRATEGY_LOG_COMPRESSOR: &str = "log_compressor";
 const STRATEGY_SEARCH_COMPRESSOR: &str = "search_compressor";
 /// Strategy tag emitted when DiffCompressor rewrote a unified-diff block.
 const STRATEGY_DIFF_COMPRESSOR: &str = "diff_compressor";
+/// Strategy tag emitted when CodeAwareCompressor rewrote a source-code block.
+const STRATEGY_CODE_COMPRESSOR: &str = "code_compressor";
+/// Strategy tag emitted when Kompress rewrote a plain-text block (also
+/// used by the SourceCode arm's passthrough fallback — see
+/// [`dispatch_compressor`]). Only the `ml` build has a Kompress arm to
+/// emit it.
+#[cfg(feature = "ml")]
+const STRATEGY_KOMPRESS: &str = "kompress";
 
 /// Empty query context passed to compressors that take a relevance
 /// query string. PR-B3 dispatcher does not yet plumb the user's last
@@ -158,22 +178,36 @@ const THRESHOLD_BUILD_OUTPUT: usize = 512;
 const THRESHOLD_SEARCH_RESULTS: usize = 512;
 /// Git-diff blocks below this size route to no-op.
 const THRESHOLD_GIT_DIFF: usize = 512;
-/// Source-code blocks below this size route to no-op. Pinned
-/// for the future Rust code-compressor port — currently unused
-/// because `ContentType::SourceCode` short-circuits to no-op above
-/// the dispatch (see `dispatch_compressor`).
-const THRESHOLD_SOURCE_CODE: usize = 512;
-/// Plain-text blocks below this size route to no-op. Pinned
-/// for the future Kompress wiring (PR-B7 follow-up); currently unused.
-const THRESHOLD_PLAIN_TEXT: usize = 512;
-/// HTML blocks have no compressor; threshold matches plain text so
-/// when an HTML compressor lands the value is already pinned.
+/// Source-code blocks below this size route to no-op. Sourced from
+/// `REALIGNMENT/04-phase-B-live-zone.md::PR-B4` (2 KiB) — the
+/// CodeAwareCompressor's own `min_tokens_for_compression` floor
+/// already guards tiny snippets, but the byte gate keeps the dispatcher
+/// from spinning up tree-sitter parsing for content that can't possibly
+/// clear it.
+const THRESHOLD_SOURCE_CODE: usize = 2048;
+/// Plain-text blocks below this size route to no-op. Sourced from
+/// `REALIGNMENT/04-phase-B-live-zone.md::PR-B4` (5 KiB). The threshold
+/// gate fires before dispatch, so sub-threshold prose never reaches the
+/// Kompress arm wired below.
+const THRESHOLD_PLAIN_TEXT: usize = 5120;
+/// Tabular text has no native compressor; keep it lossless.
+const THRESHOLD_TABULAR: usize = 512;
+
+/// HTML blocks have no compressor. 512 was PlainText's pre-PR-B4 value;
+/// HTML deliberately keeps it rather than following PlainText to 5120,
+/// because `REALIGNMENT/04` pins no HTML threshold — when an HTML
+/// compressor lands, its threshold is that PR's own decision.
 const THRESHOLD_HTML: usize = 512;
 
 /// Map a content type to its byte threshold. Returning `usize` rather
 /// than an `Option` because every variant has a sensible default;
 /// `Html` is a no-op anyway so the threshold check never fires.
-fn threshold_for(content_type: ContentType) -> usize {
+///
+/// `pub` so tests and benches can ask "would this block have cleared the
+/// gate?" against the real constants instead of mirroring them — a
+/// mirrored copy drifts silently the moment a threshold moves.
+#[must_use]
+pub const fn threshold_for(content_type: ContentType) -> usize {
 	match content_type {
 		ContentType::JsonArray => THRESHOLD_JSON_ARRAY,
 		ContentType::BuildOutput => THRESHOLD_BUILD_OUTPUT,
@@ -182,6 +216,7 @@ fn threshold_for(content_type: ContentType) -> usize {
 		ContentType::SourceCode => THRESHOLD_SOURCE_CODE,
 		ContentType::PlainText => THRESHOLD_PLAIN_TEXT,
 		ContentType::Html => THRESHOLD_HTML,
+		ContentType::Tabular => THRESHOLD_TABULAR,
 	}
 }
 
@@ -544,6 +579,274 @@ fn diff_compressor() -> &'static DiffCompressor {
 	INSTANCE.get_or_init(|| DiffCompressor::new(DiffCompressorConfig::default()))
 }
 
+fn code_compressor() -> &'static CodeAwareCompressor {
+	static INSTANCE: OnceLock<CodeAwareCompressor> = OnceLock::new();
+	INSTANCE.get_or_init(|| CodeAwareCompressor::new(CodeCompressorConfig::default()))
+}
+
+// ─── Kompress model slot: never initialized on the request path ────────
+//
+// `Kompress::from_cache` is cache-only — it never downloads — but it is
+// NOT cheap: it loads the tokenizer and commits a ~261 MB ONNX session,
+// whole seconds of wall time on CPU, and on Windows without
+// `ORT_DYLIB_PATH` the ONNX Runtime init can block indefinitely. A
+// request thread must never pay, or wait on, that construction: the
+// first qualifying dispatch CASes UNINIT → INITIALIZING, hands the build
+// to a background thread, and returns a NoOp; every dispatch during
+// INITIALIZING is a NoOp; READY is terminal and serves the slot — or a
+// deterministic NoOp forever when the cache was cold or the load failed,
+// which is never retried. `warm_live_zone_compressors` runs the same
+// construction synchronously off the request path (proxy startup,
+// tests), so steady-state traffic normally never meets the lazy path.
+
+#[cfg(feature = "ml")]
+mod kompress_slot {
+	pub const UNINIT: u8 = 0;
+	pub const INITIALIZING: u8 = 1;
+	pub const READY: u8 = 2;
+}
+
+#[cfg(feature = "ml")]
+static KOMPRESS_STATE: AtomicU8 = AtomicU8::new(kompress_slot::UNINIT);
+
+/// Written exactly once, by whichever initializer won the CAS; the
+/// `Release` store of `READY` publishes it to `Acquire` readers.
+#[cfg(feature = "ml")]
+static KOMPRESS_INSTANCE: OnceLock<Option<Kompress>> = OnceLock::new();
+
+/// How many times the expensive construction has actually run in this
+/// process. Exactly-once observability; asserted by
+/// `tests/live_zone_kompress_async_init.rs`.
+#[cfg(feature = "ml")]
+static KOMPRESS_INIT_RUNS: AtomicUsize = AtomicUsize::new(0);
+
+#[doc(hidden)]
+#[cfg(feature = "ml")]
+pub fn kompress_init_runs() -> usize {
+	KOMPRESS_INIT_RUNS.load(Ordering::Relaxed)
+}
+
+/// Without the `ml` feature no construction can ever run.
+#[doc(hidden)]
+#[cfg(not(feature = "ml"))]
+pub fn kompress_init_runs() -> usize {
+	0
+}
+
+/// The one construction path. `Ok(None)` on a cold cache and hard errors
+/// both settle the slot as `None` — a deterministic NoOp for the life of
+/// the process, never retried — and the outcome is observable via the
+/// `kompress_init_complete` event's `kompress_ready` field.
+#[cfg(feature = "ml")]
+fn run_kompress_init() {
+	KOMPRESS_INIT_RUNS.fetch_add(1, Ordering::Relaxed);
+	// Before any `ort` call: unsupported CPU => SIGILL, unpinned loader =>
+	// deadlock. Same guards magika and the embedding scorer run first.
+	let slot = if let Err((reason, error)) = super::kompress::ort_session_preconditions() {
+		tracing::warn!(event = "kompress_init_skipped", reason, error = %error);
+		None
+	} else {
+		match Kompress::from_cache(KompressConfig::default()) {
+			Ok(k) => k, // None => HF cache cold: deterministic NoOp downstream
+			Err(e) => {
+				tracing::warn!(event = "kompress_init_failed", error = %e);
+				None
+			},
+		}
+	};
+	let ready = slot.is_some();
+	let _ = KOMPRESS_INSTANCE.set(slot);
+	KOMPRESS_STATE.store(kompress_slot::READY, Ordering::Release);
+	tracing::info!(event = "kompress_init_complete", kompress_ready = ready);
+}
+
+/// Non-blocking request-path accessor for the Kompress slot.
+///
+/// Returns the model only when a completed initialization loaded it;
+/// otherwise `None`, so the caller passes text through untouched. This
+/// mirrors the Python router's not-ready → passthrough behavior, and it
+/// NEVER waits: a virgin slot starts the build on a background thread
+/// and answers `None` for this request.
+#[cfg(feature = "ml")]
+fn kompress_cached() -> Option<&'static Kompress> {
+	match KOMPRESS_STATE.load(Ordering::Acquire) {
+		kompress_slot::READY => KOMPRESS_INSTANCE.get().and_then(|slot| slot.as_ref()),
+		kompress_slot::UNINIT => {
+			if KOMPRESS_STATE
+				.compare_exchange(
+					kompress_slot::UNINIT,
+					kompress_slot::INITIALIZING,
+					Ordering::AcqRel,
+					Ordering::Acquire,
+				)
+				.is_ok()
+			{
+				if let Err(e) = std::thread::Builder::new()
+					.name("kompress-init".into())
+					.spawn(run_kompress_init)
+				{
+					// The expensive construction never started; give the
+					// (cheap) spawn another chance on a later dispatch.
+					KOMPRESS_STATE.store(kompress_slot::UNINIT, Ordering::Release);
+					tracing::warn!(event = "kompress_init_spawn_failed", error = %e);
+				}
+			}
+			None
+		},
+		// INITIALIZING (or an impossible value): fail open, never wait.
+		_ => None,
+	}
+}
+
+/// Route `text` through Kompress when the model is cache-resident;
+/// otherwise fall back to a deterministic no-op. Shared by the
+/// `PlainText` arm and the `SourceCode` arm's passthrough fallback.
+///
+/// Not a full port of the Python router's fallback chain: that one also
+/// re-runs Kompress when the code compressor returns *changed but not
+/// smaller* output, whereas this arm sends only an exact passthrough
+/// here and leaves the changed-but-not-smaller case to the
+/// tokenizer-rejection gate in `compress_one_block`.
+#[cfg(feature = "ml")]
+fn kompress_or_noop(text: &str, content_type: ContentType) -> DispatchResult {
+	if let Some(k) = kompress_cached() {
+		let result = k.compress(text);
+		if !result.is_passthrough() && result.compressed != text {
+			return DispatchResult::Compressed { strategy: STRATEGY_KOMPRESS, compressed: result.compressed };
+		}
+	}
+	DispatchResult::NoOp { content_type: content_type.as_str() }
+}
+
+/// Kompress is an `ml`-feature transform; without it the arm is a
+/// deterministic no-op. Separate definition rather than a lint-silenced
+/// unused parameter, so the no-ml build has no dead argument to explain.
+#[cfg(not(feature = "ml"))]
+fn kompress_or_noop(_text: &str, content_type: ContentType) -> DispatchResult {
+	DispatchResult::NoOp { content_type: content_type.as_str() }
+}
+
+/// Eagerly construct every live-zone compressor singleton, off the
+/// request path, and block until the Kompress slot has settled. Returns
+/// whether Kompress is loaded and ready to compress — `false` on a cold
+/// cache, a failed load, or a build without the `ml` feature.
+///
+/// Call it at process startup (the proxy does, from a background thread)
+/// or from tests that need the arm live before dispatching; the request
+/// path itself never blocks either way. Deliberately ignores
+/// `HEADROOM_LIVE_ZONE_DISABLE_ARMS`: the kill switch gates dispatch,
+/// not model residency, so both switch configurations run the identical
+/// warmed process and differ only in the dispatch decision.
+pub fn warm_live_zone_compressors() -> bool {
+	let _ = smart_crusher();
+	let _ = log_compressor();
+	let _ = search_compressor();
+	let _ = diff_compressor();
+	let _ = code_compressor();
+	warm_kompress_blocking()
+}
+
+/// Blocking Kompress warmup: run the construction inline if this thread
+/// wins the slot, otherwise wait for whichever initializer did. A poll
+/// loop rather than `OnceLock::wait`, deliberately: a request thread
+/// that won the CAS but failed to spawn its init thread resets the
+/// state to UNINIT without ever setting the instance, and a waiter
+/// parked on the `OnceLock` would sleep forever through that reset.
+#[cfg(feature = "ml")]
+fn warm_kompress_blocking() -> bool {
+	loop {
+		match KOMPRESS_STATE.load(Ordering::Acquire) {
+			kompress_slot::READY => {
+				return KOMPRESS_INSTANCE.get().is_some_and(|slot| slot.is_some());
+			},
+			kompress_slot::UNINIT => {
+				if KOMPRESS_STATE
+					.compare_exchange(
+						kompress_slot::UNINIT,
+						kompress_slot::INITIALIZING,
+						Ordering::AcqRel,
+						Ordering::Acquire,
+					)
+					.is_ok()
+				{
+					run_kompress_init();
+				}
+				// Lost the race to another initializer: re-read the state.
+			},
+			_ => std::thread::sleep(std::time::Duration::from_millis(10)),
+		}
+	}
+}
+
+/// Without the `ml` feature there is no Kompress slot to warm.
+#[cfg(not(feature = "ml"))]
+fn warm_kompress_blocking() -> bool {
+	false
+}
+
+// ─── Kill switch (env-var arm disable) ─────────────────────────────────
+//
+// Experiment control and rollback affordance: set
+// `HEADROOM_LIVE_ZONE_DISABLE_ARMS=source_code,plain_text` (a
+// comma-separated list of content-type names, in either the
+// `ContentType::as_str()` or `natural_name()` spelling) to force those
+// arms to a deterministic no-op, bypassing their compressor entirely.
+//
+// One operator-facing caveat: granularity is per ARM, not per
+// compressor. `plain_text` alone does not stop Kompress runs reached
+// through the SourceCode arm's passthrough fallback; disabling
+// `source_code` as well is what removes Kompress from traffic entirely
+// (at the cost of also disabling the code compressor).
+
+/// Parse the comma-separated arm list. Blank entries are skipped;
+/// unknown names are ignored with a warning rather than failing the
+/// request, because a typo in an operator's rollback switch must not
+/// take the proxy down.
+///
+/// Pure and `pub` so the parsing contract can be tested directly. The
+/// alternative — asserting on it through the process environment —
+/// requires `std::env::set_var`, which is unsound in a multi-threaded
+/// process and becomes `unsafe` in edition 2024.
+#[must_use]
+pub fn parse_disabled_arms(raw: &str) -> HashSet<ContentType> {
+	let mut set = HashSet::new();
+	for token in raw.split(',') {
+		let token = token.trim();
+		if token.is_empty() {
+			continue;
+		}
+		match token.parse::<ContentType>() {
+			Ok(ct) => {
+				set.insert(ct);
+			},
+			Err(_) => tracing::warn!(event = "disable_arms_unknown_token", token = %token),
+		}
+	}
+	set
+}
+
+/// Arms disabled via `HEADROOM_LIVE_ZONE_DISABLE_ARMS`.
+///
+/// Latched on **first dispatch**, not at process start: the value is read
+/// the first time a block is routed and cached for the process lifetime,
+/// so a run's arm-disable set cannot change mid-flight (determinism
+/// invariant). A non-UTF-8 value is read lossily rather than silently
+/// treated as unset.
+fn disabled_arms() -> &'static HashSet<ContentType> {
+	static INSTANCE: OnceLock<HashSet<ContentType>> = OnceLock::new();
+	INSTANCE.get_or_init(|| {
+		std::env::var_os("HEADROOM_LIVE_ZONE_DISABLE_ARMS")
+			.map(|raw| parse_disabled_arms(&raw.to_string_lossy()))
+			.unwrap_or_default()
+	})
+}
+
+/// True when `content_type`'s dispatch arm has been disabled via
+/// `HEADROOM_LIVE_ZONE_DISABLE_ARMS`.
+fn arm_disabled(content_type: ContentType) -> bool {
+	disabled_arms().contains(&content_type)
+}
+
 // ─── Public entry point ────────────────────────────────────────────────
 
 /// Inspect a buffered Anthropic `/v1/messages` body and decide which
@@ -849,8 +1152,11 @@ fn compress_one_block(
 			// stays honest — the marker costs ~6 tokens and we'd
 			// rather forward the original than ship a bigger payload
 			// for a 5-byte block.
-			let (compressed_for_replacement, ccr_hash_emitted) =
-				maybe_inject_ccr_marker(content_text, &compressed, ccr_store);
+			let (compressed_for_replacement, ccr_hash_emitted) = if strategy == "json_minifier" {
+				(compressed, None)
+			} else {
+				maybe_inject_ccr_marker(content_text, &compressed, ccr_store)
+			};
 			let compressed_bytes = compressed_for_replacement.len();
 			// 3. Tokenizer-validated rejection. Per PR-B4 spec we
 			//    count both the original and compressed strings
@@ -974,6 +1280,23 @@ enum SlotKind {
 /// latest user message. Errors out on shapes the dispatcher does not
 /// support (e.g. structured-array `content` inside a tool_result —
 /// rare; we degrade to NoChange in that case).
+/// Whether a content block (no `type` key) carries a JSON-string `text`
+/// field — the Bedrock Converse text-block shape (`{"text": "..."}`).
+/// Used to route typeless Converse text through the Anthropic text path.
+/// Blocks whose `text` is absent or non-string (e.g. `{"image": ...}`,
+/// `{"toolUse": ...}`) return false and stay unrecognized → no-op.
+fn block_has_string_text_field(block_json: &str) -> bool {
+	#[derive(Deserialize)]
+	struct Probe<'a> {
+		#[serde(borrow, default)]
+		text: Option<&'a RawValue>,
+	}
+	serde_json::from_str::<Probe<'_>>(block_json)
+		.ok()
+		.and_then(|p| p.text)
+		.is_some_and(|t| t.get().trim_start().starts_with('"'))
+}
+
 fn plan_block_replacements(body_raw: &[u8], target_msg_idx: usize) -> Result<Vec<PlanSlot>, PlanError> {
 	// `serde_json::from_slice` requires UTF-8; we re-validate here
 	// explicitly so the pointer-arithmetic helper can take a `&str`
@@ -1022,7 +1345,18 @@ fn plan_block_replacements(body_raw: &[u8], target_msg_idx: usize) -> Result<Vec
 		let block_offset_in_body = content_offset_in_body + block_offset_in_content;
 
 		let header: BlockHeader<'_> = serde_json::from_str(block_raw.get()).map_err(|_| PlanError::ParseFailed)?;
-		let block_type = header.r#type.unwrap_or("unknown").to_string();
+		// Bedrock Converse content blocks carry no `type` discriminator —
+		// the variant is the key itself (`{"text": ...}`, `{"image": ...}`,
+		// `{"toolUse": ...}`). A typeless block whose `text` field is a
+		// JSON string is Converse text; route it through the same surgical
+		// path as an Anthropic `{"type":"text","text":...}` block so
+		// Converse user-message text compresses too. Anthropic blocks
+		// always carry `type`, so this never alters the Anthropic path.
+		let block_type = match header.r#type {
+			Some(t) => t.to_string(),
+			None if block_has_string_text_field(block_raw.get()) => "text".to_string(),
+			None => "unknown".to_string(),
+		};
 
 		if HOT_ZONE_BLOCK_TYPES.iter().any(|t| *t == block_type) {
 			slots.push(PlanSlot { block_index: block_idx, kind: SlotKind::HotZone(block_type) });
@@ -1227,17 +1561,30 @@ enum DispatchResult {
 
 /// Map `(text, content_type)` to the compressor result.
 ///
-/// Per spec PR-B3:
+/// Per spec PR-B3 (arms marked PR-B4 wired by that PR):
 ///
 /// - `JsonArray` (with `is_dict_array=true`) → SmartCrusher
 /// - `BuildOutput` → LogCompressor
 /// - `SearchResults` → SearchCompressor
 /// - `GitDiff` → DiffCompressor
-/// - `SourceCode` → no-op (Rust port pending; see TODO below)
-/// - `PlainText` → no-op (PR-B4 wires Kompress)
+/// - `SourceCode` → CodeAwareCompressor, falling back to cached
+///   Kompress on exact passthrough (PR-B4)
+/// - `PlainText` → cached Kompress, cache-cold → no-op (PR-B4)
 /// - `Html` → no-op (no compressor)
+///
+/// Any arm whose content type is named in
+/// `HEADROOM_LIVE_ZONE_DISABLE_ARMS` short-circuits to a no-op before
+/// the table below is consulted.
 fn dispatch_compressor(text: &str, content_type: ContentType) -> DispatchResult {
 	if text.is_empty() {
+		return DispatchResult::NoOp { content_type: content_type.as_str() };
+	}
+
+	// Kill switch, checked once for every arm rather than per arm: an
+	// operator naming any content type gets that arm disabled, instead
+	// of the switch silently covering only the two arms whose bodies
+	// happened to consult it.
+	if arm_disabled(content_type) {
 		return DispatchResult::NoOp { content_type: content_type.as_str() };
 	}
 
@@ -1249,6 +1596,9 @@ fn dispatch_compressor(text: &str, content_type: ContentType) -> DispatchResult 
 			// arrays, and returns the input.
 			let result = smart_crusher().crush(text, EMPTY_QUERY, DEFAULT_BIAS);
 			if !result.was_modified {
+				if let Ok(Some(minified)) = JsonMinifier.minify(text) {
+					return DispatchResult::Compressed { strategy: "json_minifier", compressed: minified };
+				}
 				return DispatchResult::NoOp { content_type: content_type.as_str() };
 			}
 			DispatchResult::Compressed { strategy: STRATEGY_SMART_CRUSHER, compressed: result.compressed }
@@ -1274,14 +1624,40 @@ fn dispatch_compressor(text: &str, content_type: ContentType) -> DispatchResult 
 			}
 			DispatchResult::Compressed { strategy: STRATEGY_DIFF_COMPRESSOR, compressed: result.compressed }
 		},
-		// TODO(PR-B4 / Rust code-compressor port): Python has a
-		// CodeAwareCompressor; the Rust port is not yet shipped. Once
-		// that crate lands, `ContentType::SourceCode` routes here
-		// exactly as the others above.
-		ContentType::SourceCode => DispatchResult::NoOp { content_type: content_type.as_str() },
-		// TODO(PR-B4): wire Kompress (lossless prose compressor) for
-		// PlainText. For now, leave untouched.
-		ContentType::PlainText => DispatchResult::NoOp { content_type: content_type.as_str() },
+		// Routes to the tree-sitter-backed CodeAwareCompressor (PR-B4).
+		// The compressor fails open internally (re-parse-and-revert on
+		// syntax errors, a min-token floor, and a compression-ratio
+		// guard), so this arm only has to compare its output against
+		// the input; the tokenizer-rejection gate in
+		// `compress_one_block` applies on top of that. When the code
+		// compressor doesn't shrink the block (e.g. it's already
+		// dense, or tree-sitter reverted on a parse error), fall back
+		// to Kompress rather than giving up — mirrors the Python
+		// router's no-shrink → Kompress fallback.
+		ContentType::SourceCode => {
+			let result = code_compressor().compress(text);
+			if result.compressed == text {
+				// Exact passthrough only: the compressor declined
+				// (min-token floor, unknown language, parse failure,
+				// ratio guard), so hand the block to Kompress. A
+				// rewrite that changed bytes without shrinking tokens
+				// is NOT retried here — `compress_one_block`'s
+				// tokenizer gate rejects it and forwards the original.
+				return kompress_or_noop(text, content_type);
+			}
+			DispatchResult::Compressed { strategy: STRATEGY_CODE_COMPRESSOR, compressed: result.compressed }
+		},
+		// Cache-only EXTRACTIVE prose compressor (PR-B4): Kompress drops
+		// low-salience words and rejoins on single spaces — lossy by
+		// design. `kompress_or_noop` degrades to a deterministic no-op
+		// when the model isn't cache-resident, hasn't finished its
+		// background initialization yet, or the `ml` feature is off —
+		// no network call and no model build ever happens on this path.
+		// This dispatcher has no tabular compressor; preserve these rows
+		// instead of sending structured output through lossy Kompress.
+		ContentType::Tabular => DispatchResult::NoOp { content_type: content_type.as_str() },
+
+		ContentType::PlainText => kompress_or_noop(text, content_type),
 		// No HTML compressor on the Rust side; pages are handled by
 		// upstream extractors, not the proxy.
 		ContentType::Html => DispatchResult::NoOp { content_type: content_type.as_str() },
@@ -1492,6 +1868,56 @@ mod tests {
 		}));
 		let out = compress_anthropic_live_zone(&b, 0, AuthMode::Payg, DEFAULT_MODEL).unwrap();
 		assert!(matches!(out, LiveZoneOutcome::NoChange { .. }));
+	}
+
+	#[test]
+	fn block_has_string_text_field_detects_converse_text_only() {
+		// Converse text block: typeless, string `text` → recognized.
+		assert!(block_has_string_text_field(r#"{"text":"hello"}"#));
+		// Non-text Converse blocks must NOT be mistaken for text.
+		assert!(!block_has_string_text_field(r#"{"image":{"format":"png"}}"#));
+		assert!(!block_has_string_text_field(r#"{"toolUse":{"name":"x"}}"#));
+		// `text` present but not a JSON string → not Converse text.
+		assert!(!block_has_string_text_field(r#"{"text":["a"]}"#));
+		assert!(!block_has_string_text_field(r#"{"text":{"v":1}}"#));
+	}
+
+	#[test]
+	fn converse_typeless_text_block_routes_like_anthropic_text() {
+		// Bedrock Converse content blocks omit the `type` discriminator —
+		// `{"text": "..."}` instead of `{"type":"text","text":"..."}`. The
+		// dispatcher must treat the two identically so Converse user-message
+		// text compresses like Anthropic text.
+		let payload = "{\"k\": \"v\", \"n\": 1}\n".repeat(200);
+		let converse = body(json!({
+			"messages": [{"role": "user", "content": [{"text": payload}]}]
+		}));
+		let anthropic = body(json!({
+			"messages": [{"role": "user", "content": [{"type": "text", "text": payload}]}]
+		}));
+		let c = compress_anthropic_live_zone(&converse, 0, AuthMode::Payg, DEFAULT_MODEL).unwrap();
+		let a = compress_anthropic_live_zone(&anthropic, 0, AuthMode::Payg, DEFAULT_MODEL).unwrap();
+
+		// Identical dispatch outcome (both Modified or both NoChange).
+		assert_eq!(
+			std::mem::discriminant(&c),
+			std::mem::discriminant(&a),
+			"converse text block must dispatch like an anthropic text block"
+		);
+		let cm = match &c {
+			LiveZoneOutcome::NoChange { manifest } => manifest,
+			LiveZoneOutcome::Modified { manifest, .. } => manifest,
+		};
+		let am = match &a {
+			LiveZoneOutcome::NoChange { manifest } => manifest,
+			LiveZoneOutcome::Modified { manifest, .. } => manifest,
+		};
+		// The Converse block is now classified the same as Anthropic text
+		// (before this change it was an unrecognized typeless block).
+		assert_eq!(cm.block_outcomes.len(), 1);
+		assert_eq!(am.block_outcomes.len(), 1);
+		assert_eq!(cm.block_outcomes[0].block_type, am.block_outcomes[0].block_type);
+		assert_eq!(cm.block_outcomes[0].block_type, "text");
 	}
 
 	#[test]

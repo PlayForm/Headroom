@@ -295,12 +295,12 @@ fn calculate_structural_uniqueness(item: &Value, all_items: &[Value]) -> f64 {
 	let n_f = n as f64;
 	let common: HashSet<&String> = field_counts
 		.iter()
-		.filter(|&(_, &c)| c as f64 >= n_f * 0.8)
+		.filter(|(_, c)| **c as f64 >= n_f * 0.8)
 		.map(|(k, _)| *k)
 		.collect();
 	let rare: HashSet<&String> = field_counts
 		.iter()
-		.filter(|&(_, &c)| (c as f64) < n_f * 0.2)
+		.filter(|(_, c)| (**c as f64) < n_f * 0.2)
 		.map(|(k, _)| *k)
 		.collect();
 
@@ -331,7 +331,7 @@ fn calculate_structural_uniqueness(item: &Value, all_items: &[Value]) -> f64 {
 pub fn compute_item_hash(item: &Value) -> String {
 	let content = python_json_dumps_sort_keys(item);
 	let digest = Md5::digest(content.as_bytes());
-	let hex: String = digest.iter().map(|b| format!("{:02x}", b)).collect();
+	let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
 	hex[..16].to_string()
 }
 

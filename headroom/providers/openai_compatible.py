@@ -85,19 +85,20 @@ _DEFAULT_CONTEXT_LIMITS: dict[str, int] = {
     "qwen2-72b": 32768,
     "qwen2.5": 131072,
     # DeepSeek
-    "deepseek": 32768,
-    "deepseek-coder": 16384,
+    "deepseek": 1048576,
+    "deepseek-coder": 128000,
     "deepseek-coder-v2": 128000,
     "deepseek-coder-v2-lite": 128000,
     "deepseek-v2": 128000,
     "deepseek-v2-lite": 128000,
-    "deepseek-v3": 128000,
+    "deepseek-v3": 1048576,
     "deepseek-v3-0324": 128000,
     "deepseek-v3.2": 128000,
     "deepseek-r1": 131072,
     "deepseek-r1-0528": 131072,
     "deepseek-reasoner": 131072,
     "deepseek-v4": 1048576,
+    "deepseek-flash": 1_000_000,
     "deepseek-v4-pro": 1_000_000,
     "deepseek-v4-flash": 1_000_000,
     "deepseek-chat": 131072,
@@ -164,7 +165,7 @@ class OpenAICompatibleTokenCounter:
                 # per-provider one. Each provider counter had grown its own
                 # shortened branch list, so every modern block priced at ~0:
                 # measured on a 6,800-char block this returned 8 tokens for
-                # tool_result, thinking, document, mcp_tool_result - and for
+                # tool_result, thinking, document, mcp_tool_result — and for
                 # output_text / refusal, which are OpenAI's OWN Responses shapes.
                 # The shared walker is also image-safe: a 200KB base64 image gets
                 # a pixel-based 1600, not the ~50K phantom text tokens a naive
@@ -313,10 +314,13 @@ class OpenAICompatibleProvider(Provider):
         if model_lower in _DEFAULT_CONTEXT_LIMITS:
             return _DEFAULT_CONTEXT_LIMITS[model_lower]
 
-        # Prefix match
-        for prefix, limit in _DEFAULT_CONTEXT_LIMITS.items():
+        # Prefix match, longest prefix first. Plain dict order let a shorter
+        # family shadow a longer one: "deepseek-v4-flash-vision-exp" hit the
+        # "deepseek-v4" entry and got 1_048_576 instead of the 1_000_000 the
+        # model registry, the OpenAI provider and the pricing tables agree on.
+        for prefix in sorted(_DEFAULT_CONTEXT_LIMITS, key=len, reverse=True):
             if model_lower.startswith(prefix):
-                return limit
+                return _DEFAULT_CONTEXT_LIMITS[prefix]
 
         # Default to 128K for modern models
         return 128000

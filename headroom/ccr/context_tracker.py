@@ -23,13 +23,19 @@ from __future__ import annotations
 import logging
 import re
 import time
-from collections import deque
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any
 
 from ..cache.compression_store import get_compression_store
 
 logger = logging.getLogger(__name__)
+
+# Wrapper around injected proactive-expansion text. The proxy places this
+# block after the last cache breakpoint and strips it from the prefix-tracker
+# snapshot so a later overlay/restart never has to replay it (#4287).
+PROACTIVE_EXPANSION_OPEN_TAG = "<headroom_proactive_expansion>"
+PROACTIVE_EXPANSION_CLOSE_TAG = "</headroom_proactive_expansion>"
 
 
 def looks_like_claude_code_compact_summary(*texts: str | None) -> bool:
@@ -72,7 +78,7 @@ class CompressedContext:
     compression to a single project/CWD identity so cross-project
     proactive expansion cannot leak. The empty string is a valid value
     (used by unit tests that don't exercise scoping) but the production
-    proxy NEVER passes empty - ``track_compression`` is gated on a
+    proxy NEVER passes empty — ``track_compression`` is gated on a
     resolved workspace before the call. Reverting this to optional
     re-opens the cross-project leak (incident reported by Jocelyn,
     2026-05-26): a tamag0 Python file surfaced inside a daphni-rails
@@ -111,7 +117,7 @@ class ContextTrackerConfig:
     max_tracked_contexts: int = 100
 
     # Relevance threshold for recommending expansion (0-1)
-    relevance_threshold: float = 0.5
+    relevance_threshold: float = 0.3
 
     # Maximum age for contexts (seconds) - older contexts less likely to expand
     max_context_age_seconds: float = 300.0  # 5 minutes
@@ -120,7 +126,7 @@ class ContextTrackerConfig:
     proactive_expansion: bool = True
 
     # Maximum items to proactively expand per turn
-    max_proactive_expansions: int = 5
+    max_proactive_expansions: int = 2
 
 
 class ContextTracker:
@@ -156,7 +162,7 @@ class ContextTracker:
     def __init__(self, config: ContextTrackerConfig | None = None):
         self.config = config or ContextTrackerConfig()
         self._contexts: dict[str, CompressedContext] = {}
-        self._turn_order: deque[str] = deque()  # For LRU
+        self._turn_order: list[str] = []  # For LRU
         self._current_turn: int = 0
 
     def track_compression(
@@ -211,16 +217,13 @@ class ContextTracker:
 
         # Add or update context
         if hash_key in self._contexts:
-            try:
-                self._turn_order.remove(hash_key)
-            except ValueError:
-                pass  # hash was evicted but context dict still has it
+            self._turn_order.remove(hash_key)
         self._contexts[hash_key] = context
         self._turn_order.append(hash_key)
 
         # LRU eviction
         while len(self._contexts) > self.config.max_tracked_contexts:
-            oldest = self._turn_order.popleft()
+            oldest = self._turn_order.pop(0)
             del self._contexts[oldest]
 
         self._current_turn = max(self._current_turn, turn_number)
@@ -236,6 +239,7 @@ class ContextTracker:
         current_turn: int | None = None,
         *,
         workspace_key: str,
+        present_hashes: Collection[str] | None = None,
     ) -> list[ExpansionRecommendation]:
         """Analyze a query to find relevant compressed contexts.
 
@@ -246,10 +250,17 @@ class ContextTracker:
                 whose ``workspace_key`` matches will be considered for
                 expansion. This is the gate that prevents cross-project
                 leaks (e.g. Project A's Python code surfacing in
-                Project B's Ruby query). REQUIRED - callers MUST resolve
+                Project B's Ruby query). REQUIRED — callers MUST resolve
                 a workspace before invoking; the empty string short-
                 circuits to an empty result set rather than matching
                 empty-keyed test contexts to avoid accidental crossover.
+            present_hashes: CCR hashes whose markers appear in the request
+                being answered. When given, only those contexts may expand.
+                One workspace can serve several live conversations at once
+                (a Claude Code lead and its teammates share a cwd), and a
+                compression the requesting conversation never received is
+                another conversation's tool output, not context it lost
+                (#1174). ``None`` skips this filter.
 
         Returns:
             List of expansion recommendations, sorted by relevance.
@@ -259,7 +270,7 @@ class ContextTracker:
 
         # Empty workspace = caller couldn't resolve project identity.
         # Fail closed: return nothing. The user loses the proactive
-        # expansion optimization on this turn (which is fine - it's an
+        # expansion optimization on this turn (which is fine — it's an
         # optimization, not correctness) and avoids any cross-workspace
         # match. See `feedback_no_silent_fallbacks`: an empty workspace
         # is the loud failure, not a license to match anything.
@@ -277,10 +288,12 @@ class ContextTracker:
         now = time.time()
 
         for hash_key, context in self._contexts.items():
-            # Workspace filter - the cross-project leak gate. Skip
+            # Workspace filter — the cross-project leak gate. Skip
             # entries that belong to a different project than the one
             # the current request resolved to.
             if context.workspace_key != workspace_key:
+                continue
+            if present_hashes is not None and hash_key not in present_hashes:
                 continue
 
             # Check age
@@ -465,29 +478,6 @@ class ContextTracker:
             "my",
             "i",
             "you",
-            # Common coding terms that trigger false relevance
-            "file",
-            "code",
-            "test",
-            "src",
-            "lib",
-            "api",
-            "data",
-            "type",
-            "name",
-            "user",
-            "path",
-            "error",
-            "import",
-            "from",
-            "class",
-            "def",
-            "function",
-            "return",
-            "self",
-            "main",
-            "line",
-            "size",
         }
 
         return [w for w in words if w not in stop_words and len(w) >= 2]
@@ -566,7 +556,7 @@ class ContextTracker:
             expansions: Results from execute_expansions.
             workspace_label: Optional workspace name (e.g. project
                 basename) printed in the block header. Symmetry with the
-                memory injection block - both surfaces declare their
+                memory injection block — both surfaces declare their
                 provenance so the model can reason about applicability
                 instead of treating the block as prompt injection.
                 See GH #462 (Fix C).
@@ -591,8 +581,8 @@ class ContextTracker:
         parts.append("[End Proactive Expansion]")
         body = "\n".join(parts)
         # Escape any stray close tag in payload to prevent wrapper boundary forgery
-        body = body.replace("</headroom_proactive_expansion>", "<\\/headroom_proactive_expansion>")
-        return f"<headroom_proactive_expansion>\n{body}\n</headroom_proactive_expansion>"
+        body = body.replace(PROACTIVE_EXPANSION_CLOSE_TAG, "<\\/headroom_proactive_expansion>")
+        return f"{PROACTIVE_EXPANSION_OPEN_TAG}\n{body}\n{PROACTIVE_EXPANSION_CLOSE_TAG}"
 
     def get_tracked_hashes(self) -> list[str]:
         """Get list of currently tracked hashes."""
@@ -627,7 +617,7 @@ class ContextTracker:
         self._current_turn = 0
 
 
-# Process-wide singleton - kept only for the unit-test API surface.
+# Process-wide singleton — kept only for the unit-test API surface.
 # The production proxy holds its tracker as ``self.ccr_context_tracker``
 # on the long-lived server object (see ``proxy/server.py:562``), NOT
 # through this module-level handle. The old comment claiming this was
@@ -646,7 +636,7 @@ def get_context_tracker() -> ContextTracker:
     ``track_compression(..., workspace_key=...)`` /
     ``analyze_query(..., workspace_key=...)`` parameters. Code paths
     that reach here in a production-style flow should be considered
-    broken - there is no caller-provided workspace identity at this
+    broken — there is no caller-provided workspace identity at this
     layer.
     """
     global _context_tracker

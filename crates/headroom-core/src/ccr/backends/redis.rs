@@ -2,7 +2,7 @@
 //!
 //! Opt-in **multi-worker** backend: every worker hits the same Redis
 //! instance, so no sticky-session is required at the load balancer.
-//! Compiled only when the `redis` feature is enabled - production
+//! Compiled only when the `redis` feature is enabled — production
 //! deployments wanting Redis pull this in via the workspace feature
 //! flag, deployments running single-worker or persistent-disk-only
 //! avoid the Redis client cost.
@@ -14,7 +14,7 @@
 //! an **idle window** (#2604): every successful `get` re-arms the key's
 //! expiry, bounded by an absolute max lifetime tracked in a companion
 //! `ccr:{hash}:born` key whose own expiry marks the ceiling. Redis
-//! handles purging via key expiry - no application-side sweep needed
+//! handles purging via key expiry — no application-side sweep needed
 //! (matching the SQLite backend's lazy-purge but at the Redis level).
 //!
 //! # Concurrency
@@ -29,7 +29,7 @@
 
 use redis::Commands;
 
-use crate::ccr::{max_lifetime_for, CcrStore};
+use crate::ccr::{max_lifetime_for, secs_i64, CcrStore};
 
 /// Key prefix applied to every CCR entry. Configurable per-deployment
 /// so multiple proxies sharing one Redis don't collide.
@@ -81,7 +81,7 @@ impl RedisCcrStore {
 }
 
 impl CcrStore for RedisCcrStore {
-	fn put(&self, hash: &str, payload: &str) -> bool {
+	fn put(&self, hash: &str, payload: &str) {
 		let key = self.key_for(hash);
 		let mut conn = match self.client.get_connection() {
 			Ok(c) => c,
@@ -92,7 +92,7 @@ impl CcrStore for RedisCcrStore {
 					error = %err,
 					"ccr_redis_connect_failed_on_put"
 				);
-				return false;
+				return;
 			},
 		};
 		// SETEX is one network round-trip; payload is bytes-faithful via
@@ -105,7 +105,7 @@ impl CcrStore for RedisCcrStore {
 				error = %err,
 				"ccr_redis_put_failed"
 			);
-			return false;
+			return;
 		}
 		// Companion max-lifetime marker: its remaining TTL caps every
 		// idle-window re-arm in `get`, so constant access cannot pin an
@@ -119,7 +119,6 @@ impl CcrStore for RedisCcrStore {
 				"ccr_redis_put_born_failed"
 			);
 		}
-		true
 	}
 
 	fn get(&self, hash: &str) -> Option<String> {
@@ -178,7 +177,7 @@ impl CcrStore for RedisCcrStore {
 			let _: redis::RedisResult<()> = conn.del(&key);
 			return None;
 		}
-		let rearm: redis::RedisResult<()> = conn.expire(&key, new_ttl as i64);
+		let rearm: redis::RedisResult<()> = conn.expire(&key, secs_i64(new_ttl));
 		if let Err(err) = rearm {
 			tracing::warn!(
 				target = "ccr.redis",
@@ -194,37 +193,8 @@ impl CcrStore for RedisCcrStore {
 		// Redis has no efficient global count; we'd need to KEYS-scan
 		// the prefix which is O(N) and not safe in production. The
 		// CcrStore::len() contract is documented as "informational; used
-		// by tests + telemetry" - return 0 here. Tests for the Redis
+		// by tests + telemetry" — return 0 here. Tests for the Redis
 		// backend assert get/put behavior, not len().
 		0
-	}
-
-	fn del(&self, hash: &str) -> bool {
-		let key = self.key_for(hash);
-		let mut conn = match self.client.get_connection() {
-			Ok(c) => c,
-			Err(err) => {
-				tracing::warn!(
-					target = "ccr.redis",
-					hash = %hash,
-					error = %err,
-					"ccr_redis_connect_failed_on_del"
-				);
-				return false;
-			},
-		};
-		let res: redis::RedisResult<()> = conn.del(&key);
-		match res {
-			Ok(()) => true,
-			Err(err) => {
-				tracing::warn!(
-					target = "ccr.redis",
-					hash = %hash,
-					error = %err,
-					"ccr_redis_del_failed"
-				);
-				false
-			},
-		}
 	}
 }

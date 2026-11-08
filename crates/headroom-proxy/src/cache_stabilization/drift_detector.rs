@@ -66,7 +66,7 @@
 //!   key-sorted rebuild) of the corresponding subtree. Still well
 //!   under a millisecond on a typical agentic request; the detector
 //!   stays log-only and off the forwarded-bytes path.
-//! - One LRU lookup + insert. `lru = "0.12"` is O(1) amortised.
+//! - One LRU lookup + insert. `lru` is O(1) amortised.
 //! - One `tracing::info!` or `tracing::warn!`. No metric emission yet
 //!   (left for Phase F PR-F* when the global Prometheus registry can
 //!   accept session-scoped counters without a cardinality explosion).
@@ -88,12 +88,12 @@ use sha2::{Digest, Sha256};
 /// uses `body.instructions`/`body.tools`/`body.input`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApiKind {
-	/// `POST /v1/messages` (Anthropic).
-	Anthropic,
-	/// `POST /v1/chat/completions` (OpenAI).
-	OpenAiChat,
-	/// `POST /v1/responses` (OpenAI Responses API).
-	OpenAiResponses,
+    /// `POST /v1/messages` (Anthropic).
+    Anthropic,
+    /// `POST /v1/chat/completions` (OpenAI).
+    OpenAiChat,
+    /// `POST /v1/responses` (OpenAI Responses API).
+    OpenAiResponses,
 }
 
 /// Three-axis structural fingerprint of the cache hot zone.
@@ -195,30 +195,42 @@ fn canonicalize_for_hash(value: &serde_json::Value, in_opaque: bool) -> serde_js
 /// a stable 32-byte digest so first-request comparisons are
 /// well-defined.
 fn extract_system(body: &serde_json::Value, kind: ApiKind) -> serde_json::Value {
-	match kind {
-		ApiKind::Anthropic => body.get("system").cloned().unwrap_or(serde_json::Value::Null),
-		ApiKind::OpenAiChat => {
-			// First message with `role == "system"` is the OpenAI
-			// Chat hot-zone equivalent. There can be at most one in
-			// practice (newer requests use a `developer` role; that's
-			// not the system axis and we deliberately don't conflate).
-			body.get("messages")
-				.and_then(|v| v.as_array())
-				.and_then(|arr| {
-					arr.iter()
-						.find(|m| m.get("role").and_then(|r| r.as_str()).map(|s| s == "system").unwrap_or(false))
-				})
-				.cloned()
-				.unwrap_or(serde_json::Value::Null)
-		},
-		ApiKind::OpenAiResponses => body.get("instructions").cloned().unwrap_or(serde_json::Value::Null),
-	}
+    match kind {
+        ApiKind::Anthropic => body
+            .get("system")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+        ApiKind::OpenAiChat => {
+            // First message with `role == "system"` is the OpenAI
+            // Chat hot-zone equivalent. There can be at most one in
+            // practice (newer requests use a `developer` role; that's
+            // not the system axis and we deliberately don't conflate).
+            body.get("messages")
+                .and_then(|v| v.as_array())
+                .and_then(|arr| {
+                    arr.iter().find(|m| {
+                        m.get("role")
+                            .and_then(|r| r.as_str())
+                            .map(|s| s == "system")
+                            .unwrap_or(false)
+                    })
+                })
+                .cloned()
+                .unwrap_or(serde_json::Value::Null)
+        }
+        ApiKind::OpenAiResponses => body
+            .get("instructions")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+    }
 }
 
 /// Extract the "tools" axis as a `serde_json::Value`. The same
 /// `tools` array key is used by all three providers in practice.
 fn extract_tools(body: &serde_json::Value) -> serde_json::Value {
-	body.get("tools").cloned().unwrap_or(serde_json::Value::Null)
+    body.get("tools")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null)
 }
 
 /// Collect the conversation-scoped message items for `kind`: Anthropic
@@ -276,18 +288,18 @@ fn early_message_hashes(
 /// from the wire — operators care about *semantic* drift, not
 /// formatter drift.
 fn hash_value(value: &serde_json::Value) -> [u8; 32] {
-	// `serde_json::to_vec` on a `Value` cannot fail except on a
-	// pathological recursion, which the upstream API would itself
-	// reject; on the impossible failure path we hash the empty byte
-	// string so the digest is still stable rather than panicking and
-	// taking the request down.
-	let bytes = serde_json::to_vec(value).unwrap_or_default();
-	let mut hasher = Sha256::new();
-	hasher.update(&bytes);
-	let digest = hasher.finalize();
-	let mut out = [0u8; 32];
-	out.copy_from_slice(&digest);
-	out
+    // `serde_json::to_vec` on a `Value` cannot fail except on a
+    // pathological recursion, which the upstream API would itself
+    // reject; on the impossible failure path we hash the empty byte
+    // string so the digest is still stable rather than panicking and
+    // taking the request down.
+    let bytes = serde_json::to_vec(value).unwrap_or_default();
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    let digest = hasher.finalize();
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&digest);
+    out
 }
 
 /// Bounded session → last-seen `StructuralHash` map. Wrapped in
@@ -295,30 +307,32 @@ fn hash_value(value: &serde_json::Value) -> [u8; 32] {
 /// duplicating the underlying LRU.
 #[derive(Clone)]
 pub struct DriftState {
-	cache: Arc<Mutex<LruCache<String, StructuralHash>>>,
+    cache: Arc<Mutex<LruCache<String, StructuralHash>>>,
 }
 
 impl DriftState {
-	/// Build a new `DriftState` bounded to `capacity` sessions. The
-	/// production capacity is 1000; tests pass small values so the
-	/// LRU eviction path is exercised cheaply.
-	///
-	/// # Panics
-	///
-	/// Panics if `capacity == 0`. The detector is meaningless without
-	/// at least one slot — use `LruCache::new(NonZeroUsize::MIN)` if
-	/// you need a "remember nothing" mode.
-	pub fn new(capacity: usize) -> Self {
-		let cap = NonZeroUsize::new(capacity).expect("DriftState capacity must be > 0");
-		Self { cache: Arc::new(Mutex::new(LruCache::new(cap))) }
-	}
+    /// Build a new `DriftState` bounded to `capacity` sessions. The
+    /// production capacity is 1000; tests pass small values so the
+    /// LRU eviction path is exercised cheaply.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `capacity == 0`. The detector is meaningless without
+    /// at least one slot — use `LruCache::new(NonZeroUsize::MIN)` if
+    /// you need a "remember nothing" mode.
+    pub fn new(capacity: usize) -> Self {
+        let cap = NonZeroUsize::new(capacity).expect("DriftState capacity must be > 0");
+        Self {
+            cache: Arc::new(Mutex::new(LruCache::new(cap))),
+        }
+    }
 }
 
 impl std::fmt::Debug for DriftState {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		let len = self.cache.lock().map(|c| c.len()).unwrap_or(0);
-		f.debug_struct("DriftState").field("len", &len).finish()
-	}
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let len = self.cache.lock().map(|c| c.len()).unwrap_or(0);
+        f.debug_struct("DriftState").field("len", &len).finish()
+    }
 }
 
 /// Compare `current` against the last-seen hash for `session_key` and
@@ -385,12 +399,13 @@ pub fn observe_drift(state: &DriftState, session_key: &str, current: StructuralH
 
 /// 16-char hex prefix of SHA-256(session_key). Bounds the log line
 /// width and never reveals the raw key (which may be a bearer token
-/// or API key — see `derive_session_key`).
-fn session_key_log_prefix(session_key: &str) -> String {
-	let mut hasher = Sha256::new();
-	hasher.update(session_key.as_bytes());
-	let digest = hasher.finalize();
-	hex_prefix(&digest, 16)
+/// or API key — see `derive_session_key`). `pub(crate)` so the
+/// beta-sticky merge site logs the same session identity the same way.
+pub(crate) fn session_key_log_prefix(session_key: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(session_key.as_bytes());
+    let digest = hasher.finalize();
+    hex_prefix(&digest, 16)
 }
 
 /// 24-char hex prefix (12 bytes) of a digest over the concatenated
@@ -418,15 +433,15 @@ fn structural_hash_log_prefix(hash: &StructuralHash) -> String {
 /// Lowercase hex of the first `take` bytes of `bytes`. Allocates a
 /// `String` once per call.
 fn hex_prefix(bytes: &[u8], take: usize) -> String {
-	let take = take.min(bytes.len());
-	let mut out = String::with_capacity(take * 2);
-	for b in &bytes[..take] {
-		// Manual hex; avoids pulling `hex` for one call site.
-		const HEX: &[u8; 16] = b"0123456789abcdef";
-		out.push(HEX[(b >> 4) as usize] as char);
-		out.push(HEX[(b & 0xf) as usize] as char);
-	}
-	out
+    let take = take.min(bytes.len());
+    let mut out = String::with_capacity(take * 2);
+    for b in &bytes[..take] {
+        // Manual hex; avoids pulling `hex` for one call site.
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0xf) as usize] as char);
+    }
+    out
 }
 
 /// Comma-joined list of which dimensions drifted between `prev` and
@@ -578,136 +593,165 @@ fn conversation_discriminator(body: &serde_json::Value, kind: ApiKind) -> String
 /// even a hashed bearer that ends up in many log entries leaks
 /// fingerprintable information; the 16-char prefix bounds that.
 fn hash_secret(secret: &str) -> String {
-	let mut hasher = Sha256::new();
-	hasher.update(secret.as_bytes());
-	let digest = hasher.finalize();
-	hex_prefix(&digest, 16)
+    let mut hasher = Sha256::new();
+    hasher.update(secret.as_bytes());
+    let digest = hasher.finalize();
+    hex_prefix(&digest, 16)
 }
 
 #[cfg(test)]
 mod tests {
-	use super::*;
-	use serde_json::json;
-	use std::net::{IpAddr, Ipv4Addr};
+    use super::*;
+    use serde_json::json;
+    use std::net::{IpAddr, Ipv4Addr};
 
-	fn anthropic_body(system: &str, tools: serde_json::Value, msgs: Vec<&str>) -> serde_json::Value {
-		let messages: Vec<serde_json::Value> =
-			msgs.into_iter().map(|t| json!({"role": "user", "content": t})).collect();
-		json!({
-			"model": "claude-3-5-sonnet-20241022",
-			"system": system,
-			"tools": tools,
-			"messages": messages,
-		})
-	}
+    fn anthropic_body(
+        system: &str,
+        tools: serde_json::Value,
+        msgs: Vec<&str>,
+    ) -> serde_json::Value {
+        let messages: Vec<serde_json::Value> = msgs
+            .into_iter()
+            .map(|t| json!({"role": "user", "content": t}))
+            .collect();
+        json!({
+            "model": "claude-3-5-sonnet-20241022",
+            "system": system,
+            "tools": tools,
+            "messages": messages,
+        })
+    }
 
-	fn make_state() -> DriftState {
-		DriftState::new(8)
-	}
+    fn make_state() -> DriftState {
+        DriftState::new(8)
+    }
 
-	#[test]
-	fn first_request_emits_first_request_event() {
-		let state = make_state();
-		let body = anthropic_body("you are an assistant", json!([]), vec!["hi"]);
-		let h = compute_structural_hash(&body, ApiKind::Anthropic);
-		// Before observation: empty cache.
-		assert_eq!(state.cache.lock().unwrap().len(), 0);
-		observe_drift(&state, "session-A", h);
-		// After observation: 1 entry, equal to the input hash.
-		let cache = state.cache.lock().unwrap();
-		assert_eq!(cache.len(), 1);
-		assert_eq!(cache.peek("session-A"), Some(&h));
-	}
+    #[test]
+    fn first_request_emits_first_request_event() {
+        let state = make_state();
+        let body = anthropic_body("you are an assistant", json!([]), vec!["hi"]);
+        let h = compute_structural_hash(&body, ApiKind::Anthropic);
+        // Before observation: empty cache.
+        assert_eq!(state.cache.lock().unwrap().len(), 0);
+        observe_drift(&state, "session-A", h);
+        // After observation: 1 entry, equal to the input hash.
+        let cache = state.cache.lock().unwrap();
+        assert_eq!(cache.len(), 1);
+        assert_eq!(cache.peek("session-A"), Some(&h));
+    }
 
-	#[test]
-	fn same_hash_emits_no_event() {
-		let state = make_state();
-		let body = anthropic_body("sys-A", json!([]), vec!["m1"]);
-		let h = compute_structural_hash(&body, ApiKind::Anthropic);
-		observe_drift(&state, "sess", h);
-		// Second observation with identical hash: still 1 entry, same hash.
-		observe_drift(&state, "sess", h);
-		let cache = state.cache.lock().unwrap();
-		assert_eq!(cache.len(), 1);
-		assert_eq!(cache.peek("sess"), Some(&h));
-	}
+    #[test]
+    fn same_hash_emits_no_event() {
+        let state = make_state();
+        let body = anthropic_body("sys-A", json!([]), vec!["m1"]);
+        let h = compute_structural_hash(&body, ApiKind::Anthropic);
+        observe_drift(&state, "sess", h);
+        // Second observation with identical hash: still 1 entry, same hash.
+        observe_drift(&state, "sess", h);
+        let cache = state.cache.lock().unwrap();
+        assert_eq!(cache.len(), 1);
+        assert_eq!(cache.peek("sess"), Some(&h));
+    }
 
-	#[test]
-	fn system_drift_detected_with_correct_dim() {
-		let state = make_state();
-		let h1 = compute_structural_hash(&anthropic_body("sys-A", json!([]), vec!["m1"]), ApiKind::Anthropic);
-		let h2 = compute_structural_hash(&anthropic_body("sys-B", json!([]), vec!["m1"]), ApiKind::Anthropic);
-		assert_ne!(h1.system, h2.system);
-		assert_eq!(h1.tools, h2.tools);
-		assert_eq!(h1.early_messages, h2.early_messages);
-		assert_eq!(drift_dims(&h1, &h2), "system");
-		observe_drift(&state, "sess", h1);
-		observe_drift(&state, "sess", h2);
-	}
+    #[test]
+    fn system_drift_detected_with_correct_dim() {
+        let state = make_state();
+        let h1 = compute_structural_hash(
+            &anthropic_body("sys-A", json!([]), vec!["m1"]),
+            ApiKind::Anthropic,
+        );
+        let h2 = compute_structural_hash(
+            &anthropic_body("sys-B", json!([]), vec!["m1"]),
+            ApiKind::Anthropic,
+        );
+        assert_ne!(h1.system, h2.system);
+        assert_eq!(h1.tools, h2.tools);
+        assert_eq!(h1.early_messages, h2.early_messages);
+        assert_eq!(drift_dims(&h1, &h2), "system");
+        observe_drift(&state, "sess", h1);
+        observe_drift(&state, "sess", h2);
+    }
 
-	#[test]
-	fn tools_drift_detected_with_correct_dim() {
-		let h1 =
-			compute_structural_hash(&anthropic_body("sys", json!([{"name": "a"}]), vec!["m1"]), ApiKind::Anthropic);
-		let h2 =
-			compute_structural_hash(&anthropic_body("sys", json!([{"name": "b"}]), vec!["m1"]), ApiKind::Anthropic);
-		assert_eq!(h1.system, h2.system);
-		assert_ne!(h1.tools, h2.tools);
-		assert_eq!(h1.early_messages, h2.early_messages);
-		assert_eq!(drift_dims(&h1, &h2), "tools");
-	}
+    #[test]
+    fn tools_drift_detected_with_correct_dim() {
+        let h1 = compute_structural_hash(
+            &anthropic_body("sys", json!([{"name": "a"}]), vec!["m1"]),
+            ApiKind::Anthropic,
+        );
+        let h2 = compute_structural_hash(
+            &anthropic_body("sys", json!([{"name": "b"}]), vec!["m1"]),
+            ApiKind::Anthropic,
+        );
+        assert_eq!(h1.system, h2.system);
+        assert_ne!(h1.tools, h2.tools);
+        assert_eq!(h1.early_messages, h2.early_messages);
+        assert_eq!(drift_dims(&h1, &h2), "tools");
+    }
 
-	#[test]
-	fn early_messages_drift_detected_with_correct_dim() {
-		let h1 = compute_structural_hash(&anthropic_body("sys", json!([]), vec!["m1"]), ApiKind::Anthropic);
-		let h2 = compute_structural_hash(&anthropic_body("sys", json!([]), vec!["DIFFERENT"]), ApiKind::Anthropic);
-		assert_eq!(h1.system, h2.system);
-		assert_eq!(h1.tools, h2.tools);
-		assert_ne!(h1.early_messages, h2.early_messages);
-		assert_eq!(drift_dims(&h1, &h2), "early_messages");
-	}
+    #[test]
+    fn early_messages_drift_detected_with_correct_dim() {
+        let h1 = compute_structural_hash(
+            &anthropic_body("sys", json!([]), vec!["m1"]),
+            ApiKind::Anthropic,
+        );
+        let h2 = compute_structural_hash(
+            &anthropic_body("sys", json!([]), vec!["DIFFERENT"]),
+            ApiKind::Anthropic,
+        );
+        assert_eq!(h1.system, h2.system);
+        assert_eq!(h1.tools, h2.tools);
+        assert_ne!(h1.early_messages, h2.early_messages);
+        assert_eq!(drift_dims(&h1, &h2), "early_messages");
+    }
 
-	#[test]
-	fn multi_dim_drift_lists_all_changed_dims() {
-		let h1 =
-			compute_structural_hash(&anthropic_body("sys-A", json!([{"name": "a"}]), vec!["m1"]), ApiKind::Anthropic);
-		let h2 =
-			compute_structural_hash(&anthropic_body("sys-B", json!([{"name": "b"}]), vec!["X"]), ApiKind::Anthropic);
-		assert_eq!(drift_dims(&h1, &h2), "system,tools,early_messages");
-	}
+    #[test]
+    fn multi_dim_drift_lists_all_changed_dims() {
+        let h1 = compute_structural_hash(
+            &anthropic_body("sys-A", json!([{"name": "a"}]), vec!["m1"]),
+            ApiKind::Anthropic,
+        );
+        let h2 = compute_structural_hash(
+            &anthropic_body("sys-B", json!([{"name": "b"}]), vec!["X"]),
+            ApiKind::Anthropic,
+        );
+        assert_eq!(drift_dims(&h1, &h2), "system,tools,early_messages");
+    }
 
-	#[test]
-	fn lru_evicts_at_capacity() {
-		// Capacity 2: inserting a 3rd session evicts the LRU.
-		let state = DriftState::new(2);
-		let h = compute_structural_hash(&anthropic_body("s", json!([]), vec!["m"]), ApiKind::Anthropic);
-		observe_drift(&state, "s1", h);
-		observe_drift(&state, "s2", h);
-		observe_drift(&state, "s3", h);
-		let cache = state.cache.lock().unwrap();
-		assert_eq!(cache.len(), 2);
-		// s1 was the least-recently-used; should have been evicted.
-		assert!(!cache.contains("s1"));
-		assert!(cache.contains("s2"));
-		assert!(cache.contains("s3"));
-	}
+    #[test]
+    fn lru_evicts_at_capacity() {
+        // Capacity 2: inserting a 3rd session evicts the LRU.
+        let state = DriftState::new(2);
+        let h = compute_structural_hash(
+            &anthropic_body("s", json!([]), vec!["m"]),
+            ApiKind::Anthropic,
+        );
+        observe_drift(&state, "s1", h);
+        observe_drift(&state, "s2", h);
+        observe_drift(&state, "s3", h);
+        let cache = state.cache.lock().unwrap();
+        assert_eq!(cache.len(), 2);
+        // s1 was the least-recently-used; should have been evicted.
+        assert!(!cache.contains("s1"));
+        assert!(cache.contains("s2"));
+        assert!(cache.contains("s3"));
+    }
 
-	#[test]
-	fn does_not_mutate_input() {
-		let body = anthropic_body(
-			"sys",
-			json!([{"name": "t1", "input_schema": {"type": "object"}}]),
-			vec!["m1", "m2", "m3", "m4"],
-		);
-		let original_bytes = serde_json::to_vec(&body).expect("serialize");
-		// Compute the hash twice — across the three ApiKind shapes —
-		// to exercise every branch that *could* mutate the input.
-		let _ = compute_structural_hash(&body, ApiKind::Anthropic);
-		let _ = compute_structural_hash(&body, ApiKind::OpenAiChat);
-		let _ = compute_structural_hash(&body, ApiKind::OpenAiResponses);
-		let after_bytes = serde_json::to_vec(&body).expect("re-serialize");
-		assert_eq!(original_bytes, after_bytes);
-	}
+    #[test]
+    fn does_not_mutate_input() {
+        let body = anthropic_body(
+            "sys",
+            json!([{"name": "t1", "input_schema": {"type": "object"}}]),
+            vec!["m1", "m2", "m3", "m4"],
+        );
+        let original_bytes = serde_json::to_vec(&body).expect("serialize");
+        // Compute the hash twice — across the three ApiKind shapes —
+        // to exercise every branch that *could* mutate the input.
+        let _ = compute_structural_hash(&body, ApiKind::Anthropic);
+        let _ = compute_structural_hash(&body, ApiKind::OpenAiChat);
+        let _ = compute_structural_hash(&body, ApiKind::OpenAiResponses);
+        let after_bytes = serde_json::to_vec(&body).expect("re-serialize");
+        assert_eq!(original_bytes, after_bytes);
+    }
 
     #[test]
     fn session_key_hashes_authorization_does_not_log_raw() {
@@ -773,55 +817,55 @@ mod tests {
         assert_ne!(bare, with_ua);
     }
 
-	#[test]
-	fn openai_chat_extracts_first_system_message() {
-		let body = json!({
-			"model": "gpt-4",
-			"messages": [
-				{"role": "system", "content": "you are a helpful assistant"},
-				{"role": "user", "content": "hi"},
-			],
-			"tools": [],
-		});
-		let h1 = compute_structural_hash(&body, ApiKind::OpenAiChat);
-		// Same body but a different system message → system axis drifts.
-		let body2 = json!({
-			"model": "gpt-4",
-			"messages": [
-				{"role": "system", "content": "you are a different assistant"},
-				{"role": "user", "content": "hi"},
-			],
-			"tools": [],
-		});
-		let h2 = compute_structural_hash(&body2, ApiKind::OpenAiChat);
-		assert_ne!(h1.system, h2.system);
-		// user message identical → early-messages stays identical.
-		assert_eq!(h1.early_messages, h2.early_messages);
-	}
+    #[test]
+    fn openai_chat_extracts_first_system_message() {
+        let body = json!({
+            "model": "gpt-4",
+            "messages": [
+                {"role": "system", "content": "you are a helpful assistant"},
+                {"role": "user", "content": "hi"},
+            ],
+            "tools": [],
+        });
+        let h1 = compute_structural_hash(&body, ApiKind::OpenAiChat);
+        // Same body but a different system message → system axis drifts.
+        let body2 = json!({
+            "model": "gpt-4",
+            "messages": [
+                {"role": "system", "content": "you are a different assistant"},
+                {"role": "user", "content": "hi"},
+            ],
+            "tools": [],
+        });
+        let h2 = compute_structural_hash(&body2, ApiKind::OpenAiChat);
+        assert_ne!(h1.system, h2.system);
+        // user message identical → early-messages stays identical.
+        assert_eq!(h1.early_messages, h2.early_messages);
+    }
 
-	#[test]
-	fn openai_responses_uses_instructions_and_input() {
-		let body = json!({
-			"model": "gpt-4",
-			"instructions": "be brief",
-			"tools": [],
-			"input": [
-				{"type": "message", "role": "user", "content": "hello"},
-			],
-		});
-		let h1 = compute_structural_hash(&body, ApiKind::OpenAiResponses);
-		let body2 = json!({
-			"model": "gpt-4",
-			"instructions": "be verbose",
-			"tools": [],
-			"input": [
-				{"type": "message", "role": "user", "content": "hello"},
-			],
-		});
-		let h2 = compute_structural_hash(&body2, ApiKind::OpenAiResponses);
-		assert_ne!(h1.system, h2.system);
-		assert_eq!(h1.early_messages, h2.early_messages);
-	}
+    #[test]
+    fn openai_responses_uses_instructions_and_input() {
+        let body = json!({
+            "model": "gpt-4",
+            "instructions": "be brief",
+            "tools": [],
+            "input": [
+                {"type": "message", "role": "user", "content": "hello"},
+            ],
+        });
+        let h1 = compute_structural_hash(&body, ApiKind::OpenAiResponses);
+        let body2 = json!({
+            "model": "gpt-4",
+            "instructions": "be verbose",
+            "tools": [],
+            "input": [
+                {"type": "message", "role": "user", "content": "hello"},
+            ],
+        });
+        let h2 = compute_structural_hash(&body2, ApiKind::OpenAiResponses);
+        assert_ne!(h1.system, h2.system);
+        assert_eq!(h1.early_messages, h2.early_messages);
+    }
 
     /// Shape observed from live Claude Code traffic: turn 1 sends a single
     /// user message whose *last* block carries the `cache_control` marker;

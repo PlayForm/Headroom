@@ -93,7 +93,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json;
 
-use crate::ccr::{max_lifetime_for, CcrStore};
+use crate::ccr::{max_lifetime_for, secs_i64, CcrStore};
 
 /// Minimum interval between lazy-purge sweeps, in seconds.
 ///
@@ -572,7 +572,13 @@ impl SqliteCcrStore {
 }
 
 impl CcrStore for SqliteCcrStore {
-	fn put(&self, hash: &str, payload: &str) -> bool {
+	/// Trait entry point: upstream's `put` returns nothing. The real work -
+	/// including the "did the write land" answer - lives in `put_checked`.
+	fn put(&self, hash: &str, payload: &str) {
+		let _ = self.put_checked(hash, payload);
+	}
+
+	fn put_checked(&self, hash: &str, payload: &str) -> bool {
 		let now = Self::now_unix_seconds();
 		let conn = lock_conn(&self.conn);
 		// Debounced lazy purge sweep (report 06 F10/T12) - previously only
@@ -603,7 +609,7 @@ impl CcrStore for SqliteCcrStore {
 				hash,
 				payload.as_bytes(),
 				now as i64,
-				(self.default_ttl_seconds.min(i64::MAX as u64)) as i64,
+				secs_i64(self.default_ttl_seconds),
 			],
 		);
 		// Loud-failure rule: surface as a structured warning. Caller
@@ -706,7 +712,7 @@ impl CcrStore for SqliteCcrStore {
 		let freelist_pages: i64 = conn.pragma_query_value(None, "freelist_count", |r| r.get(0)).unwrap_or(0);
 
 		// `total_bytes_compressed` is estimated (24 bytes per entry,
-		// matching the 24-char BLAKE3 hex prefix used as the CCR key).
+		// matching the 40-char BLAKE3 hex prefix used as the CCR key).
 		// This is a heuristic - actual original payloads are stored
 		// uncompressed in `total_bytes_original`.
 		Some(serde_json::json!({
@@ -800,9 +806,9 @@ mod tests {
 		let store = SqliteCcrStore::open_with_limits(dir.path().join("ccr.sqlite"), 3600, Some(3), None)
 			.expect("open sqlite store");
 
-		assert!(store.put("a", "1"));
-		assert!(store.put("b", "22"));
-		assert!(store.put("c", "333"));
+		assert!(store.put_checked("a", "1"));
+		assert!(store.put_checked("b", "22"));
+		assert!(store.put_checked("c", "333"));
 		assert_eq!(store.len(), 3);
 
 		// Timestamps have whole-second resolution, so pin the recency order
@@ -820,7 +826,7 @@ mod tests {
 			}
 		}
 
-		assert!(store.put("d", "4444"));
+		assert!(store.put_checked("d", "4444"));
 		assert_eq!(store.len(), 3, "cap must hold after insert");
 		assert_eq!(store.get("b"), None, "coldest row evicted first");
 		assert_eq!(store.get("a").as_deref(), Some("1"), "touched row survives");
@@ -834,10 +840,10 @@ mod tests {
 		let store = SqliteCcrStore::open_with_limits(dir.path().join("ccr.sqlite"), 3600, None, Some(10))
 			.expect("open sqlite store");
 
-		assert!(store.put("a", "12345")); // 5 bytes
-		assert!(store.put("b", "12345")); // 10 bytes - at cap
+		assert!(store.put_checked("a", "12345")); // 5 bytes
+		assert!(store.put_checked("b", "12345")); // 10 bytes - at cap
 		assert_eq!(store.len(), 2);
-		assert!(store.put("c", "12345")); // 15 bytes - one eviction needed
+		assert!(store.put_checked("c", "12345")); // 15 bytes - one eviction needed
 		assert_eq!(store.len(), 2);
 		assert_eq!(store.get("a"), None, "oldest row evicted");
 		assert_eq!(store.get("c").as_deref(), Some("12345"));
@@ -849,11 +855,11 @@ mod tests {
 		let store = SqliteCcrStore::open_with_limits(dir.path().join("ccr.sqlite"), 3600, Some(2), None)
 			.expect("open sqlite store");
 
-		assert!(store.put("a", "12345"));
-		assert!(store.put("a", "1")); // replace, same row
+		assert!(store.put_checked("a", "12345"));
+		assert!(store.put_checked("a", "1")); // replace, same row
 		assert_eq!(store.len(), 1, "re-store must not grow the row count");
-		assert!(store.put("b", "22"));
-		assert!(store.put("c", "333"));
+		assert!(store.put_checked("b", "22"));
+		assert!(store.put_checked("c", "333"));
 		assert_eq!(store.len(), 2);
 		assert_eq!(store.get("a"), None, "LRU order: 'a' was written first");
 	}
@@ -865,7 +871,7 @@ mod tests {
 		{
 			let unbounded = SqliteCcrStore::open(&path, 3600).expect("open unbounded store");
 			for i in 0..10 {
-				assert!(unbounded.put(&format!("h{i}"), "payload"));
+				assert!(unbounded.put_checked(&format!("h{i}"), "payload"));
 			}
 			assert_eq!(unbounded.len(), 10);
 		}
@@ -907,7 +913,7 @@ mod tests {
 		let store = SqliteCcrStore::open_with_limits(dir.path().join("ccr.sqlite"), 3600, Some(2), Some(4096))
 			.expect("open sqlite store");
 		for i in 0..4 {
-			assert!(store.put(&format!("h{i}"), "payload"));
+			assert!(store.put_checked(&format!("h{i}"), "payload"));
 		}
 		let stats = store.stats_db().expect("sqlite stats");
 		assert_eq!(stats["max_entries"], 2);
@@ -915,5 +921,13 @@ mod tests {
 		assert_eq!(stats["total_entries"], 2);
 		assert_eq!(stats["evicted_total"], 2);
 		assert!(stats["freelist_bytes"].is_number());
+	}
+
+	#[test]
+	fn huge_ttl_means_keep_not_expire_immediately() {
+		let dir = tempfile::tempdir().expect("tempdir");
+		let store = SqliteCcrStore::open(dir.path().join("ccr.sqlite"), u64::MAX).expect("open sqlite store");
+		store.put("k", "payload");
+		assert_eq!(store.get("k").as_deref(), Some("payload"));
 	}
 }

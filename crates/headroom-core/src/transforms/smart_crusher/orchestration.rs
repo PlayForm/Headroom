@@ -300,8 +300,7 @@ fn item_content_hash(item: &Value, idx: usize) -> String {
 			_ => format!("__idx_{}__", idx),
 		};
 		let digest = Md5::digest(content.as_bytes());
-		let hex: String = digest.iter().map(|b| format!("{:02x}", b)).collect();
-		hex[..16].to_string()
+		digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>()[..16].to_string()
 	}
 }
 

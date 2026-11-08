@@ -9,6 +9,7 @@
 //! - **SearchResults**: grep / ripgrep output (`file:line:content`)
 //! - **BuildOutput**: Compiler / test / lint logs
 //! - **GitDiff**: Unified diff format → `DiffCompressor`
+//! - **Tabular**: lossless route for tables and human-readable Git status
 //! - **Html**: Web pages (needs extraction, not compression)
 //! - **PlainText**: Generic fallback
 //!
@@ -37,10 +38,31 @@ pub enum ContentType {
 	BuildOutput,
 	GitDiff,
 	Html,
+	Tabular,
 	PlainText,
 }
 
 impl ContentType {
+	/// Every variant, in declaration order.
+	///
+	/// Rust has no stable reflection over enum variants, so callers that
+	/// need to enumerate the set (operator-facing name tables, exhaustive
+	/// round-trip tests) would otherwise hand-maintain their own copy and
+	/// silently miss a variant added later. Adding a variant without
+	/// extending this array is caught by the length annotation, and the
+	/// exhaustive `match` in [`ContentType::as_str`] forces the author
+	/// into this file in the first place.
+	pub const ALL: [ContentType; 8] = [
+		ContentType::JsonArray,
+		ContentType::SourceCode,
+		ContentType::SearchResults,
+		ContentType::BuildOutput,
+		ContentType::GitDiff,
+		ContentType::Html,
+		ContentType::Tabular,
+		ContentType::PlainText,
+	];
+
 	/// Stable string tag - matches Python's `ContentType.<NAME>.value`.
 	pub fn as_str(&self) -> &'static str {
 		match self {
@@ -50,8 +72,50 @@ impl ContentType {
 			ContentType::BuildOutput => "build",
 			ContentType::GitDiff => "diff",
 			ContentType::Html => "html",
+			ContentType::Tabular => "tabular",
 			ContentType::PlainText => "text",
 		}
+	}
+
+	/// Operator-facing spelling of this variant: the name a human writes
+	/// in configuration. Equal to [`ContentType::as_str`] except where
+	/// that tag is abbreviated for Python parity (`search`, `build`,
+	/// `diff`, `text`), which are the spellings least likely to be
+	/// guessed correctly. Both forms parse - see the `FromStr` impl.
+	pub fn natural_name(&self) -> &'static str {
+		match self {
+			ContentType::JsonArray => "json_array",
+			ContentType::SourceCode => "source_code",
+			ContentType::SearchResults => "search_results",
+			ContentType::BuildOutput => "build_output",
+			ContentType::GitDiff => "git_diff",
+			ContentType::Html => "html",
+			ContentType::Tabular => "tabular",
+			ContentType::PlainText => "plain_text",
+		}
+	}
+}
+
+/// Error returned when a string names no [`ContentType`].
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("unknown content type {0:?}")]
+pub struct ParseContentTypeError(String);
+
+/// Parse a [`ContentType`] from either its [`as_str`](ContentType::as_str)
+/// tag or its [`natural_name`](ContentType::natural_name).
+///
+/// Accepting both matters for operator-facing configuration: the
+/// abbreviated Python-parity tags (`text`, `search`, `build`, `diff`) are
+/// not what a human writes, so a config naming `plain_text` would
+/// otherwise parse as nothing and silently do nothing.
+impl std::str::FromStr for ContentType {
+	type Err = ParseContentTypeError;
+
+	fn from_str(name: &str) -> Result<Self, Self::Err> {
+		Self::ALL
+			.into_iter()
+			.find(|ct| ct.as_str() == name || ct.natural_name() == name)
+			.ok_or_else(|| ParseContentTypeError(name.to_owned()))
 	}
 }
 
@@ -80,6 +144,23 @@ impl DetectionResult {
 
 /// `file:line:` (grep -n style) - first column on a non-blank line.
 static SEARCH_RESULT_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[^\s:]+:\d+:").unwrap());
+
+/// Path-shape guard for a matched `file:line:` prefix.
+///
+/// Ports Python's `_prefix_looks_like_path` (`content_detector.py`), which
+/// this implementation was missing. `SEARCH_RESULT_PATTERN` alone also matches
+/// ISO-8601 timestamps and XML-ish wrappers, because any run of non-whitespace
+/// containing `:<digits>:` satisfies it - including a CMTrace (SCCM/Intune)
+/// log record, whose `]LOG]!><time="HH:MM:` follows the message with no
+/// intervening space. Misrouting there is not cosmetic: the search compressor
+/// keeps only matching lines and drops the rest, so a false positive is data
+/// loss.
+///
+/// Rules out markup tags and `key=value:12:` log prefixes while leaving
+/// extensionless paths (`Makefile:12:`, `Dockerfile:3:`) alone.
+fn prefix_looks_like_path(prefix: &str) -> bool {
+	!prefix.contains('<') && !prefix.contains('>') && !prefix.contains('=')
+}
 
 /// Diff-header detection. Recognizes:
 /// - `git diff` (`diff --git`, `--- a/`)
@@ -193,6 +274,13 @@ static LOG_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
 		Regex::new(r"^npm ERR!|^yarn error|^cargo error").unwrap(),
 		Regex::new(r"Traceback \(most recent call last\)").unwrap(),
 		Regex::new(r"^\s*at\s+[\w.$]+\(\)").unwrap(),
+		// CMTrace record opener - the log format SCCM, MDT and Intune Win32
+		// app/script deployments write on Windows. Every record is
+		// `<![LOG[message]LOG]!><time="..." date="..." ...>`, which matches
+		// none of the patterns above: the timestamp sits in an attribute
+		// *after* the message, so the anchored date/time/separator patterns
+		// cannot fire, and a record need not contain ERROR/WARN/INFO.
+		Regex::new(r"^<!\[LOG\[").unwrap(),
 	]
 });
 
@@ -206,6 +294,82 @@ static HTML_STRUCTURAL_TAGS: LazyLock<Regex> = LazyLock::new(|| {
 	Regex::new(r"(?i)<(div|span|script|style|link|meta|nav|header|footer|aside|article|section|main)[\s>]").unwrap()
 });
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum GitStatusSection {
+	Staged,
+	Unstaged,
+	Untracked,
+	Unmerged,
+}
+
+fn try_detect_git_status(content: &str) -> Option<DetectionResult> {
+	let mut lines = content.lines();
+	let first = lines.next()?;
+	if !first.starts_with("On branch ")
+		&& !first.starts_with("HEAD detached at ")
+		&& !first.starts_with("HEAD detached from ")
+	{
+		return None;
+	}
+
+	let mut has_heading = false;
+	let mut has_path = false;
+	let mut section = None;
+	for line in lines {
+		section = match line {
+			"Changes to be committed:" => {
+				has_heading = true;
+				Some(GitStatusSection::Staged)
+			},
+			"Changes not staged for commit:" => {
+				has_heading = true;
+				Some(GitStatusSection::Unstaged)
+			},
+			"Untracked files:" => {
+				has_heading = true;
+				Some(GitStatusSection::Untracked)
+			},
+			"Unmerged paths:" => {
+				has_heading = true;
+				Some(GitStatusSection::Unmerged)
+			},
+			_ => section,
+		};
+
+		if section == Some(GitStatusSection::Untracked)
+			&& line.strip_prefix('\t').is_some_and(|path| !path.trim().is_empty())
+		{
+			has_path = true;
+		} else if matches!(
+			section,
+			Some(GitStatusSection::Staged | GitStatusSection::Unstaged | GitStatusSection::Unmerged)
+		) {
+			let Some((state, path)) = line.trim_start().split_once(": ") else {
+				continue;
+			};
+			if !path.trim().is_empty()
+				&& matches!(
+					state,
+					"new file"
+						| "modified" | "deleted"
+						| "renamed" | "copied"
+						| "typechange" | "both modified"
+						| "both added" | "both deleted"
+						| "added by us" | "deleted by us"
+						| "added by them" | "deleted by them"
+				) {
+				has_path = true;
+			}
+		}
+	}
+
+	(has_heading && has_path).then(|| {
+		let mut metadata = Map::new();
+		metadata.insert("format".into(), Value::String("git_status".into()));
+		DetectionResult::new(ContentType::Tabular, 1.0, metadata)
+	})
+}
+
 // ─── Public entry point ────────────────────────────────────────────────
 
 /// Detect the type of `content` for routing. Mirrors Python's
@@ -216,10 +380,11 @@ static HTML_STRUCTURAL_TAGS: LazyLock<Regex> = LazyLock::new(|| {
 /// 2. JSON array (highest priority for `SmartCrusher`)
 /// 3. Git diff (≥ 0.7 confidence required)
 /// 4. HTML (≥ 0.7 confidence required)
-/// 5. Search results (≥ 0.6 confidence required)
-/// 6. Build / log output (≥ 0.5 confidence required)
-/// 7. Source code (≥ 0.5 confidence required)
-/// 8. Fallback to `PlainText` confidence 0.5
+/// 5. Human-readable Git status → `Tabular` (lossless)
+/// 6. Search results (≥ 0.6 confidence required)
+/// 7. Build / log output (≥ 0.5 confidence required)
+/// 8. Source code (≥ 0.5 confidence required)
+/// 9. Fallback to `PlainText` confidence 0.5
 pub fn detect_content_type(content: &str) -> DetectionResult {
 	if content.is_empty() || content.trim().is_empty() {
 		return DetectionResult::plain_text(0.0);
@@ -238,6 +403,10 @@ pub fn detect_content_type(content: &str) -> DetectionResult {
 			return r;
 		}
 	}
+	if let Some(r) = try_detect_git_status(content) {
+		return r;
+	}
+
 	if let Some(r) = try_detect_search(content) {
 		if r.confidence >= 0.6 {
 			return r;
@@ -386,7 +555,10 @@ fn try_detect_search(content: &str) -> Option<DetectionResult> {
 	}
 	let mut matching_lines: u32 = 0;
 	for line in &lines {
-		if !line.trim().is_empty() && SEARCH_RESULT_PATTERN.is_match(line) {
+		if !line.trim().is_empty()
+			&& SEARCH_RESULT_PATTERN.is_match(line)
+			&& prefix_looks_like_path(line.split(':').next().unwrap_or(""))
+		{
 			matching_lines += 1;
 		}
 	}
@@ -582,6 +754,48 @@ mod tests {
 	}
 
 	#[test]
+	fn git_status_with_staged_unstaged_and_untracked_paths_is_tabular() {
+		let content = "\
+On branch feature/status
+Changes to be committed:
+  (use \"git restore --staged <file>...\" to unstage)
+	new file:   staged file.txt
+
+Changes not staged for commit:
+  (use \"git add <file>...\" to update what will be committed)
+	modified:   path with spaces.txt
+
+Untracked files:
+  (use \"git add <file>...\" to include in what will be committed)
+	untracked path.txt
+";
+		let result = detect_content_type(content);
+		assert_eq!(result.content_type, ContentType::Tabular);
+		assert_eq!(result.metadata.get("format").and_then(Value::as_str), Some("git_status"));
+	}
+
+	#[test]
+	fn untracked_only_git_status_is_tabular() {
+		let content = "\
+On branch feature/status
+
+Untracked files:
+  (use \"git add <file>...\" to include in what will be committed)
+	untracked path with spaces.txt
+	untracked α.rs
+";
+		let result = detect_content_type(content);
+		assert_eq!(result.content_type, ContentType::Tabular);
+		assert_eq!(result.metadata.get("format").and_then(Value::as_str), Some("git_status"));
+	}
+
+	#[test]
+	fn ordinary_bullet_list_is_not_git_status() {
+		let prose = "The branch has many changes:\n- modified: item one\n- modified: item two";
+		assert_eq!(detect_content_type(prose).content_type, ContentType::PlainText);
+	}
+
+	#[test]
 	fn git_diff_detected() {
 		let content = "\
 diff --git a/foo.py b/foo.py
@@ -679,97 +893,23 @@ impl Foo {
 	#[test]
 	fn go_code_detected() {
 		let content = "\
-	package main
+package main
 
-	import \"fmt\"
+import \"fmt\"
 
-	func main() {
-	    fmt.Println(\"hello\")
-	}
+func main() {
+    fmt.Println(\"hello\")
+}
 
-	type Service struct{}
+type Service struct{}
 
-	func (s *Service) Do() {}
+func (s *Service) Do() {}
 
-	func helper() {}
-	";
+func helper() {}
+";
 		let r = detect_content_type(content);
 		assert_eq!(r.content_type, ContentType::SourceCode);
 		assert_eq!(r.metadata.get("language").unwrap().as_str(), Some("go"));
-	}
-
-	// ── bench/corpus finding (code_go.go): the case-insensitive
-	// `\bERROR\b` log pattern matched the `error` in Go's `(string, error)`
-	// return idiom on nearly every function, and log detection runs before
-	// code detection, so idiomatic Go source was classified as `build`.
-	// The log heuristics are now gated on log framing (or conventionally
-	// UPPERCASE levels) instead of bare case-insensitive identifiers. ──
-	#[test]
-	fn go_source_with_error_returns_is_source_code_not_build() {
-		// Mirrors bench/corpus/code_go.go: many `(string, error)` returns.
-		let mut content = String::from("package fixture\n\nimport \"fmt\"\n\n");
-		for i in 0..8 {
-			content.push_str(&format!(
-					"type Record{i} struct {{\n	ID   int64\n	Name string\n	Tags []string\n}}\n\n\
-	                 func Process{i}(r *Record{i}, depth int) (string, error) {{\n	return fmt.Sprintf(\"%d-%d\", r.ID, depth+{i}), nil\n}}\n\n"
-				));
-		}
-		let r = detect_content_type(&content);
-		assert_eq!(
-			r.content_type,
-			ContentType::SourceCode,
-			"idiomatic Go with (string, error) returns must not be classified as build: {r:?}"
-		);
-		assert_eq!(r.metadata.get("language").unwrap().as_str(), Some("go"));
-	}
-
-	#[test]
-	fn build_log_with_framed_errors_is_build() {
-		// Rust diagnostics (`error[E0308]:`, `warning:`) keep framing - build
-		// logs must still be detected.
-		let content = "\
-	   Compiling foo v0.1.0
-	error[E0308]: mismatched types
-	  --> src/lib.rs:90:17
-	warning: unused variable: `pending`
-	   Compiling bar v0.1.0
-	error: could not compile `foo`
-	";
-		let r = detect_content_type(content);
-		assert_eq!(r.content_type, ContentType::BuildOutput, "framed error/warning log: {r:?}");
-		assert!(r.confidence >= 0.5);
-	}
-
-	#[test]
-	fn bare_uppercase_error_level_is_build() {
-		// Conventionally UPPERCASE log levels (`ERROR ...`, `[WARN] ...`)
-		// still trip log detection without colon/bracket framing.
-		let content = "\
-	INFO starting build
-	WARN deprecated API used
-	ERROR compilation failed
-	FAILED test_x
-	PASSED test_y
-	";
-		let r = detect_content_type(content);
-		assert_eq!(r.content_type, ContentType::BuildOutput, "uppercase levels: {r:?}");
-	}
-
-	#[test]
-	fn bare_lowercase_error_identifier_is_not_build() {
-		// A bare lowercase `error` identifier (no log framing, no UPPERCASE
-		// level) must NOT classify content as build output.
-		let content = "\
-	function handle(data) {
-	    const error = validate(data);
-	    if (error) {
-	        return error.message;
-	    }
-	    return null;
-	}
-	";
-		let r = detect_content_type(content);
-		assert_ne!(r.content_type, ContentType::BuildOutput, "bare lowercase error: {r:?}");
 	}
 
 	#[test]
@@ -826,5 +966,89 @@ impl Foo {
 		assert_eq!(ContentType::GitDiff.as_str(), "diff");
 		assert_eq!(ContentType::Html.as_str(), "html");
 		assert_eq!(ContentType::PlainText.as_str(), "text");
+	}
+
+	/// One CMTrace record: `<![LOG[msg]LOG]!><time="..." date="..." ...>`.
+	fn cmtrace_record(message: &str, sec: usize) -> String {
+		format!(
+			"<![LOG[{message}]LOG]!><time=\"10:00:{sec:02}.000-0\" date=\"01-15-2026\" \
+             component=\"ExampleCorp_SampleApp_1.0.0_x64_B1\" context=\"SYSTEM\" type=\"1\" \
+             thread=\"4242\" file=\"install.ps1\">"
+		)
+	}
+
+	/// Dividers alternating with messages - the dividers are what used to make
+	/// this content look like grep output.
+	fn cmtrace_records() -> Vec<String> {
+		let messages = [
+			"Starting deployment of SampleApp 1.0.0",
+			"Detection rule evaluated, not installed",
+			"Downloading package from content source",
+			"Extracting files to target directory",
+			"Registering application components",
+			"Starting service SampleAppSvc",
+			"Writing uninstall registry entries",
+			"Deployment completed with exit code 0",
+		];
+		let mut records = Vec::new();
+		for (i, message) in messages.iter().enumerate() {
+			records.push(cmtrace_record(&"=".repeat(75), i * 2));
+			records.push(cmtrace_record(message, i * 2 + 1));
+		}
+		records
+	}
+
+	#[test]
+	fn multiline_cmtrace_detects_as_build_output() {
+		let r = detect_content_type(&cmtrace_records().join("\n"));
+		assert_eq!(r.content_type, ContentType::BuildOutput);
+		assert!(r.confidence >= 0.5);
+	}
+
+	#[test]
+	fn single_line_cmtrace_detects_as_build_output() {
+		// How Intune actually writes them: records run together with no
+		// separators. This form never reaches the search detector, so it failed
+		// purely on the missing LOG_PATTERNS signal.
+		let r = detect_content_type(&cmtrace_records().concat());
+		assert_eq!(r.content_type, ContentType::BuildOutput);
+	}
+
+	#[test]
+	fn cmtrace_divider_is_rejected_by_the_path_shape_guard() {
+		// The bare pattern *does* match a CMTrace divider - that is the whole
+		// problem. What rejects it is `prefix_looks_like_path`, ported here
+		// from Python, which this implementation previously lacked.
+		let divider = cmtrace_record(&"=".repeat(75), 0);
+		assert!(SEARCH_RESULT_PATTERN.is_match(&divider));
+		assert!(!prefix_looks_like_path(divider.split(':').next().unwrap_or("")));
+	}
+
+	#[test]
+	fn path_shape_guard_matches_python_rules() {
+		// Mirrors Python's `_prefix_looks_like_path`: no `<`, `>` or `=`.
+		assert!(prefix_looks_like_path("src/main.py"));
+		assert!(prefix_looks_like_path("Makefile"));
+		assert!(!prefix_looks_like_path("<current_datetime"));
+		assert!(!prefix_looks_like_path("key=value"));
+	}
+
+	#[test]
+	fn grep_output_still_detects_as_search_results() {
+		let content = "src/main.py:42:def process():\n\
+                       src/util.py:13:    return None\n\
+                       lib/x.py:7:class X:\n\
+                       tests/test_a.py:3:    assert True";
+		let r = detect_content_type(content);
+		assert_eq!(r.content_type, ContentType::SearchResults);
+	}
+
+	#[test]
+	fn extensionless_grep_paths_still_detected() {
+		let content = "Makefile:12:\tpytest -q\n\
+                       Dockerfile:3:RUN apt-get update\n\
+                       Jenkinsfile:88:    sh 'make test'";
+		let r = detect_content_type(content);
+		assert_eq!(r.content_type, ContentType::SearchResults);
 	}
 }

@@ -71,48 +71,6 @@ def validate_configuration(
         )
 
 
-def _normalized_model_name(model: str | None) -> str:
-    """Return a lowercase model name without provider/path prefixes."""
-    if not model:
-        return ""
-    value = model.strip().lower()
-    for separator in ("/", ":"):
-        if separator in value:
-            value = value.rsplit(separator, 1)[-1]
-    return value
-
-
-def model_prefers_responses_api(model: str | None) -> bool:
-    """Return True for OpenAI reasoning models served via /responses."""
-    value = _normalized_model_name(model)
-    return value.startswith(("gpt-5", "o1", "o3"))
-
-
-def copilot_model_from_args(
-    copilot_args: tuple[str, ...],
-    env: Mapping[str, str] | None = None,
-) -> str | None:
-    """Resolve the Copilot model from CLI args or environment variables."""
-    for idx, arg in enumerate(copilot_args):
-        if arg == "--model" and idx + 1 < len(copilot_args):
-            return copilot_args[idx + 1]
-        if arg.startswith("--model="):
-            return arg.split("=", 1)[1]
-
-    source = env or os.environ
-    return source.get("COPILOT_MODEL") or source.get("COPILOT_PROVIDER_MODEL_ID")
-
-
-def default_wire_api_for_model(model: str | None) -> str:
-    """Choose the Copilot OpenAI-compatible wire API for a model."""
-    return "responses" if model_prefers_responses_api(model) else "completions"
-
-
-def provider_key_source(provider_type: str) -> str:
-    """Return the preferred provider key variable for the selected provider type."""
-    return "ANTHROPIC_API_KEY" if provider_type == "anthropic" else "OPENAI_API_KEY"
-
-
 #: Copilot virtual model names that map to native auto-routing.
 #: Forwarding these to BYOK endpoints causes a 400; they must be stripped.
 _AUTO_MODEL_ALIASES: frozenset[str] = frozenset({"auto"})
@@ -156,6 +114,118 @@ def strip_auto_model_args(copilot_args: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(result)
 
 
+def _normalized_model_name(model: str | None) -> str:
+    """Return a lowercase model name without provider/path prefixes."""
+    if not model:
+        return ""
+    value = model.strip().lower()
+    for separator in ("/", ":"):
+        if separator in value:
+            value = value.rsplit(separator, 1)[-1]
+    return value
+
+
+def model_prefers_responses_api(model: str | None) -> bool:
+    """Return True for OpenAI reasoning models served via /responses."""
+    value = _normalized_model_name(model)
+    return value.startswith(("gpt-5", "o1", "o3"))
+
+
+def copilot_model_from_args(
+    copilot_args: tuple[str, ...],
+    env: Mapping[str, str] | None = None,
+) -> str | None:
+    """Resolve the Copilot model from CLI args or environment variables."""
+    for idx, arg in enumerate(copilot_args):
+        if arg == "--model" and idx + 1 < len(copilot_args):
+            return copilot_args[idx + 1]
+        if arg.startswith("--model="):
+            return arg.split("=", 1)[1]
+
+    source = env or os.environ
+    return source.get("COPILOT_MODEL") or source.get("COPILOT_PROVIDER_MODEL_ID")
+
+
+def default_wire_api_for_model(model: str | None) -> str:
+    """Choose the Copilot OpenAI-compatible wire API for a model."""
+    return "responses" if model_prefers_responses_api(model) else "completions"
+
+
+def provider_key_source(provider_type: str) -> str:
+    """Return the preferred provider key variable for the selected provider type."""
+    return "ANTHROPIC_API_KEY" if provider_type == "anthropic" else "OPENAI_API_KEY"
+
+
+COPILOT_NATIVE_API_URL_ENV = "COPILOT_API_URL"
+
+# Any survivor keeps Copilot in its single-model BYOK lane, defeating native
+# model routing while making the launch look superficially successful.
+COPILOT_BYOK_ENV_VARS: tuple[str, ...] = (
+    "COPILOT_PROVIDER_BASE_URL",
+    "COPILOT_PROVIDER_TYPE",
+    "COPILOT_PROVIDER_API_KEY",
+    "COPILOT_PROVIDER_BEARER_TOKEN",
+    "COPILOT_PROVIDER_WIRE_API",
+    "COPILOT_PROVIDER_TRANSPORT",
+    "COPILOT_PROVIDER_AZURE_API_VERSION",
+    "COPILOT_PROVIDER_MODEL_ID",
+    "COPILOT_PROVIDER_WIRE_MODEL",
+    "COPILOT_PROVIDER_MODEL_LIMITS_ID",
+    "COPILOT_PROVIDER_MAX_PROMPT_TOKENS",
+    "COPILOT_PROVIDER_MAX_OUTPUT_TOKENS",
+    "COPILOT_PROVIDER_HEADERS",
+)
+
+
+def build_native_launch_env(
+    *,
+    port: int,
+    environ: Mapping[str, str] | None = None,
+    project: str | None = None,
+) -> tuple[dict[str, str], list[str]]:
+    """Redirect Copilot's native API surface through Headroom, not BYOK."""
+    env = dict(environ if environ is not None else os.environ)
+    base_url = with_project_prefix(f"http://127.0.0.1:{port}", project)
+    env[COPILOT_NATIVE_API_URL_ENV] = base_url
+    for variable in COPILOT_BYOK_ENV_VARS:
+        env.pop(variable, None)
+    return env, [
+        f"{COPILOT_NATIVE_API_URL_ENV}={base_url}",
+        "COPILOT_AUTH_MODE=github-native",
+    ]
+
+
+def native_api_url_supported(*, environ: Mapping[str, str] | None = None) -> bool | None:
+    """Best-effort tri-state probe for the CLI's native API URL override."""
+    env = environ if environ is not None else os.environ
+    local = env.get("LOCALAPPDATA") or env.get("HOME") or os.path.expanduser("~")
+    roots = (
+        os.path.join(local, "copilot", "pkg"),
+        os.path.join(os.path.expanduser("~"), ".local", "share", "copilot", "pkg"),
+    )
+    found_bundle = False
+    for root in roots:
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _dirnames, filenames in os.walk(root):
+            # Since Copilot CLI 1.0.93 app.js is a loader and the env read lives in cli-main.js.
+            names = [n for n in ("app.js", "cli-main.js") if n in filenames]
+            if not names:
+                continue
+            found_bundle = True
+            for name in names:
+                try:
+                    with open(
+                        os.path.join(dirpath, name), encoding="utf-8", errors="replace"
+                    ) as bundle:
+                        while chunk := bundle.read(1 << 20):
+                            if COPILOT_NATIVE_API_URL_ENV in chunk:
+                                return True
+                except OSError:
+                    continue
+    return False if found_bundle else None
+
+
 def build_launch_env(
     *,
     port: int,
@@ -171,7 +241,7 @@ def build_launch_env(
     proxy strips it and attributes savings per project.
     """
     # Distinguish "caller passed nothing" (use os.environ) from "caller
-    # explicitly passed an empty dict" (start fresh - the test/CLI is in
+    # explicitly passed an empty dict" (start fresh — the test/CLI is in
     # charge of which keys to seed). The previous `environ or os.environ`
     # collapsed those two cases because `bool({}) is False`.
     env = dict(environ if environ is not None else os.environ)

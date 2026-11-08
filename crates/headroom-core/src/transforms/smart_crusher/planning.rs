@@ -340,8 +340,7 @@ impl<'a> SmartCrusherPlanner<'a> {
 					.unwrap_or("");
 				let truncated: String = msg.chars().take(50).collect();
 				let digest = Md5::digest(truncated.as_bytes());
-				let hex: String = digest.iter().map(|b| format!("{:02x}", b)).collect();
-				let hash = hex[..8].to_string();
+				let hash = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>()[..8].to_string();
 				clusters.entry(hash).or_default().push(i);
 			}
 			// Keep up to 2 representatives from each cluster.

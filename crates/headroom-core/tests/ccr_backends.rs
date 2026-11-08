@@ -34,17 +34,12 @@ fn sqlite_ttl_purge() {
 	// Sleep long enough for `created_at + ttl_seconds <= now()` (1s clock
 	// resolution on unix-seconds).
 	std::thread::sleep(Duration::from_millis(1_100));
-	assert_eq!(store.get(&hash), None, "expired entry must be purged");
-	// `put` now also runs the debounced lazy-purge sweep (report 06
-	// F10/T12) - on THIS store, that very first `put()` call already
-	// consumed the "first-ever-call is always due" debounce freebie
-	// against an empty table, so the real sweep 1.1s later is correctly
-	// skipped (still well under `PURGE_DEBOUNCE_SECS`). `get`'s WHERE
-	// clause already hides the logically-expired row unconditionally
-	// (asserted above) - `force_purge_now` bypasses the debounce to check
-	// physical deletion without a 60s sleep.
+	assert_eq!(store.get(&hash), None, "expired entry must not be returned");
+	// Fork: the expiry sweep is debounced (60s) and shared with `put`, so a
+	// `get` no longer pays an O(rows) DELETE per call. Physical reclamation is
+	// therefore explicit here - `force_purge_now` bypasses the debounce.
 	store.force_purge_now();
-	assert_eq!(store.len(), 0, "expired entry must be physically deleted");
+	assert_eq!(store.len(), 0, "expired entry must be physically deleted once the sweep runs");
 }
 
 #[test]
@@ -149,7 +144,7 @@ fn backend_swap_byte_equal_keys() {
 	}
 }
 
-// ─── Sliding (idle-window) TTL semantics — #2604 ───────────────────────
+// ─── Sliding (idle-window) TTL semantics - #2604 ───────────────────────
 //
 // The Python `CompressionStore` treats `HEADROOM_CCR_TTL_SECONDS` as an
 // idle window that restarts on every successful retrieval, bounded by an
@@ -159,14 +154,15 @@ fn backend_swap_byte_equal_keys() {
 
 #[test]
 fn in_memory_get_refreshes_idle_ttl() {
-	let store = InMemoryCcrStore::with_capacity_and_ttl(10, Duration::from_millis(120));
+	// Wide margins: `sleep` overshoots by tens of ms on loaded macOS runners.
+	let store = InMemoryCcrStore::with_capacity_and_ttl(10, Duration::from_millis(1_000));
 	let hash = compute_key(b"hot entry");
 	store.put(&hash, "hot entry");
-	// Touch the entry every 60ms for ~4 idle windows' worth of wall
-	// clock. Wall-clock expiry would kill it at 120ms; a sliding idle
-	// window keeps it alive because every hit restarts the clock.
-	for _ in 0..8 {
-		std::thread::sleep(Duration::from_millis(60));
+	// Touch the entry every 250ms for 1.5s. Wall-clock expiry would kill
+	// it at 1s; a sliding idle window keeps it alive because every hit
+	// restarts the clock.
+	for _ in 0..6 {
+		std::thread::sleep(Duration::from_millis(250));
 		assert_eq!(
 			store.get(&hash).as_deref(),
 			Some("hot entry"),
@@ -174,7 +170,7 @@ fn in_memory_get_refreshes_idle_ttl() {
 		);
 	}
 	// Now go idle past the window: the entry must expire.
-	std::thread::sleep(Duration::from_millis(200));
+	std::thread::sleep(Duration::from_millis(1_500));
 	assert_eq!(store.get(&hash), None, "an entry idle past its window must expire");
 }
 
@@ -205,7 +201,7 @@ fn sqlite_get_refreshes_idle_ttl() {
 	let store = SqliteCcrStore::open(&path, 3).expect("open sqlite store");
 	let hash = compute_key(b"sliding sqlite");
 	store.put(&hash, "sliding sqlite");
-	// t+2s: hit inside the window — restarts the idle clock.
+	// t+2s: hit inside the window - restarts the idle clock.
 	std::thread::sleep(Duration::from_millis(2_000));
 	assert_eq!(
 		store.get(&hash).as_deref(),
@@ -229,7 +225,7 @@ fn sqlite_get_refreshes_idle_ttl() {
 fn sqlite_max_lifetime_caps_sliding_window() {
 	// Timing note: the backend stores unix-SECONDS (`as_secs()` truncates)
 	// and purges on `last_accessed + ttl <= now`, so apparent elapsed time
-	// is `floor(t0 + s) - floor(t0)` — it rounds UP by nearly a second
+	// is `floor(t0 + s) - floor(t0)` - it rounds UP by nearly a second
 	// depending on where t0 lands within its second. Every margin here is
 	// therefore kept a full second clear of the boundary in both
 	// directions; a sub-second margin makes this test phase-dependent
@@ -241,7 +237,7 @@ fn sqlite_max_lifetime_caps_sliding_window() {
 	let store = SqliteCcrStore::open_with_ttls(&path, 2, 3).expect("open sqlite store with ceiling");
 	let hash = compute_key(b"capped sqlite");
 	store.put(&hash, "capped sqlite");
-	// 0.5s: apparent elapsed is 0s or 1s — always under the 2s window.
+	// 0.5s: apparent elapsed is 0s or 1s - always under the 2s window.
 	std::thread::sleep(Duration::from_millis(500));
 	assert_eq!(
 		store.get(&hash).as_deref(),
@@ -250,7 +246,7 @@ fn sqlite_max_lifetime_caps_sliding_window() {
 	);
 	// Keep touching, but cross the 3s ceiling. The touches must stay INSIDE
 	// the idle window or the entry dies of idleness and the assertion below
-	// passes without ever exercising the ceiling — the thing under test.
+	// passes without ever exercising the ceiling - the thing under test.
 	// 0.7s gaps read as at most 1s apparent, comfortably under the 2s idle
 	// window. Five gaps carry total age to at least 4s, which is strictly
 	// beyond the 3s ceiling even after unix-second truncation. Four gaps

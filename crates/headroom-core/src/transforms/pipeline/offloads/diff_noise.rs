@@ -111,6 +111,7 @@ impl OffloadTransform for DiffNoise {
 		content: &str,
 		_ctx: &CompressionContext,
 		store: &dyn CcrStore,
+		ccr_source: &str,
 	) -> Result<OffloadOutput, TransformError> {
 		let segments = parse_segments(content);
 		if segments.is_empty() {
@@ -162,8 +163,8 @@ impl OffloadTransform for DiffNoise {
 		}
 
 		// CCR: hash original, stash, append marker.
-		let key = md5_hex_24(content);
-		store.put(&key, content);
+		let key = md5_hex_24(ccr_source);
+		store.put(&key, ccr_source);
 		output.push_str(&format!("\n[diff_noise CCR: hash={key}]"));
 
 		Ok(OffloadOutput::from_lengths(content.len(), output, key))
@@ -402,7 +403,7 @@ mod tests {
 		let diff = build_diff(&[("Cargo.lock", &body_refs), ("Cargo.toml", &["-foo = \"1\"", "+foo = \"2\""])]);
 		let store = InMemoryCcrStore::new();
 		let r = offload()
-			.apply(&diff, &CompressionContext::default(), &store)
+			.apply(&diff, &CompressionContext::default(), &store, &diff)
 			.expect("must compress");
 		assert!(r.bytes_saved > 0);
 		assert!(r.output.contains("[diff_noise: lockfile hunks dropped"));
@@ -421,7 +422,7 @@ mod tests {
 		let diff = build_diff(&[("src/main.rs", &body_refs)]);
 		let store = InMemoryCcrStore::new();
 		let r = offload()
-			.apply(&diff, &CompressionContext::default(), &store)
+			.apply(&diff, &CompressionContext::default(), &store, &diff)
 			.expect("must compress");
 		assert!(r.output.contains("[diff_noise: whitespace-only hunks dropped"));
 		assert!(r.bytes_saved > 0);
@@ -436,7 +437,7 @@ mod tests {
 		let diff = build_diff(&[("src/main.rs", &body_refs)]);
 		let store = InMemoryCcrStore::new();
 		let err = offload()
-			.apply(&diff, &CompressionContext::default(), &store)
+			.apply(&diff, &CompressionContext::default(), &store, &diff)
 			.expect_err("nothing droppable");
 		match err {
 			TransformError::Skipped { .. } => {},
@@ -468,7 +469,7 @@ mod tests {
 		diff.push_str(&build_diff(&[("yarn.lock", &lock_refs)]));
 		let store = InMemoryCcrStore::new();
 		let r = offload()
-			.apply(&diff, &CompressionContext::default(), &store)
+			.apply(&diff, &CompressionContext::default(), &store, &diff)
 			.expect("compresses");
 		// Pre-diff prelude must survive.
 		assert!(r.output.contains("Subject: bump deps"));
@@ -480,7 +481,7 @@ mod tests {
 		assert_eq!(offload().estimate_bloat(""), 0.0);
 		let store = InMemoryCcrStore::new();
 		let err = offload()
-			.apply("", &CompressionContext::default(), &store)
+			.apply("", &CompressionContext::default(), &store, "")
 			.expect_err("must skip");
 		match err {
 			TransformError::Skipped { .. } => {},

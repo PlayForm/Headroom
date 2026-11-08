@@ -49,6 +49,7 @@ except ImportError:
 
 from headroom.ccr.tool_injection import CCR_TOOL_NAME
 from headroom.config import is_tool_excluded
+from headroom.telemetry.session import BeaconCompressionObserver
 from headroom.transforms.smart_crusher import SmartCrusher, SmartCrusherConfig
 
 logger = logging.getLogger(__name__)
@@ -59,7 +60,7 @@ def _check_langchain_available() -> None:
     if not LANGCHAIN_AVAILABLE:
         raise ImportError(
             "LangChain is required for this integration. "
-            "Install with: pip install headroom[langchain] "
+            'Install with: pip install "headroom-ai[langchain]" '
             "or: pip install langchain-core"
         )
 
@@ -136,7 +137,11 @@ class _CrusherSingleton:
                     config = SmartCrusherConfig(
                         min_tokens_to_crush=self._min_tokens,
                     )
-                    self._crusher = SmartCrusher(config=config)
+                    # observer: no proxy here, so nothing else reports these
+                    # compressions to the beacon. See BeaconCompressionObserver.
+                    self._crusher = SmartCrusher(
+                        config=config, observer=BeaconCompressionObserver()
+                    )
         return self._crusher
 
 
@@ -308,11 +313,9 @@ def compress_tool_messages(
         tokens_after = _estimate_tokens(compressed_text)
 
         if was_modified and tokens_after < tokens_before:
-            # Create new ToolMessage with compressed content, preserving tool_call_id
-            compressed_msg = ToolMessage(
-                content=compressed_text,
-                tool_call_id=msg.tool_call_id,
-            )
+            # Copy so id, name and tool_call_id survive: LangGraph's add_messages
+            # replaces a message by id, and appends one without it as a duplicate.
+            compressed_msg = msg.model_copy(update={"content": compressed_text})
             result_messages.append(compressed_msg)
             tokens_saved = tokens_before - tokens_after
 

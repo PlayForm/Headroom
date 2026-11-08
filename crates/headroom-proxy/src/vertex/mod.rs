@@ -90,6 +90,7 @@ use axum::http::{HeaderMap, Method, StatusCode, Uri};
 use axum::response::Response;
 use std::net::SocketAddr;
 
+use crate::observability::{capture, ledger};
 use crate::proxy::AppState;
 
 /// Single axum handler mounted at the
@@ -106,78 +107,125 @@ use crate::proxy::AppState;
 /// can't distinguish two patterns that share the literal `model_action`
 /// parameter shape.
 pub async fn handle_vertex_predict_dispatch(
-	State(state): State<AppState>,
-	ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
-	Path((project, location, model_action)): Path<(String, String, String)>,
-	method: Method,
-	uri: Uri,
-	headers: HeaderMap,
-	body: Body,
+    State(state): State<AppState>,
+    ConnectInfo(client_addr): ConnectInfo<SocketAddr>,
+    Path((project, location, model_action)): Path<(String, String, String)>,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    body: Body,
 ) -> Response {
-	let request_id = headers
-		.get("x-request-id")
-		.and_then(|v| v.to_str().ok())
-		.map(|s| s.to_string())
-		.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let request_id = headers
+        .get("x-request-id")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
-	let (model_id, verb_str) = match split_model_action(&model_action) {
-		Some(parts) => parts,
-		None => {
-			tracing::warn!(
-				event = "vertex_path_parse_failed",
-				request_id = %request_id,
-				path = %uri.path(),
-				segment = %model_action,
-				"vertex path final segment missing `:verb` separator"
-			);
-			return Response::builder()
-				.status(StatusCode::NOT_FOUND)
-				.body(Body::from("vertex path: bad model_action"))
-				.expect("static");
-		},
-	};
+    // The upstream URL is built from the raw request path (which
+    // `crate::upstream_path` already refuses to normalise), but the
+    // decoded parameters are logged, labelled and handed to the
+    // envelope logic. Reject the shapes that could only mean a
+    // traversal attempt (`..`, empty, control characters) before any of
+    // that happens, so a later refactor that interpolates these values
+    // cannot reopen the hole.
+    for (name, value) in [
+        ("project", project.as_str()),
+        ("location", location.as_str()),
+        ("model_action", model_action.as_str()),
+    ] {
+        if let Err(e) = crate::upstream_path::validate_segment(value) {
+            tracing::warn!(
+                event = "vertex_path_rejected",
+                request_id = %request_id,
+                segment = name,
+                error = %e,
+                "vertex path parameter would rewrite the upstream path; refusing"
+            );
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .body(Body::from(format!("vertex path: {name} rejected: {e}")))
+                .expect("static");
+        }
+    }
 
-	let verb = match VertexVerb::parse(verb_str) {
-		Some(v) => v,
-		None => {
-			tracing::warn!(
-				event = "vertex_unknown_verb",
-				request_id = %request_id,
-				verb = %verb_str,
-				"vertex path verb not recognized; only rawPredict / streamRawPredict are supported"
-			);
-			return Response::builder()
-				.status(StatusCode::NOT_FOUND)
-				.body(Body::from("vertex: unknown verb"))
-				.expect("static");
-		},
-	};
+    let (model_id, verb_str) = match split_model_action(&model_action) {
+        Some(parts) => parts,
+        None => {
+            tracing::warn!(
+                event = "vertex_path_parse_failed",
+                request_id = %request_id,
+                path = %uri.path(),
+                segment = %model_action,
+                "vertex path final segment missing `:verb` separator"
+            );
+            // A proxy-side rejection is still an outcome for this
+            // request. The model id is whatever the caller sent (it
+            // is what failed to parse); the ledger clamps it.
+            capture::finalize_rejected(capture::start_pending(
+                &state,
+                ledger::provider::VERTEX,
+                &model_action,
+                &request_id,
+            ));
+            return Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from("vertex path: bad model_action"))
+                .expect("static");
+        }
+    };
 
-	let attach_sse_tee = matches!(verb, VertexVerb::StreamRawPredict);
-	if attach_sse_tee {
-		tracing::info!(
-			event = "vertex_streaming_pipeline_active",
-			request_id = %request_id,
-			method = %method,
-			path = %uri.path(),
-			framer = "byte_level_sse",
-			state_machine = "anthropic",
-			"vertex streaming pipeline engaged: SSE framer + AnthropicStreamState telemetry tee"
-		);
-	}
+    let verb = match VertexVerb::parse(verb_str) {
+        Some(v) => v,
+        None => {
+            tracing::warn!(
+                event = "vertex_unknown_verb",
+                request_id = %request_id,
+                verb = %verb_str,
+                "vertex path verb not recognized; only rawPredict / streamRawPredict are supported"
+            );
+            capture::finalize_rejected(capture::start_pending(
+                &state,
+                ledger::provider::VERTEX,
+                model_id,
+                &request_id,
+            ));
+            return Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from("vertex: unknown verb"))
+                .expect("static");
+        }
+    };
 
-	raw_predict::forward_vertex_request(
-		state,
-		client_addr,
-		request_id,
-		method,
-		uri,
-		headers,
-		body,
-		raw_predict::VertexCallContext { project, location, model_id: model_id.to_string(), verb },
-		attach_sse_tee,
-	)
-	.await
+    let attach_sse_tee = matches!(verb, VertexVerb::StreamRawPredict);
+    if attach_sse_tee {
+        tracing::info!(
+            event = "vertex_streaming_pipeline_active",
+            request_id = %request_id,
+            method = %method,
+            path = %uri.path(),
+            framer = "byte_level_sse",
+            state_machine = "anthropic",
+            "vertex streaming pipeline engaged: SSE framer + AnthropicStreamState telemetry tee"
+        );
+    }
+
+    raw_predict::forward_vertex_request(
+        state,
+        client_addr,
+        request_id,
+        method,
+        uri,
+        headers,
+        body,
+        raw_predict::VertexCallContext {
+            project,
+            location,
+            model_id: model_id.to_string(),
+            verb,
+        },
+        attach_sse_tee,
+    )
+    .await
 }
 
 /// Split the trailing `:model_action` path segment into
@@ -192,7 +240,7 @@ pub async fn handle_vertex_predict_dispatch(
 /// Returns `None` when the segment carries no colon (unknown shape;
 /// the handler logs and 404s).
 pub fn split_model_action(segment: &str) -> Option<(&str, &str)> {
-	segment.rsplit_once(':')
+    segment.rsplit_once(':')
 }
 
 /// Recognized Vertex publisher verbs. Future verbs (e.g. `:countTokens`)
@@ -201,66 +249,72 @@ pub fn split_model_action(segment: &str) -> Option<(&str, &str)> {
 /// fallback to a "default" verb.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VertexVerb {
-	/// Non-streaming Anthropic Messages call.
-	RawPredict,
-	/// SSE-streaming Anthropic Messages call.
-	StreamRawPredict,
+    /// Non-streaming Anthropic Messages call.
+    RawPredict,
+    /// SSE-streaming Anthropic Messages call.
+    StreamRawPredict,
 }
 
 impl VertexVerb {
-	pub fn parse(s: &str) -> Option<Self> {
-		match s {
-			"rawPredict" => Some(Self::RawPredict),
-			"streamRawPredict" => Some(Self::StreamRawPredict),
-			_ => None,
-		}
-	}
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "rawPredict" => Some(Self::RawPredict),
+            "streamRawPredict" => Some(Self::StreamRawPredict),
+            _ => None,
+        }
+    }
 
-	pub fn as_str(self) -> &'static str {
-		match self {
-			Self::RawPredict => "rawPredict",
-			Self::StreamRawPredict => "streamRawPredict",
-		}
-	}
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::RawPredict => "rawPredict",
+            Self::StreamRawPredict => "streamRawPredict",
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-	use super::*;
+    use super::*;
 
-	#[test]
-	fn split_model_action_basic() {
-		assert_eq!(
-			split_model_action("claude-3-5-sonnet@20240620:rawPredict"),
-			Some(("claude-3-5-sonnet@20240620", "rawPredict"))
-		);
-		assert_eq!(
-			split_model_action("claude-3-haiku@20240307:streamRawPredict"),
-			Some(("claude-3-haiku@20240307", "streamRawPredict"))
-		);
-	}
+    #[test]
+    fn split_model_action_basic() {
+        assert_eq!(
+            split_model_action("claude-3-5-sonnet@20240620:rawPredict"),
+            Some(("claude-3-5-sonnet@20240620", "rawPredict"))
+        );
+        assert_eq!(
+            split_model_action("claude-3-haiku@20240307:streamRawPredict"),
+            Some(("claude-3-haiku@20240307", "streamRawPredict"))
+        );
+    }
 
-	#[test]
-	fn split_model_action_no_colon_returns_none() {
-		assert_eq!(split_model_action("claude-3-5-sonnet"), None);
-	}
+    #[test]
+    fn split_model_action_no_colon_returns_none() {
+        assert_eq!(split_model_action("claude-3-5-sonnet"), None);
+    }
 
-	#[test]
-	fn split_model_action_uses_last_colon() {
-		// Defensive: even if the model id were to contain a colon
-		// (Vertex doesn't emit such ids today), the verb is whatever
-		// follows the LAST colon.
-		assert_eq!(
-			split_model_action("weird:model:rawPredict"),
-			Some(("weird:model", "rawPredict"))
-		);
-	}
+    #[test]
+    fn split_model_action_uses_last_colon() {
+        // Defensive: even if the model id were to contain a colon
+        // (Vertex doesn't emit such ids today), the verb is whatever
+        // follows the LAST colon.
+        assert_eq!(
+            split_model_action("weird:model:rawPredict"),
+            Some(("weird:model", "rawPredict"))
+        );
+    }
 
-	#[test]
-	fn vertex_verb_parse() {
-		assert_eq!(VertexVerb::parse("rawPredict"), Some(VertexVerb::RawPredict));
-		assert_eq!(VertexVerb::parse("streamRawPredict"), Some(VertexVerb::StreamRawPredict));
-		assert_eq!(VertexVerb::parse("predict"), None);
-		assert_eq!(VertexVerb::parse(""), None);
-	}
+    #[test]
+    fn vertex_verb_parse() {
+        assert_eq!(
+            VertexVerb::parse("rawPredict"),
+            Some(VertexVerb::RawPredict)
+        );
+        assert_eq!(
+            VertexVerb::parse("streamRawPredict"),
+            Some(VertexVerb::StreamRawPredict)
+        );
+        assert_eq!(VertexVerb::parse("predict"), None);
+        assert_eq!(VertexVerb::parse(""), None);
+    }
 }
