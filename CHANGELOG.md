@@ -22,9 +22,10 @@ release-cycle contract lives in [RELEASE-CYCLE.md](RELEASE-CYCLE.md).
 
 ## [0.2.0] - unreleased
 
-Range: `aphrodite-v0.10.0` (`02706ea1`, 2026-09-19) .. working tree. Carries the
-two dependency-update commits that followed the 0.1.3 tag plus the CCR-store
-retention work (uncommitted at the time of writing).
+Range: `aphrodite-v0.10.0` (`02706ea1`, 2026-09-19) .. `20be515b` (2026-11-08).
+Carries the two dependency-update commits that followed the 0.1.3 tag, the
+CCR-store retention work, and the fork-workspace build/lint fixes. Committed;
+not tagged, not published.
 
 ### Store retention (new API)
 

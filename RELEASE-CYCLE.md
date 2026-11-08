@@ -14,9 +14,9 @@ state.
 |---|---|---|---|---|
 | 0.1.0 | `1946b1cb` (2026-06-20) | `aphrodite-v0.9.0` / `v0.9.2` / `v0.9.3` / `v0.9.4` (all four retroactively at this commit) | - (pre-publish) | never published |
 | 0.1.1 | `e6c3df82` (2026-07-13) | - (no fork tag) | `version = "0.1.1"` (historical) | published 2026-07-13 |
-| 0.1.2 | `c6b61470` (2026-07-14) | - (no fork tag) | `version = "0.1.2"` (committed through `Aphrodite/v1.5.0`, 2026-09-20) | published 2026-07-14 - **max_version** |
+| 0.1.2 | `c6b61470` (2026-07-14) | - (no fork tag) | `version = "0.1.2"` (committed through `Aphrodite/v1.5.0`, 2026-09-20) | published 2026-07-14 |
 | 0.1.3 | `02706ea1` (2026-09-19) | `aphrodite-v0.10.0` | `version = "0.1.3"` | published 2026-09-20 - **max_version before 0.2.0** |
-| 0.2.0 (pending) | working tree (uncommitted: store retention + index-driven sweep) | `aphrodite-v0.11.0` (proposed) | `version = "0.2.0"` (pre-floated in working tree) | not published |
+| 0.2.0 (pending) | `20be515b` (2026-11-08; store retention + index-driven sweep + fork-workspace build/lint fixes) | `aphrodite-v0.11.0` (proposed) | `version = "0.2.0"` (committed) | not published |
 
 Rules:
 
@@ -92,22 +92,22 @@ CI publishes the **parent-recorded gitlink tree**. To publish a changed
 headroom tree the parent gitlink must float first (step 3). Skipping it
 publishes the previously-recorded commit's tree - the 1.5.0-class gap.
 
-## 5. Current state (live, captured 2026-09-20)
+## 5. Current state (live, captured 2026-11-08)
 
 | Item | Value |
 |---|---|
-| Fork HEAD | `02706ea1a3dcd9956ae8cbba4d17e19d6ab174f1` (2026-09-19; `git describe`: `v0.31.0-173-g02706ea1`) |
-| Crate version @ fork HEAD | `0.1.2` |
-| Crate version, fork working tree | `0.1.3` (uncommitted bump in `crates/headroom-core/Cargo.toml`) |
-| Unpublished since 0.1.2 | `c6b61470..HEAD` = 107 commits (18 fork mainline + 87 upstream via `b1932981` + 396-commit squash `43dc9836`) |
-| Parent gitlink (committed) | `02706ea1` |
-| Parent pin, committed | `0.1.2` |
-| Parent pin, working tree | `0.1.3` (pre-floated, uncommitted - parent is mid 1.5.1 prep) |
-| Parent binary | committed `1.5.0` (tagged `Aphrodite/v1.5.0`, 2026-09-20); working tree on `1.5.1` prep |
-| Fork tags | last = `aphrodite-v0.9.4` (all four → `1946b1cb`, 2026-06-20, crate 0.1.0) |
-| Next fork tag | `aphrodite-v0.10.0` (proposed) |
-| crates.io | `max_version = 0.1.2` (`0.1.1`, `0.1.2` live; `0.1.0` and `0.1.3` never published) |
-| Next pending cycle | crate `0.1.3` → commit → gitlink float → pin `0.1.3` (already in tree) → tag `aphrodite-v0.10.0` → dispatch `publish_crates=true` |
+| Fork HEAD | `20be515b` (2026-11-08; `git describe`: `aphrodite-v0.10.0-3-g20be515b`) |
+| Crate version @ fork HEAD | `0.2.0` (committed in `20be515b`) |
+| Crate version, fork working tree | `0.2.0` (clean) |
+| Unpublished since 0.1.3 | `02706ea1..HEAD` = 3 commits (`41e3602b`, `fc58ee39` dep updates + `20be515b` store retention / fork-workspace fixes) |
+| Parent gitlink (committed) | `fc58ee39` - **one commit behind fork HEAD; the float to `20be515b` is pending** |
+| Parent pin, committed | `0.2.0` |
+| Parent pin, working tree | `0.2.0` (clean) |
+| Parent binary | committed `1.8.0` (untagged); `BINARY_VERSION` still `1.7.0` by design |
+| Fork tags | last = `aphrodite-v0.10.0` (on `02706ea1`, crate 0.1.3) |
+| Next fork tag | `aphrodite-v0.11.0` (proposed, on the commit carrying 0.2.0) |
+| crates.io | `max_version = 0.1.3` (`0.1.1`, `0.1.2`, `0.1.3` live; `0.1.0` never published) |
+| Next pending cycle | crate `0.2.0` (committed) → publish to crates.io → fork tag `aphrodite-v0.11.0` → float parent gitlink → parent tag. The CI chain never publishes this crate; the publish is manual and must precede the parent tag |
 
 ## 6. Non-negotiables
 
