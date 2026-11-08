@@ -15,7 +15,8 @@ state.
 | 0.1.0 | `1946b1cb` (2026-06-20) | `aphrodite-v0.9.0` / `v0.9.2` / `v0.9.3` / `v0.9.4` (all four retroactively at this commit) | - (pre-publish) | never published |
 | 0.1.1 | `e6c3df82` (2026-07-13) | - (no fork tag) | `version = "0.1.1"` (historical) | published 2026-07-13 |
 | 0.1.2 | `c6b61470` (2026-07-14) | - (no fork tag) | `version = "0.1.2"` (committed through `Aphrodite/v1.5.0`, 2026-09-20) | published 2026-07-14 - **max_version** |
-| 0.1.3 (pending) | `02706ea1` (fork HEAD, 2026-09-19; working tree already at 0.1.3) | `aphrodite-v0.10.0` (proposed) | `version = "0.1.3"` (pre-floated in working tree) | not published |
+| 0.1.3 | `02706ea1` (2026-09-19) | `aphrodite-v0.10.0` | `version = "0.1.3"` | published 2026-09-20 - **max_version before 0.2.0** |
+| 0.2.0 (pending) | working tree (uncommitted: store retention + index-driven sweep) | `aphrodite-v0.11.0` (proposed) | `version = "0.2.0"` (pre-floated in working tree) | not published |
 
 Rules:
 

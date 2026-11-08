@@ -3,7 +3,7 @@
 //!
 //! Six of the eight comparators are real: `log_compressor`, `diff_compressor`,
 //! `tokenizer`, `smart_crusher`, `content_detector`, `text_crusher`. Two remain
-//! stubs and report `Skipped` — see the `stub_comparator!` block below for what
+//! stubs and report `Skipped` - see the `stub_comparator!` block below for what
 //! each is waiting on.
 
 use anyhow::{bail, Context, Result};
@@ -48,7 +48,7 @@ pub trait TransformComparator {
 /// Compare a single fixture against a comparator and return an outcome.
 ///
 /// f64 normalization: `serde_json` (without the `arbitrary_precision`
-/// feature) has an asymmetry — values constructed via `json!(f64)` keep
+/// feature) has an asymmetry - values constructed via `json!(f64)` keep
 /// full precision (e.g. `0.9500000000000001`), but values parsed from
 /// fixture JSON sometimes round to a neighboring f64 (e.g. `0.95`,
 /// differing by 1 ULP). To make comparisons robust we round-trip the
@@ -127,7 +127,7 @@ impl Report {
 }
 
 /// Run a comparator over every fixture under `dir/<transform>/` and return a
-/// report. Propagates IO/parse errors but never panics on comparator errors —
+/// report. Propagates IO/parse errors but never panics on comparator errors -
 /// those become `Skipped` entries.
 pub fn run_comparator(dir: &Path, comparator: &dyn TransformComparator) -> Result<Report> {
     let mut report = Report::default();
@@ -149,13 +149,13 @@ pub fn run_comparator(dir: &Path, comparator: &dyn TransformComparator) -> Resul
 // --- Built-in comparator stubs ---------------------------------------------
 //
 // These return `Err`, which the harness turns into `Skipped` rather than a
-// panic or a diff — so a stubbed comparator cannot fail the parity gate. Both
+// panic or a diff - so a stubbed comparator cannot fail the parity gate. Both
 // are blocked on missing Rust surface, not on wiring:
 //
-// * `cache_aligner` — needs the volatile-content detector, which lives in
+// * `cache_aligner` - needs the volatile-content detector, which lives in
 //   `headroom-proxy` while this crate depends only on `headroom-core`. Either
 //   add the dependency or move the detector down into core.
-// * `ccr` — the fixtures compare `ccr_retrieve` tool-definition injection
+// * `ccr` - the fixtures compare `ccr_retrieve` tool-definition injection
 //   (`headroom/ccr/tool_injection.py`), which has no Rust port at all.
 
 macro_rules! stub_comparator {
@@ -185,7 +185,7 @@ stub_comparator!(CcrComparator, "ccr");
 ///
 /// * **bias.** Python's signature is `compress(content, context="", bias=1.0)`
 ///   and the recorder captured only `content`, so every fixture was produced at
-///   the default `bias = 1.0`. Rust takes `bias` positionally — pass 1.0.
+///   the default `bias = 1.0`. Rust takes `bias` positionally - pass 1.0.
 /// * **CCR store.** The Python compressor owns its store internally, while Rust
 ///   mints a `cache_key` only when one is handed to `compress_with_store`.
 ///   Without a store the CCR branch bails out with `"no store provided"` and
@@ -247,7 +247,7 @@ impl TransformComparator for LogCompressorComparator {
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.5),
             // Rust's `true` collapses runtime frames where Python truncates the
-            // tail — a deliberate upgrade, and the one place these two
+            // tail - a deliberate upgrade, and the one place these two
             // implementations are known to disagree. Kept at the Rust default
             // anyway: measured both ways, all 20 fixtures match either setting,
             // because every recorded traceback is 3 lines and the collapse path
@@ -278,7 +278,7 @@ impl TransformComparator for LogCompressorComparator {
 
 /// Real comparator for the `diff_compressor` transform. Drives the Rust port
 /// over the recorded fixture inputs and emits the Python-shaped JSON output
-/// (subset: only fields the Python recorder serializes — i.e. fields, not
+/// (subset: only fields the Python recorder serializes - i.e. fields, not
 /// `@property` derivatives like `compression_ratio`).
 pub struct DiffCompressorComparator;
 
@@ -492,7 +492,7 @@ impl TransformComparator for SmartCrusherComparator {
                 .get("relevance_threshold")
                 .and_then(|v| v.as_f64())
                 .unwrap_or(defaults.relevance_threshold),
-            // Rust-only PR4 knob — fixtures don't carry this; use
+            // Rust-only PR4 knob - fixtures don't carry this; use
             // default. The parity harness exercises the legacy
             // lossy-only path via `without_compaction`, so this
             // threshold is moot.
@@ -500,7 +500,7 @@ impl TransformComparator for SmartCrusherComparator {
                 .get("lossless_min_savings_ratio")
                 .and_then(|v| v.as_f64())
                 .unwrap_or(defaults.lossless_min_savings_ratio),
-            // Rust-only audit-fix knob — fixtures don't carry this; use
+            // Rust-only audit-fix knob - fixtures don't carry this; use
             // default (true). Recorded fixtures predate the gate and
             // their expected outputs assume markers fire as before.
             enable_ccr_marker: config
@@ -571,7 +571,7 @@ impl TransformComparator for ContentDetectorComparator {
 
 /// Real comparator for the `text_crusher` transform. The fixture `input` is an
 /// object rather than a bare string, mirroring the recorder's three arguments
-/// (`tests/parity/record_text_crusher.py`), and `config` is always `null` — the
+/// (`tests/parity/record_text_crusher.py`), and `config` is always `null` - the
 /// recorder drove the Python default config, so the Rust side uses
 /// `TextCrusherConfig::default()` to match.
 pub struct TextCrusherComparator;
@@ -597,7 +597,7 @@ impl TransformComparator for TextCrusherComparator {
             .and_then(|v| v.as_str())
             .unwrap_or_default();
         // Null in the `short_passthrough` fixture, where the recorder passed no
-        // ratio at all — `Option<f64>` carries that through to the same default
+        // ratio at all - `Option<f64>` carries that through to the same default
         // the Python call used.
         let target_ratio = input.get("target_ratio").and_then(|v| v.as_f64());
 
@@ -614,14 +614,14 @@ impl TransformComparator for TextCrusherComparator {
     }
 }
 
-/// Kompress comparator — runs the ML prose compressor against fixtures
+/// Kompress comparator - runs the ML prose compressor against fixtures
 /// recorded from the Python reference.
 ///
 /// Unlike the deterministic compressors, Kompress needs the
 /// `kompress-v2-base` ONNX model + ModernBERT tokenizer. The comparator
 /// resolves them **from the local HuggingFace cache only** (never the
-/// network) and lazily loads once. When the artifacts are absent — CI
-/// with no preloaded model — `run` returns `Err`, so the harness marks
+/// network) and lazily loads once. When the artifacts are absent - CI
+/// with no preloaded model - `run` returns `Err`, so the harness marks
 /// every kompress fixture `Skipped` rather than failing. Record + run
 /// locally (after `python scripts/record_fixtures.py`) for the real
 /// byte-parity assertion.
@@ -629,10 +629,12 @@ impl TransformComparator for TextCrusherComparator {
 /// Fixtures are recorded with `enable_ccr=False` so the output is the
 /// pure joined kept-word stream (the Rust engine never emits the Python
 /// inline CCR marker; live-zone CCR uses the `<<ccr:>>` convention).
+#[cfg(feature = "ml")]
 pub struct KompressComparator {
     model: std::sync::OnceLock<Option<headroom_core::transforms::kompress::Kompress>>,
 }
 
+#[cfg(feature = "ml")]
 impl Default for KompressComparator {
     fn default() -> Self {
         Self {
@@ -641,6 +643,7 @@ impl Default for KompressComparator {
     }
 }
 
+#[cfg(feature = "ml")]
 impl KompressComparator {
     pub fn new() -> Self {
         Self::default()
@@ -682,6 +685,7 @@ impl KompressComparator {
     }
 }
 
+#[cfg(feature = "ml")]
 impl TransformComparator for KompressComparator {
     fn name(&self) -> &str {
         "kompress"
@@ -842,6 +846,7 @@ pub fn builtin_comparators() -> Vec<Box<dyn TransformComparator>> {
         Box::new(SmartCrusherComparator),
         Box::new(ContentDetectorComparator),
         Box::new(TextCrusherComparator),
+        #[cfg(feature = "ml")]
         Box::new(KompressComparator::new()),
         Box::new(CodeCompressorComparator),
     ]
@@ -942,7 +947,7 @@ mod tests {
     #[test]
     fn stub_comparators_skip_rather_than_panic() {
         // Uses `cache_aligner` because `log_compressor` is a real comparator
-        // now. Any remaining `stub_comparator!` works here — the point is that
+        // now. Any remaining `stub_comparator!` works here - the point is that
         // an unimplemented comparator reports Skipped instead of panicking.
         let tmp = tempdir();
         write_fixture(

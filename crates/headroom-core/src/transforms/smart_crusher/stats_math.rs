@@ -59,7 +59,10 @@ pub fn median(values: &[f64]) -> Option<f64> {
 	let mut sorted: Vec<f64> = values.to_vec();
 	sorted.sort_by(f64::total_cmp);
 	let n = sorted.len();
-	if n.is_multiple_of(2) {
+	// `n % 2 == 0` rather than `n.is_multiple_of(2)`: the latter is stable only
+	// since Rust 1.87 while this workspace declares `rust-version = "1.80"`,
+	// so clippy's `incompatible_msrv` (denied under `-D warnings`) rejects it.
+	if n % 2 == 0 {
 		// Mean of the two middle elements.
 		let lo = sorted[n / 2 - 1];
 		let hi = sorted[n / 2];

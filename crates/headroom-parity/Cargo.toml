@@ -25,3 +25,15 @@ headroom-core = { package = "aphrodite-headroom-core", path = "../headroom-core"
 # NOTE: Phase 0 does not invoke Python from Rust. Phase 1 adds `pyo3` with
 # `auto-initialize` here so comparators can call into the installed
 # `headroom` package directly.
+
+[features]
+default = []
+# The Kompress comparator needs `headroom_core::transforms::kompress`, which
+# headroom-core gates behind its `ml` feature - and `ml` is default-OFF there
+# (fastembed/ort/magika). Forwarding the feature explicitly keeps the fork
+# workspace buildable without the ML stack, instead of parity silently
+# depending on a gate that is never open: `cargo build` here failed with
+# `could not find kompress in transforms` from 2026-08-07 until this feature
+# existed. Run the kompress parity leg with
+# `cargo run -p aphrodite-headroom-parity --features ml --bin parity-run`.
+ml = ["headroom-core/ml"]

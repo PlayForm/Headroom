@@ -20,12 +20,76 @@ release-cycle contract lives in [RELEASE-CYCLE.md](RELEASE-CYCLE.md).
 > upstream syncs. The upstream file is preserved in git history
 > (`git show HEAD:CHANGELOG.md` inside the fork).
 
-## [0.1.3] - unreleased
+## [0.2.0] - unreleased
+
+Range: `aphrodite-v0.10.0` (`02706ea1`, 2026-09-19) .. working tree. Carries the
+two dependency-update commits that followed the 0.1.3 tag plus the CCR-store
+retention work (uncommitted at the time of writing).
+
+### Store retention (new API)
+
+- `SqliteCcrStore::open_with_limits(path, default_ttl_seconds, max_entries,
+  max_bytes)` - `open` / `open_with_ttls` keep their signatures and apply no
+  cap; `None` or `0` means unlimited, normalised inside the constructor.
+- Past either cap the store evicts least-recently-accessed rows
+  (`ORDER BY last_accessed ASC, created_at ASC`), in bounded batches of 256
+  rows per statement, with exact freed rows/bytes from
+  `DELETE … RETURNING LENGTH(original)`. An already-oversized DB is trimmed at
+  open, not only on the next `put`.
+- Accessors `max_entries()`, `max_bytes()`, `evicted_total()`; `stats_db()`
+  gained `max_entries`, `max_bytes`, `evicted_total`, `freelist_bytes`.
+- Maintained `entries_total` / `live_bytes` counters make `len()` O(1) and let
+  cap enforcement skip a `COUNT(*)` per write. Caveat: the counters are
+  per-process, so caps are approximate when several processes share one DB
+  file; `stats_db` always reports exact `COUNT(*)` / `SUM(LENGTH(original))`.
+
+### Performance
+
+- `get` no longer runs the expiry sweep on every call. It shares the 60 s
+  debounce `put` already had, and the lookup predicate keeps refusing expired
+  rows, so skipping a sweep delays space reclamation but never serves stale
+  content. Measured `get` on a missing hash: 0.15 ms (empty), 27 ms (100k
+  rows), 37.40 ms (300k rows) before; 0.22 ms at 300k rows after.
+
+### Schema
+
+- `user_version` 2 → 3. New indexes: `ccr_entries_expiry` (expression index on
+  `last_accessed + ttl_seconds`), `ccr_entries_created`, `ccr_entries_lru`.
+  The sweep predicate was rewritten as `created_at < cutoff` so SQLite's
+  OR-optimisation drives both disjuncts from an index.
+
+### Packaging / deps
+
+- `fc58ee39` - `fix(dependencies): update fastembed version to 5 in Cargo.toml`.
+- `41e3602b` - `chore(dependencies): update various crate versions in Cargo.toml`.
+- **Fork workspace build fix**: `headroom-parity` imported
+  `headroom_core::transforms::kompress` unconditionally while headroom-core
+  gates it behind `ml` (default-OFF since `d9f12039`), so a plain
+  `cargo build` in `vendor/headroom` failed with `could not find kompress in
+  transforms` on every commit after 2026-08-07 - CI never caught it because
+  the parent builds only `headroom-core` through a path dependency. The
+  comparator and its registration are now `#[cfg(feature = "ml")]`, and
+  `headroom-parity` declares `ml = ["headroom-core/ml"]` so the kompress leg
+  is opt-in instead of unreachable. Note: `headroom-parity` is still not
+  rustfmt-conformant on its own - the crate is space-indented while the
+  inherited `rustfmt.toml` sets `hard_tabs = true`, so
+  `cargo fmt --check -p aphrodite-headroom-parity` reports the whole file.
+  That predates this change and was left alone rather than turning a build
+  fix into a 984-line whitespace rewrite.
+- **Fix (fork workspace lint)**: `smart_crusher/stats_math.rs` used
+  `n.is_multiple_of(2)` (stable since Rust 1.87) under a workspace
+  `rust-version = "1.80"`, so `cargo clippy -- -D warnings` in the fork
+  workspace failed on `clippy::incompatible_msrv` - invisible from the parent,
+  where the same crate inherits the parent's higher MSRV. Now `n % 2 == 0`;
+  clippy is clean for `headroom-core` and `headroom-parity` in the fork
+  workspace.
+
+## [0.1.3] - 2026-09-20
 
 Range: `c6b61470..HEAD` (fork HEAD `02706ea1`, 2026-09-19) - 18 fork
 commits on the fork mainline (107 commits in the full DAG, incl. upstream
-syncs). The version bump to `0.1.3` exists in the fork working tree only;
-not committed, not tagged, not published.
+syncs). Published to crates.io 2026-09-20 (`max_version` = 0.1.3); fork tag
+`aphrodite-v0.10.0`.
 
 ### Upstream sync (headroomlabs-ai/headroom@main)
 - `b1932981` (2026-07-14) - merge upstream/main `c365c7ff`: 87-commit sync
