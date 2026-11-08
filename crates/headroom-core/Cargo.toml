@@ -16,7 +16,7 @@ serde_json = { workspace = true }
 bytes = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-tiktoken-rs = "0.12.0"
+tiktoken-rs = "0.12.1"
 # `tokenizers` is the HuggingFace pure-Rust tokenizer crate. Default features
 # pull in `onig` for the BPE pre-tokenizer regex; that vendors oniguruma so it
 # builds without a system dep on macOS/Linux.
@@ -37,7 +37,7 @@ hf-hub = { version = "0.5.0", default-features = false, features = [
 md-5 = "0.11.0"
 # `sha2` for `_hash_field_name` in smart_crusher (SHA-256 truncated to 16
 # hex chars). Python uses `hashlib.sha256` so we need byte-exact parity.
-sha2 = "0.11.0"
+sha2 = "0.11.1"
 # `dashmap` for the CCR storage backend. Concurrent HashMap with sharded
 # locking - distinct keys hashed to different shards never contend, so
 # multi-worker proxy load doesn't queue on a single Mutex. Lock-free
@@ -61,7 +61,7 @@ regex = "1.13.1"
 # - `compiled_data` only (no `auto`/`lstm`): LSTM models cover SE-Asian scripts
 #   (Thai/Lao), not CJK -- CJK uses the dictionary, so `auto` would pull in libm
 #   for nothing. Required for CJK; pure-ASCII paths are unchanged.
-icu_segmenter = { version = "2.3.0", features = ["compiled_data"] }
+icu_segmenter = { version = "2.4.0", features = ["compiled_data"] }
 # `flate2` for `_validate_with_zlib` in `adaptive_sizer`. Python's adaptive
 # sizing pipeline uses `zlib.compress(..., level=1)` to validate the chosen
 # K against compression-ratio diversity. We use the default `miniz_oxide`
@@ -70,7 +70,7 @@ icu_segmenter = { version = "2.3.0", features = ["compiled_data"] }
 # >15% ratio divergence so small per-byte differences don't change the
 # outcome - but if a parity fixture flakes here, swap to
 # `features = ["zlib"]` to link against system libz for byte-equal output.
-flate2 = "1.1.10"
+flate2 = "1.1.11"
 # `fastembed` is the Rust port of the Python fastembed library. Used by
 # `relevance::EmbeddingScorer` for sentence embeddings in semantic relevance
 # scoring. Default features pull in `ort` (ONNX Runtime) with auto-download
@@ -119,7 +119,7 @@ rayon = "1.12.0"
 # `config/pipeline.toml`. The defaults embed via `include_str!` so a
 # stock binary needs no external file; production deployments override
 # by loading their own TOML at startup.
-toml = "1.1.6+spec-1.1.0"
+toml = "1.2.1"
 # `blake3` powers `ccr::compute_key`. Produces collision-resistant
 # 40-char hex prefixes for the CCR `<<<ccr:HASH>>>` marker. Pure-Rust
 # by default, no system dep, no SIMD-feature-gated flag (the crate
@@ -139,7 +139,7 @@ rusqlite = { version = "0.40.2", features = ["bundled"] }
 # cost. Default features include the sync `Connection` API used in
 # `ccr/backends/redis.rs`; `tokio-comp` would pull `tokio` into the
 # core crate, which we do not want.
-redis = { version = "1.7.0", optional = true, default-features = false }
+redis = { version = "1.8.1", optional = true, default-features = false }
 # `http` powers the auth-mode classifier (Phase F PR-F1). The proxy
 # crate already depends on this - pulling it into core lets the
 # classifier live with the other Phase B/F policy primitives without
@@ -219,7 +219,7 @@ ml = ["dep:ort", "dep:fastembed", "dep:magika"]
 redis = ["dep:redis"]
 
 [dev-dependencies]
-proptest = "1.11.0"
+proptest = "1.12.0"
 criterion = { version = "0.8.2", features = ["html_reports"] }
 tempfile = "3.27.0"
 
