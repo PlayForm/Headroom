@@ -928,7 +928,7 @@ Legend:
 | `headroom mcp uninstall` | native | native in container | full |
 | `headroom mcp status` | native | native in container | full |
 | `headroom mcp serve` | native | native in container | full |
-| `headroom install apply|status|start|stop|restart|remove` | native | Docker-native wrapper for `persistent-docker`; compose remains an alternative | partial |
+| `headroom install apply\|status\|start\|stop\|restart\|remove` | native | Docker-native wrapper for `persistent-docker`; compose remains an alternative | partial |
 | `headroom wrap claude` | native | host-bridged | partial |
 | `headroom wrap copilot` | native | not implemented in Docker-native wrapper | none |
 | `headroom wrap codex` | native | host-bridged | partial |
