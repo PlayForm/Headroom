@@ -510,7 +510,7 @@ def _truncate_head_tail(text: str, max_chars: int = _ERROR_PREVIEW_MAX) -> str:
     text = text.replace("\n", " ").strip()
     if len(text) <= max_chars:
         return text
-    sep = " … "
+    sep = " ... "
     keep = max_chars - len(sep)
     head = keep // 2
     tail = keep - head

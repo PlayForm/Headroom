@@ -13,7 +13,7 @@
 //! 1. **Centralisation.** Without a policy struct, the per-mode
 //!    decision is duplicated at every gate (E3 cache_control, E4
 //!    prompt_cache_key, the new live-zone gate, the new cache_aligner
-//!    gate, …). When F2.2 wants to tune (e.g. allow OAuth users a
+//!    gate, ...). When F2.2 wants to tune (e.g. allow OAuth users a
 //!    relaxed live-zone gate but stricter volatile-detector threshold)
 //!    we'd need to find every site. The struct is the one place to
 //!    edit; call sites just read `policy.field`.

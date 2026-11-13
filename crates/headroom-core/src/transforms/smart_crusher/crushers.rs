@@ -54,7 +54,7 @@ use crate::transforms::adaptive_sizer::compute_optimal_k;
 /// k_first = max(1, round(k_total * first_fraction))
 /// k_last  = max(1, round(k_total * last_fraction))
 /// ```
-/// For `k_total = 1`, both `round()` results are 0, both `max(1, …)`s
+/// For `k_total = 1`, both `round()` results are 0, both `max(1, ...)`s
 /// return 1, so `k_first + k_last = 2 > k_total = 1`. The crusher then
 /// overshoots `max_items_after_crush` because the boundary unions
 /// already exceed the budget before importance-fill kicks in.

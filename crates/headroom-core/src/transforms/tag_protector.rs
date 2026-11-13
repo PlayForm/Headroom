@@ -11,7 +11,7 @@
 //! placeholders, runs the compressor on the cleaned body, then calls
 //! [`restore_tags`] on the output to splice the originals back in.
 //!
-//! Standard HTML5 elements (`<div>`, `<p>`, `<span>`, …) are *not*
+//! Standard HTML5 elements (`<div>`, `<p>`, `<span>`, ...) are *not*
 //! protected — those go through the HTMLExtractor / trafilatura path
 //! at a different layer. Anything else is treated as a custom tag.
 //!
@@ -21,12 +21,12 @@
 //! backtracking, no O(n²) restart loop):
 //!
 //! 1. Scan forward for `<`. If the next bytes form a valid tag-open
-//!    (`<name attr=…>` or `<name/>`), classify the tag name.
+//!    (`<name attr=...>` or `<name/>`), classify the tag name.
 //! 2. HTML tag → emit verbatim, continue.
 //! 3. Custom tag, self-closing → emit a placeholder, record the span.
 //! 4. Custom tag, opening → push `(name, start_offset)` onto a stack.
 //! 5. `</name>` matching the top of the stack → pop, emit a placeholder
-//!    for the whole `<name>…</name>` span (when
+//!    for the whole `<name>...</name>` span (when
 //!    `compress_tagged_content == false`) or emit two placeholders for
 //!    the markers only (when `compress_tagged_content == true`).
 //! 6. Mismatched close (HTML close while a custom tag is on top, or a
@@ -57,7 +57,7 @@
 //!   second loop with the same `replace_first` bug for self-closing
 //!   tags. Rust handles self-closers in the same single pass.
 //! * **#5: Placeholder collision** — if input contains a literal
-//!   `{{HEADROOM_TAG_…}}` substring, Python silently let the collision
+//!   `{{HEADROOM_TAG_...}}` substring, Python silently let the collision
 //!   stand. We detect that and pick a salted prefix (with a tracing
 //!   warn) so restoration can't be ambiguous.
 //!
@@ -292,9 +292,9 @@ struct OpenTag {
 	open_start: usize,
 }
 
-/// Outcome of a single `<…>` parse attempt at a given offset.
+/// Outcome of a single `<...>` parse attempt at a given offset.
 enum TagParse {
-	/// Opening tag (`<name attr=…>`). `name_end` is exclusive.
+	/// Opening tag (`<name attr=...>`). `name_end` is exclusive.
 	Open { name_end: usize, tag_end: usize, is_self_closing: bool },
 	/// Closing tag (`</name>`).
 	Close { name_end: usize, tag_end: usize },
@@ -302,7 +302,7 @@ enum TagParse {
 	NotTag,
 }
 
-/// Parse a `<…>` starting at `start`. Returns the byte offset of the
+/// Parse a `<...>` starting at `start`. Returns the byte offset of the
 /// closing `>` (exclusive end of the tag) and the kind. Conservatively
 /// rejects malformed shapes — we'd rather emit a `<` verbatim than
 /// over-protect on bad input.
@@ -414,7 +414,7 @@ struct Span {
 
 #[derive(Debug, Clone, Copy)]
 enum SpanKind {
-	/// Whole `<custom>…</custom>` block (block mode).
+	/// Whole `<custom>...</custom>` block (block mode).
 	Block,
 	/// Self-closing `<custom/>` (block mode).
 	SelfClosing,
@@ -427,7 +427,7 @@ enum SpanKind {
 /// Protect custom workflow tags from text compression.
 ///
 /// * `compress_tagged_content = false` (default) — replace each entire
-///   `<custom>…</custom>` span (including nested children) with a
+///   `<custom>...</custom>` span (including nested children) with a
 ///   single placeholder. Self-closing custom tags become a single
 ///   placeholder. The body between the markers is *not* exposed to
 ///   compression.
@@ -956,7 +956,7 @@ mod tests {
 
 	#[test]
 	fn fixed_in_3e4_placeholder_collision_is_avoided() {
-		// Bug #5: input contains literal `{{HEADROOM_TAG_…}}`. The
+		// Bug #5: input contains literal `{{HEADROOM_TAG_...}}`. The
 		// walker should pick a salted prefix and report the collision
 		// in stats.
 		let text = "User wrote {{HEADROOM_TAG_0}} on purpose. \
@@ -1040,7 +1040,7 @@ mod tests {
 	// ─── Hotfix-A9 invariants ────────────────────────────────────────
 
 	/// Count `<custom>` style opening tags (excludes self-closers and
-	/// excludes the closing-tag `</…>` form). Any `<` that is followed
+	/// excludes the closing-tag `</...>` form). Any `<` that is followed
 	/// by an alphabetic name and ends with `>` (without an embedded
 	/// `/>`) counts. Only used by the proptest below — keeps the
 	/// invariant check independent of the parser under test.
@@ -1053,7 +1053,7 @@ mod tests {
 				i += 1;
 				continue;
 			}
-			// Skip closing tags `</…>`.
+			// Skip closing tags `</...>`.
 			if i + 1 < bytes.len() && bytes[i + 1] == b'/' {
 				i += 1;
 				continue;

@@ -911,13 +911,13 @@ fn scan_marker(line: &str, tier: ScanTier) -> Option<(Marker, bool)> {
 				// either
 				//   (a) the path so far ends in a segment with an
 				//       extension — that marker is the boundary
-				//       (`logs/2026-05-03/app.log-12-…`), or
+				//       (`logs/2026-05-03/app.log-12-...`), or
 				//   (b) the rest of the token carries no further path
 				//       structure — no `/` and no `.` — so nothing
 				//       suggests the path continues
 				//       (`CHANGELOG-12-2026-05-03`).
 				// Otherwise the digits are still inside the path
-				// (`logs/2026` + `03/app.log…`) and a later marker is the
+				// (`logs/2026` + `03/app.log...`) and a later marker is the
 				// real one.
 				//
 				// Advancing on the *absence* of a stop signal is what
@@ -1044,7 +1044,7 @@ mod tests {
 	#[test]
 	fn dash_tier_does_not_run_past_the_path_into_the_body() {
 		// The dash tier keeps the *last* `-<digits>-` marker so that a
-		// dated path (`logs/2026-05-03/…`) isn't split at its first
+		// dated path (`logs/2026-05-03/...`) isn't split at its first
 		// triplet. But a context-line *body* can be whitespace-free and
 		// carry a triplet of its own — the walk must not follow it there.
 		assert_eq!(

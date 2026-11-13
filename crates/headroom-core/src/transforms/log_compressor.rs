@@ -532,7 +532,7 @@ impl StackTraceDetector {
 	}
 
 	fn is_dotnet_frame(s: &str) -> bool {
-		// Pattern: `at <symbol>(<args>) in <file>:line <N>` — the ` in … :line`
+		// Pattern: `at <symbol>(<args>) in <file>:line <N>` — the ` in ... :line`
 		// suffix is what distinguishes .NET from Java frames.
 		s.starts_with("at ") && s.contains(") in ") && s.contains(":line ")
 	}

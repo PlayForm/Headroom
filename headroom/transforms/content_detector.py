@@ -375,7 +375,7 @@ def _try_detect_json(content: str) -> DetectionResult | None:
     """Detect JSON by PARSING, not by surface patterns.
 
     JSON is whatever parses as JSON - objects, arrays, and any nesting are all
-    equally JSON, so a leading-``[`` check misses every ``{…}`` config/data file.
+    equally JSON, so a leading-``[`` check misses every ``{...}`` config/data file.
     Tool output is often a JSON value wrapped in a little surrounding text (a
     harness observation shell, an ``Exit code:`` prefix); we decode one JSON value
     out of the payload and accept it when it is the bulk of the content, which
@@ -581,8 +581,8 @@ def _is_search_result_line(line: str) -> bool:
     """True when a line looks like ``path:line:content`` grep output.
 
     The bare ``^[^\\s:]+:\\d+:`` shape also matches ISO-8601 timestamps
-    (``…T09:57:59…``) and XML-ish wrappers harnesses prepend to user turns
-    (Copilot CLI's ``<current_datetime>…`` line), which misroutes prose to
+    (``...T09:57:59...``) and XML-ish wrappers harnesses prepend to user turns
+    (Copilot CLI's ``<current_datetime>...`` line), which misroutes prose to
     the SearchCompressor — and that compressor keeps only matching lines,
     deleting the rest. So the pre-colon segment must additionally look like
     a file path: no angle brackets and no ``=`` (rules out markup tags and

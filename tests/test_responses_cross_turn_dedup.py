@@ -1,8 +1,8 @@
 """Cross-turn dedup on the OpenAI Responses path (Codex ``function_call_output``).
 
 Fixtures mirror a REAL Codex run captured through the headroom proxy: a file read
-returns as ``{"type":"function_call_output","call_id":...,"output":"Chunk ID: …\\n
-Wall time: …\\nProcess exited with code 0\\nOriginal token count: …\\nOutput:\\n
+returns as ``{"type":"function_call_output","call_id":...,"output":"Chunk ID: ...\\n
+Wall time: ...\\nProcess exited with code 0\\nOriginal token count: ...\\nOutput:\\n
 <FILE BODY>\\n"}``. The ``Chunk ID`` / ``Wall time`` header varies per call, so a
 whole-block match never fires — longest-span matching must fold the identical
 body and leave the varying header verbatim.

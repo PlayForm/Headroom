@@ -1028,7 +1028,7 @@ def test_openai_responses_adapter_never_folds_a_file_read(tool, as_content_part)
 
     This is the Codex wire, where `read` genuinely returns raw file bytes rather
     than Claude Code's `cat -n` rendering — so it is the shape where folding a
-    read really does destroy the `Edit(old_string=…)` anchor the model is about
+    read really does destroy the `Edit(old_string=...)` anchor the model is about
     to type. See DEFAULT_BYTE_EXACT_EXCLUDE_TOOLS. The grep folds above must keep
     working; only reads opt out.
     """

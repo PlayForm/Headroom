@@ -126,7 +126,7 @@ pub(crate) fn hf_token() -> Option<String> {
 }
 
 /// The Hub endpoint: `HF_ENDPOINT` without trailing slashes (Python's
-/// `constants.ENDPOINT` strips them, and `hf-hub` appends `/{repo}/…`, so a
+/// `constants.ENDPOINT` strips them, and `hf-hub` appends `/{repo}/...`, so a
 /// kept slash would request `//repo`), else `https://huggingface.co`.
 pub(crate) fn hf_endpoint() -> String {
 	match std::env::var("HF_ENDPOINT") {

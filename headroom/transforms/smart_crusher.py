@@ -85,7 +85,7 @@ CCR_SENTINEL_KEY = "_ccr_dropped"
 # `enable_ccr_marker` on (headroomlabs-ai/headroom#3650). Unlike the
 # dict sentinel object above, this one is a plain string so string
 # arrays keep a uniform element type.
-SCALAR_SENTINEL_PREFIX = "… "
+SCALAR_SENTINEL_PREFIX = "... "
 SCALAR_SENTINEL_INFIX = " more items "
 
 
@@ -94,7 +94,7 @@ def is_ccr_sentinel(item: Any) -> bool:
 
     Covers both sentinel shapes: the dict object (``{"_ccr_dropped": ...}``)
     emitted for dict arrays, and the plain-string sentinel
-    (``"… N more items <<ccr:HASH N_items_offloaded>>"``) appended to
+    (``"... N more items <<ccr:HASH N_items_offloaded>>"``) appended to
     string/number/mixed arrays when items are dropped
     (headroomlabs-ai/headroom#3650).
     """

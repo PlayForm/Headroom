@@ -3,7 +3,7 @@
 ## 0.1.1
 
 - Inject the upstream bearer only on requests that go upstream. Local routes
-  (`/health`, `/stats*`, `/metrics`, `/v1/compress*`, `/ext/*`, …; see README)
+  (`/health`, `/stats*`, `/metrics`, `/v1/compress*`, `/ext/*`, ...; see README)
   are passed through untouched, so an unreachable IdP no longer 502s health
   probes and management calls no longer mint tokens. `/p/<project>/` prefixes
   are stripped first.

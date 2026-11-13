@@ -77,7 +77,7 @@ def _categorize_reason(reason: str | None) -> str:
         return "applied"
     if reason in UNIT_REASON_CATEGORIES:
         return UNIT_REASON_CATEGORIES[reason] or "applied"
-    # cache_zone_* uses a dynamic suffix (cache_zone_frozen, cache_zone_prefix, …)
+    # cache_zone_* uses a dynamic suffix (cache_zone_frozen, cache_zone_prefix, ...)
     if reason.startswith("cache_zone_"):
         return "cache_zone"
     return "other"

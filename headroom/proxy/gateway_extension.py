@@ -1,6 +1,6 @@
 """The gateway turn contract as a compress-turn extension.
 
-Everything a gateway (Kong, Envoy, LiteLLM, Cloudflare …) needs from
+Everything a gateway (Kong, Envoy, LiteLLM, Cloudflare ...) needs from
 ``POST /v1/compress`` — the ``gateway`` capability block, the full provider
 ``body``, ``turn_id`` / ``route`` / ``obligations`` / ``headers``, the
 ``POST /v1/compress/response`` second half, the pending-turn registry and the

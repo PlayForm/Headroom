@@ -105,7 +105,7 @@ rate(headroom_cache_bust_total[5m])
 |---|---|
 | `headroom_requests_total` | **Completed** requests — the denominator for success-side stats, not total traffic. A request that ended in a 4xx, 5xx or 429 never reaches it. Unlabelled. |
 | `headroom_inbound_requests_total` | Every inbound HTTP request the proxy accepted, whatever the outcome. This is the all-traffic counter. |
-| `headroom_requests_by_provider{provider}` | Traffic split by provider — `anthropic`, `openai`, `gemini`, `bedrock`… **Completed requests only**, same denominator as `headroom_requests_total`. Use `headroom_requests_failed_total{provider}` for the failure side. |
+| `headroom_requests_by_provider{provider}` | Traffic split by provider — `anthropic`, `openai`, `gemini`, `bedrock`... **Completed requests only**, same denominator as `headroom_requests_total`. Use `headroom_requests_failed_total{provider}` for the failure side. |
 | `headroom_requests_by_model{model}` | Traffic split by model. Capped at 1024 distinct; overflow lands in `model="other"`. Completed requests only. |
 | `headroom_requests_failed_total{provider}` | Requests that failed upstream — **4xx and 5xx**, excluding 429. Excluded from `headroom_requests_total`, so add it back when you compute a rate. |
 | `headroom_requests_rate_limited_total{source}` | Requests rejected with 429, by **either** Headroom's own rate limiter (`source="headroom"`) or the upstream provider (`source="upstream"`). Excluded from `headroom_requests_total`. |
@@ -126,7 +126,7 @@ at `>= 400`, every 4xx, 5xx and 429 drops out of it. So:
   `/metrics`, `/stats` and other non-proxy HTTP).
 
 That is why the failure-rate query below adds `failed` back into its own denominator, and
-why you should not "simplify" it to `… / rate(headroom_requests_total[5m])`: failures are
+why you should not "simplify" it to `... / rate(headroom_requests_total[5m])`: failures are
 not in `requests_total`, so that form divides failures by successes and over-reports the
 rate — badly, during exactly the incident you wrote it for (at 100% failures the denominator
 goes to zero).
@@ -198,7 +198,7 @@ Only if you're on an Anthropic OAuth/subscription plan. OTel only, gauges, no la
 | `headroom_savings_attributed_tokens_total{source,realized}` | Tokens saved, broken out by named source. `source="tool_search"` is tool-schema deferral. |
 | `headroom_savings_attributed_usd_total{source,realized}` | Dollars saved by source. **Gauge, can go negative** — don't `rate()` it. |
 | `headroom_savings_attribution_events_total{source,realized}` | How often each source contributed. |
-| `headroom_waste_signal_tokens_total{signal}` | Wasteful patterns *detected* in the input — `json_bloat`, `base64`, `repetition`, `reread`… This is diagnosis, **not savings**. |
+| `headroom_waste_signal_tokens_total{signal}` | Wasteful patterns *detected* in the input — `json_bloat`, `base64`, `repetition`, `reread`... This is diagnosis, **not savings**. |
 
 These rows *explain* the headline total — they are never added to it.
 

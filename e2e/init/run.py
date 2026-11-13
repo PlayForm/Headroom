@@ -134,9 +134,9 @@ def _verify_claude_local(ctx: CaseContext) -> None:
         record["argv"] for record in _read_jsonl(ctx.shim_log) if record["tool"] == "claude"
     ]
     # `init` auto-registers the headroom MCP server after the marketplace
-    # install (see d9d8972 — keeps `[Retrieve more: hash=…]` markers from
+    # install (see d9d8972 — keeps `[Retrieve more: hash=...]` markers from
     # being dead pointers for users who never ran `headroom mcp install`).
-    # The `-e HEADROOM_PROXY_URL=…` arg is only emitted when the proxy
+    # The `-e HEADROOM_PROXY_URL=...` arg is only emitted when the proxy
     # port differs from the 8787 default; this case uses --port 9011.
     expected_prefix = [
         ["plugin", "marketplace", "add", str(REPO_ROOT_IN_CONTAINER)],

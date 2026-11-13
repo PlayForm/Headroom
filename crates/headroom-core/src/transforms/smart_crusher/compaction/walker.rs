@@ -118,7 +118,7 @@ fn walk_array(items: Vec<Value>, ctx: &DocumentCompactor) -> Value {
 
 	// Then try the array as a whole. `compact_with_store` (not the
 	// store-less `compact`) is required: the table compactor substitutes
-	// opaque cells with `<<ccr:HASH,…>>` markers, and without the store
+	// opaque cells with `<<ccr:HASH,...>>` markers, and without the store
 	// those markers point at a key nothing ever wrote — `headroom_retrieve`
 	// 404s and the cell's bytes are gone for good (#2694).
 	let c = compact_with_store(&inner, &ctx.config, ctx.ccr_store.as_ref());

@@ -3,7 +3,7 @@ title: OAuth2 Upstream Auth
 description: Client-credentials bearer tokens for OpenAI-compatible enterprise backends, via the headroom-oauth2 proxy extension.
 ---
 
-Enterprise AI gateways (Azure AD / Entra, Okta, Auth0, Keycloak, Cognito, …) often protect their OpenAI-compatible endpoints with an OAuth2 client-credentials flow. The [`headroom-oauth2`](https://github.com/headroomlabs-ai/headroom/tree/main/plugins/headroom-oauth2) extension mints a bearer token from a configurable token endpoint, caches and refreshes it (single-flight), and injects `Authorization: Bearer <token>` on each upstream request. It is fully vendor-neutral — no provider is hard-coded.
+Enterprise AI gateways (Azure AD / Entra, Okta, Auth0, Keycloak, Cognito, ...) often protect their OpenAI-compatible endpoints with an OAuth2 client-credentials flow. The [`headroom-oauth2`](https://github.com/headroomlabs-ai/headroom/tree/main/plugins/headroom-oauth2) extension mints a bearer token from a configurable token endpoint, caches and refreshes it (single-flight), and injects `Authorization: Bearer <token>` on each upstream request. It is fully vendor-neutral — no provider is hard-coded.
 
 It plugs into Headroom's public `headroom.proxy_extension` entry-point seam, so it is fully out-of-tree and opt-in.
 

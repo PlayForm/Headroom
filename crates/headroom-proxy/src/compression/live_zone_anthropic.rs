@@ -856,7 +856,7 @@ mod tests {
 					"marker must be present on last tool",
 				);
 			},
-			other => panic!("expected Compressed{{e3_…}}, got {other:?}"),
+			other => panic!("expected Compressed{{e3_...}}, got {other:?}"),
 		}
 	}
 

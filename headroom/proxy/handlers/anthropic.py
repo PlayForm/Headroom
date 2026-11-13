@@ -1154,7 +1154,7 @@ class AnthropicHandlerMixin:
 
         The append-only check ignores per-turn transport / cache-directive / client
         annotation noise (cache_control moved to the newest block, litellm caller,
-        provider_specific_fields, streaming index, string<->block content shape, …) via
+        provider_specific_fields, streaming index, string<->block content shape, ...) via
         the shared canonicalizer, so that churn doesn't spuriously drop cache mode to raw
         forwarding. Delegates to the provider-agnostic engine in prefix_tracker so
         OpenAI / Bedrock share one implementation.

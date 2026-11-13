@@ -44,7 +44,7 @@ if [ "$need_install" = "1" ]; then
   if [ -n "$avail" ] && [ "$avail" -lt 2 ]; then
     echo "!! <2Gi free — aborting before heavy install (free space, then re-run)"; exit 1
   fi
-  echo "▶ installing pip+maturin, then headroom-ai[lean] + license + 5 plugins (editable)…"
+  echo "▶ installing pip+maturin, then headroom-ai[lean] + license + 5 plugins (editable)..."
   "$PY" -m pip install -U pip maturin
   # litellm >=1.92 ships an sdist-only Rust bridge whose AWS-SDK crates need rustc>=1.94.1;
   # the default rustup toolchain here is older (pip builds litellm in a temp dir that misses
@@ -121,7 +121,7 @@ export HEADROOM_SAVINGS_PROFILE=coding
 cleanup() { [ -n "${PROXY_PID:-}" ] && kill "$PROXY_PID" 2>/dev/null || true; }
 trap cleanup INT TERM EXIT
 
-echo "▶ starting proxy on :$PORT  (profile=coding, mode=cache, all 5 extensions)…"
+echo "▶ starting proxy on :$PORT  (profile=coding, mode=cache, all 5 extensions)..."
 headroom proxy --port "$PORT" --mode cache --proxy-extension '*' > "$LOG" 2>&1 &
 PROXY_PID=$!
 

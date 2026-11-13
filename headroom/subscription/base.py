@@ -1,6 +1,6 @@
 """Base abstractions for pluggable AI-tool quota / rate-limit trackers.
 
-Every provider tracker (Anthropic, Codex, Copilot, …) inherits from
+Every provider tracker (Anthropic, Codex, Copilot, ...) inherits from
 :class:`QuotaTracker` and is registered with the process-global
 :class:`QuotaTrackerRegistry`.  ``server.py`` only interacts with the
 registry — adding a new provider requires *zero* changes to the server.

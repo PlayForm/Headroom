@@ -23,7 +23,7 @@ Why this shape:
 
 Patterns are keyed by `(auth_mode, model_family, structure_hash)` —
 each tenant slice (PAYG vs OAuth vs subscription) and each model family
-(claude-3-5, gpt-4o, …) learns independently. Defaults `"unknown"` when
+(claude-3-5, gpt-4o, ...) learns independently. Defaults `"unknown"` when
 either is not yet plumbed through (PR-F3 lights up real auth-mode
 detection).
 
@@ -662,7 +662,7 @@ class ToolIntelligenceNetwork:
             items: Optional list of items being compressed for field-level learning.
             auth_mode: Tenant auth slice (`payg` / `oauth` / `subscription`).
                 Defaults to `DEFAULT_AUTH_MODE` when not provided.
-            model_family: Target model family (`claude-3-5`, `gpt-4o`, …).
+            model_family: Target model family (`claude-3-5`, `gpt-4o`, ...).
                 Defaults to `DEFAULT_MODEL_FAMILY` when not provided.
             tenant_key: PR-F3 per-tenant aggregation slice. When ``None``,
                 reads from the request-scoped ``ContextVar`` populated by

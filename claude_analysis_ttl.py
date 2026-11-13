@@ -272,7 +272,7 @@ def main() -> None:
     for m, _agg, A, B, _p in sorted(rows, key=lambda r: -r[2]):
         name = m or "<unknown>"
         if len(name) > 22:
-            name = name[:21] + "…"
+            name = name[:21] + "..."
         dB = B - A
         print(f"  {name:<22} ${A:>13,.2f} ${B:>13,.2f}  ${dB:>+9,.2f}")
     print("  " + "-" * 70)

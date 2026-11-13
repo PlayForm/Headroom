@@ -135,7 +135,7 @@ pub fn start_pending(
 
 /// Finalize a pending record as failed on a proxy-side rejection
 /// (bad path, missing credentials, signing failure, oversized body,
-/// …). Sugar for handler early-return paths, so "every request that
+/// ...). Sugar for handler early-return paths, so "every request that
 /// enters a handler produces exactly one record" survives rejects: a
 /// credentials outage must show in `/stats` as a failure spike, not
 /// as zero traffic.
@@ -291,7 +291,7 @@ fn merge_stream_usage_depth(acc: &mut Usage, payload: &Value, depth: u8) {
             tracing::warn!(
                 event = "stats_capture_bytes_depth_exceeded",
                 depth = depth,
-                "nested {{\"bytes\": …}} wrapping exceeded the unwrap cap; \
+                "nested {{\"bytes\": ...}} wrapping exceeded the unwrap cap; \
                  ignoring the payload (real Bedrock wraps exactly once)"
             );
             return;
@@ -551,7 +551,7 @@ mod tests {
         assert_eq!(acc.cache_write_tokens, 3);
     }
 
-    /// A crafted payload nesting `{"bytes": …}` inside itself must
+    /// A crafted payload nesting `{"bytes": ...}` inside itself must
     /// hit the unwrap cap instead of recursing until the stack blows
     /// (a stack overflow aborts the whole process). Real Bedrock
     /// wraps exactly once.
@@ -569,7 +569,7 @@ mod tests {
             acc.output_tokens, 0,
             "usage beyond the unwrap cap is ignored, not chased"
         );
-        // …while the real single-wrap shape still works.
+        // ...while the real single-wrap shape still works.
         let single = json!({"bytes": engine.encode(
             json!({"type": "message_delta", "usage": {"output_tokens": 7}}).to_string()
         )});

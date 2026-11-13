@@ -13,7 +13,7 @@
 //! - `METRIC_*_HELP` — the HELP-line text used at registration. Kept
 //!   alongside the wire name so a rename catches both in one diff.
 //! - `LABEL_*` — the label-key string. Reuse across metrics where
-//!   the dimension is the same (`provider`, `strategy`, …).
+//!   the dimension is the same (`provider`, `strategy`, ...).
 
 // ---------- proxy_cache_hit_rate_per_session ----------
 
@@ -27,7 +27,7 @@ pub const METRIC_PROXY_CACHE_HIT_RATE_PER_SESSION_HELP: &str = "Per-session cach
 pub const METRIC_PROXY_COMPRESSION_RATIO_BY_STRATEGY: &str = "proxy_compression_ratio_by_strategy";
 pub const METRIC_PROXY_COMPRESSION_RATIO_BY_STRATEGY_HELP: &str = "Compression ratio (compressed_tokens / original_tokens) observed \
      per block that was actually shrunk by the live-zone dispatcher. \
-     Labelled by strategy (smart_crusher/log_compressor/…) and \
+     Labelled by strategy (smart_crusher/log_compressor/...) and \
      detected content_type.";
 
 // ---------- proxy_compression_rejected_by_token_check_total ----------

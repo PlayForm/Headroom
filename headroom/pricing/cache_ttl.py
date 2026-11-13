@@ -62,7 +62,7 @@ def cache_write_multiplier(ttl: str) -> float:
 def cache_rates_per_1m(input_per_1m: float) -> dict[str, float]:
     """Derive per-1M-token cache rates from a model's base input rate.
 
-    Returns ``{"read": …, "write_5m": …, "write_1h": …}`` in the same units as
+    Returns ``{"read": ..., "write_5m": ..., "write_1h": ...}`` in the same units as
     ``input_per_1m`` (USD per 1M tokens).
     """
     return {

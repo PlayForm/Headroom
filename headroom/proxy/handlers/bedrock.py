@@ -10,7 +10,7 @@ This mixin intercepts that Bedrock REST shape, compresses the request body with
 the **same** ``anthropic_pipeline`` used for ``/v1/messages``, and forwards to a
 configurable upstream (``config.bedrock_api_url``). The InvokeModel body for
 Anthropic models *is* the Anthropic Messages shape
-(``{anthropic_version, system, messages, max_tokens, …}``; the model travels in
+(``{anthropic_version, system, messages, max_tokens, ...}``; the model travels in
 the URL), so the existing pipeline applies with no translation.
 
 LIMITATION — SigV4. Rewriting the body invalidates the caller's SigV4 signature

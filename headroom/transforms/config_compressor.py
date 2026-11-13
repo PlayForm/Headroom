@@ -12,7 +12,7 @@ lossless-first tiers:
   round-trip self-verified before the result is adopted.
 - Tier 2 (CCR-recoverable, default mode only): whole-line comments and blank
   lines are elided behind a summary line carrying a ``Retrieve original:
-  hash=…`` marker; the full original is persisted to the CompressionStore
+  hash=...`` marker; the full original is persisted to the CompressionStore
   first, so nothing is lost.
 - Tier 3 (CCR-recoverable, default mode only): TOML files with an
   ``[[array-of-tables]]`` are parsed with the stdlib ``tomllib`` reference
@@ -20,7 +20,7 @@ lossless-first tiers:
   which folds the repeated per-record keys into a single schema. Only TOML
   is bridged — its stdlib parser makes the records ground-truth; YAML/INI
   need non-stdlib or bespoke parsing and stay out of scope. Recovery again
-  rides a stored-original + ``Retrieve original: hash=…`` marker.
+  rides a stored-original + ``Retrieve original: hash=...`` marker.
 
 No new compression algorithm and no new CCR plumbing live here — Tier 1 rides
 `compact_lossless`, Tier 2/Tier 3 ride the production `CompressionStore`, and

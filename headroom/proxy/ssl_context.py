@@ -26,7 +26,7 @@ Sources, in the order they are resolved:
 Strict-mode toggle (``HEADROOM_TLS_STRICT``):
     Python 3.13 + OpenSSL 3.x enable ``VERIFY_X509_STRICT`` by default, which
     enforces RFC 5280 §4.2.1.9 — a CA cert's ``basicConstraints`` MUST be
-    marked critical. Corporate TLS-inspection roots (Zscaler, Netskope, …)
+    marked critical. Corporate TLS-inspection roots (Zscaler, Netskope, ...)
     commonly set ``CA:TRUE`` *without* the critical bit, so the chain is
     rejected with ``Basic Constraints of CA cert not marked critical`` even
     though the root is correctly installed and trusted. A CA bundle env var

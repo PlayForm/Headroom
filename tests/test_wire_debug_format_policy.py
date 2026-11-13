@@ -22,7 +22,7 @@ def test_wire_debug_preview_compacts_json_like_values() -> None:
 
 
 def test_wire_debug_preview_decodes_bytes_and_truncates() -> None:
-    assert wire_debug_preview(b"hello world", max_chars=8) == "hello w…"
+    assert wire_debug_preview(b"hello world", max_chars=8) == "hello w..."
 
 
 def test_wire_debug_preview_returns_empty_string_for_none() -> None:

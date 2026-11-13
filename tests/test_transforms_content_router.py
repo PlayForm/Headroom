@@ -2507,7 +2507,7 @@ def test_detect_content_overrides_html_misroute_for_grep_and_logs(
 def test_datetime_prefixed_user_prompt_survives_router() -> None:
     """Regression (2026-08-23): interactive wrap-copilot prompts were deleted.
 
-    Copilot CLI prepends ``<current_datetime>…</current_datetime>`` to every
+    Copilot CLI prepends ``<current_datetime>...</current_datetime>`` to every
     interactive user turn; the ISO timestamp matched the grep ``file:line:``
     detector, the one-line prompt classified as SEARCH_RESULTS, and
     SearchCompressor kept only the datetime line — the model received no

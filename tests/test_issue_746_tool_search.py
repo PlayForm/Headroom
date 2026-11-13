@@ -336,7 +336,7 @@ def test_core_tools_match_case_insensitively() -> None:
 
 def test_client_tool_search_tool_is_never_deferred() -> None:
     # ToolSearch is the client's own schema fetcher for tools that never appear
-    # in the request body (TaskCreate, WebFetch, …). Deferring it hides the only
+    # in the request body (TaskCreate, WebFetch, ...). Deferring it hides the only
     # tool that can load them, so they become permanently unreachable.
     out = inject_tool_search_deferral(_claude_code_tools())
     by_name = {t.get("name"): t for t in out if "name" in t}

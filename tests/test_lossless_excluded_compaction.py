@@ -218,7 +218,7 @@ def test_read_is_still_cross_turn_deduped(tokenizer):
     result = router.apply(messages, tokenizer, compress_user_messages=True)
     outs = [m["content"] for m in result.messages if m.get("role") == "tool"]
     assert outs[0] == CODE  # keep-earliest: the anchor copy is never rewritten
-    assert len(outs[2]) < len(CODE)  # …and the later repeats still fold to pointers
+    assert len(outs[2]) < len(CODE)  # ...and the later repeats still fold to pointers
 
 
 # --- pluggable lossless provider seam ---------------------------------------

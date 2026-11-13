@@ -15,7 +15,7 @@ is now a thin shim that:
 # Bug fixes the Rust port carries (and this shim therefore inherits)
 
 * **Windows paths.** Pre-3e.2 `_GREP_PATTERN`/`_RG_CONTEXT_PATTERN`
-  regexes treated the drive-letter colon (`C:\\Users\\…`) as the
+  regexes treated the drive-letter colon (`C:\\Users\\...`) as the
   line-number-marker separator and silently dropped every Windows-
   formatted line from `file_matches`. The Rust parser detects the
   drive prefix and starts the line-number scan after it.

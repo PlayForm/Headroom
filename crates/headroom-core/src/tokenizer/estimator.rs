@@ -1,5 +1,5 @@
 //! Character-density estimator. Used as a fallback for any tokenizer family
-//! we haven't wired in yet (Anthropic Claude, Google Gemini, Cohere, …).
+//! we haven't wired in yet (Anthropic Claude, Google Gemini, Cohere, ...).
 //!
 //! Mirrors `headroom.tokenizers.estimator.EstimatingTokenCounter`. Latin chars
 //! are priced at `chars_per_token`; dense scripts (CJK / Kana / Hangul / full-

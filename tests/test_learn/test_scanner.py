@@ -187,7 +187,7 @@ class TestDecodeProjectPath:
     Note: _decode_project_path's greedy branch only activates for paths whose
     first component is ``Users`` (the common macOS home prefix).  Tests that
     exercise the greedy decoder therefore synthesise an encoded name rooted at
-    ``/Users/<username>/…`` inside a real temporary directory created under
+    ``/Users/<username>/...`` inside a real temporary directory created under
     that prefix.  When the temp directory does not exist under ``/Users`` the
     tests fall back to ``/tmp`` and rely only on the fast simple-replace path.
     """
@@ -220,7 +220,7 @@ class TestDecodeProjectPath:
 
     @pytest.fixture()
     def users_tmp(self, tmp_path: Path) -> Generator[Path, None, None]:
-        """Return a temporary directory whose path starts with /Users/…
+        """Return a temporary directory whose path starts with /Users/...
 
         On macOS the system temp dir is under /private/var, so we create a
         disposable directory directly inside the real user's home instead.
@@ -251,7 +251,7 @@ class TestDecodeProjectPath:
     def test_dot_and_hyphen_in_dirname_via_greedy(self, users_tmp: Path) -> None:
         """GitHub.nosync/my-project — dot parent + hyphenated child (issue #47).
 
-        Simple replace-all gives ``…/GitHub.nosync/my/project`` which does not
+        Simple replace-all gives ``.../GitHub.nosync/my/project`` which does not
         exist, so the greedy decoder must reconstruct ``my-project``.
         """
         project = users_tmp / "GitHub.nosync" / "my-project"
@@ -301,7 +301,7 @@ class TestDecodeProjectPath:
 
         Claude Code encodes /Users/foo/org/my_project as
         -Users-foo-org-my-project.  Simple replace gives
-        …/org/my/project which does not exist, so the greedy decoder
+        .../org/my/project which does not exist, so the greedy decoder
         must reconstruct my_project from tokens ['my', 'project'].
         """
         project = users_tmp / "org" / "my_project"
@@ -489,7 +489,7 @@ class TestDecodeProjectPath:
 
         Claude Code flattens ``/``, ``.``, ``-`` and ``_`` all to ``-`` when
         escaping, so a project under ``/Users/first.last`` (or
-        ``/home/first.last``) is stored as ``-Users-first-last-…``. The decoder
+        ``/home/first.last``) is stored as ``-Users-first-last-...``. The decoder
         used to consume only the first token after ``Users``/``home`` as the
         home directory and walk from ``/Users/first`` (which does not exist), so
         it bailed out and callers fell back to the literal
@@ -499,7 +499,7 @@ class TestDecodeProjectPath:
         ``test_windows_username_with_dot_stays_single_component``.
 
         Rooted at the real home so it exercises the ``Users``/``home`` branch on
-        both macOS (``/Users/…``) and Linux (``/home/…``); skipped when the home
+        both macOS (``/Users/...``) and Linux (``/home/...``); skipped when the home
         directory is neither rooted there nor writable.
         """
         import shutil

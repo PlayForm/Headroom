@@ -299,8 +299,8 @@ async def test_huge_model_supplied_id_is_capped_in_the_warning() -> None:
 
     huge, short = (r.getMessage() for r in records)
     assert len(huge) < 200
-    assert "…(+" in huge
-    assert "'short-id'" in short and "…" not in short
+    assert "...(+" in huge
+    assert "'short-id'" in short and "..." not in short
 
 
 class _Mem0V2SearchClient:

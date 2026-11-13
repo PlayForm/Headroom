@@ -57,7 +57,7 @@ def test_json_detection_distinguishes_dict_arrays_and_other_lists() -> None:
     assert empty_result is not None
     assert empty_result.metadata == {"item_count": 0, "is_dict_array": False}
 
-    # JSON OBJECTS are recognized too (config/data files are ``{…}``, not arrays).
+    # JSON OBJECTS are recognized too (config/data files are ``{...}``, not arrays).
     object_result = _try_detect_json('{"id": 1}')
     assert object_result is not None
     assert object_result.content_type is ContentType.JSON_ARRAY
@@ -173,7 +173,7 @@ def test_search_detection_uses_match_ratio() -> None:
 def test_search_detection_rejects_datetime_prefixed_user_message() -> None:
     """Regression: wrap-copilot ate one-line interactive prompts (2026-08-23).
 
-    Copilot CLI prepends ``<current_datetime>…</current_datetime>`` to every
+    Copilot CLI prepends ``<current_datetime>...</current_datetime>`` to every
     interactive user turn. The ISO-8601 ``T09:57:59`` matched the grep
     ``file:line:`` pattern, so a datetime + one-line prompt classified as
     SEARCH_RESULTS (1 match / 2 lines = 50% ≥ 30%) and the SearchCompressor

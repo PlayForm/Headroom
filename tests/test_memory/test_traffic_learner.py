@@ -3155,7 +3155,7 @@ class TestExtractPreferencesRealCorrections:
 
 class TestExtractPreferencesSentenceBoundary:
     """The tighter capture group must reject mid-sentence rambling so we
-    never persist fragments like ``of Grep, Glob. When spawning agents…``."""
+    never persist fragments like ``of Grep, Glob. When spawning agents...``."""
 
     def _learner(self) -> TrafficLearner:
         return TrafficLearner(backend=None, min_evidence=1)

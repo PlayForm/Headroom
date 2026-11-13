@@ -1,7 +1,7 @@
 """Tests for headroom.proxy.tool_schema_compaction — shared tool-schema compaction.
 
 Verifies that the compaction logic (shared by OpenAI and Anthropic handlers):
-- strips JSON Schema annotation keys ($schema, title, examples, …)
+- strips JSON Schema annotation keys ($schema, title, examples, ...)
 - preserves property names that collide with DROP_KEYS (e.g. a field named "title")
 - normalises description whitespace
 - never inflates payload size
@@ -317,8 +317,8 @@ class TestTruncateDescription:
 
         desc = "This is an extremely long description that goes on and on without any sentence boundary"
         result = _truncate_description(desc, 40)
-        assert len(result) <= 45  # 40 + "…"
-        assert result.endswith("…")
+        assert len(result) <= 45  # 40 + "..."
+        assert result.endswith("...")
 
     def test_whitespace_normalised_before_truncation(self) -> None:
         from headroom.proxy.tool_schema_compaction import _truncate_description

@@ -303,7 +303,7 @@ fn hash_value(value: &serde_json::Value) -> [u8; 32] {
 }
 
 /// Bounded session → last-seen `StructuralHash` map. Wrapped in
-/// `Arc<Mutex<…>>` so it can be cloned freely into `AppState` without
+/// `Arc<Mutex<...>>` so it can be cloned freely into `AppState` without
 /// duplicating the underlying LRU.
 #[derive(Clone)]
 pub struct DriftState {
@@ -343,13 +343,13 @@ impl std::fmt::Debug for DriftState {
 /// Logging contract:
 ///
 /// - First time a session is seen → `tracing::info!(event =
-///   "cache_drift_first_request", …)` with a 16-char prefix of the
+///   "cache_drift_first_request", ...)` with a 16-char prefix of the
 ///   SHA-256 hex of `session_key`.
 /// - Subsequent requests with no drifted dimension (append-only
 ///   growth into the early window included) → no event.
 /// - Subsequent requests with any dimension drifting →
 ///   `tracing::warn!(event = "cache_drift_observed", drift_dims =
-///   "<comma-joined>", previous_hash_prefix, current_hash_prefix, …)`.
+///   "<comma-joined>", previous_hash_prefix, current_hash_prefix, ...)`.
 pub fn observe_drift(state: &DriftState, session_key: &str, current: StructuralHash) {
     let session_prefix = session_key_log_prefix(session_key);
     let mut cache = match state.cache.lock() {
@@ -968,10 +968,10 @@ mod tests {
             !key_a.contains("conv-42"),
             "session keys stay opaque even for non-secret ids: {key_a}"
         );
-        // The explicit id pins the session across body variance…
+        // The explicit id pins the session across body variance...
         let key_b = derive_session_key(&headers, &addr, &body_b, ApiKind::Anthropic);
         assert_eq!(key_a, key_b);
-        // …and different ids mean different sessions.
+        // ...and different ids mean different sessions.
         let mut headers2 = headers.clone();
         headers2.insert("x-headroom-session-id", "conv-43".parse().unwrap());
         let key_c = derive_session_key(&headers2, &addr, &body_a, ApiKind::Anthropic);

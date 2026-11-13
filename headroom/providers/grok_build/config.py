@@ -73,7 +73,7 @@ def redirect_existing_grok_build_base_url(content: str, base_url: str) -> tuple[
     TOML rejects duplicate table headers, so when the user already owns
     ``[model.grok-build]`` we update that table in place instead of appending
     a second one. The previous ``base_url`` value is preserved in a trailing
-    ``# was: …`` comment for visibility; the pre-wrap snapshot still enables
+    ``# was: ...`` comment for visibility; the pre-wrap snapshot still enables
     byte-for-byte restore on ``headroom unwrap grok-build``.
     """
     match = _GROK_BUILD_TABLE_RE.search(content)

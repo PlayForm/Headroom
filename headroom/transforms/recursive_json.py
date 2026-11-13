@@ -14,7 +14,7 @@ Why this is CCR-safe by construction
 -------------------------------------
 Each span is handed to the router's own ``_apply_strategy_to_content`` — the same
 code path a whole-block JSON already takes — so SmartCrusher / CodeCompressor
-register their ``<<ccr:HASH…>>`` retrieval markers exactly as they do today. CCR
+register their ``<<ccr:HASH...>>`` retrieval markers exactly as they do today. CCR
 is hash-keyed and therefore location-agnostic: a marker resolves whether it sits
 at the top of a block or nested inside one. This module never touches the CCR
 store; it only relocates where the dispatch is invoked.

@@ -2877,7 +2877,7 @@ def has_new_ccr_markers(
 
     ``overlay_cached_prefix`` (#1850) replays the previously-forwarded (compressed)
     prefix byte-identical to keep the prompt cache warm — which reintroduces the
-    ``hash=…`` markers that prefix already carried. Those markers are *historical*:
+    ``hash=...`` markers that prefix already carried. Those markers are *historical*:
     the agent saw them last turn and the retrieve-tool state was already settled
     for them. Only markers that are genuinely NEW this turn justify overriding the
     tool-injection deferral (#1006); counting the replayed ones would re-inject the
@@ -3807,7 +3807,7 @@ def reset_tool_search_hint_state() -> None:
 _CLIENT_SIDE_SEARCH_FLOOR = frozenset({"toolsearch"})
 
 # Core coding tools kept non-deferred so routine edit/read/run loops never pay a
-# search round-trip. Everything else (Slack/Linear/Sentry/Notion/Snowflake/…) is
+# search round-trip. Everything else (Slack/Linear/Sentry/Notion/Snowflake/...) is
 # deferred and loaded on demand. Anthropic recommends keeping the 3–5 (here a few
 # more) most frequent tools resident.
 _TOOL_SEARCH_CORE_TOOLS = frozenset(
@@ -3832,7 +3832,7 @@ _TOOL_SEARCH_CORE_TOOLS = frozenset(
         "skill",
         # A client's own tool-search/schema-fetch tool (Claude Code's ``ToolSearch``).
         # It resolves tools the client keeps in its local registry and never puts in
-        # the request body (TaskCreate, WebFetch, …), so deferring it hides the only
+        # the request body (TaskCreate, WebFetch, ...), so deferring it hides the only
         # tool that can load them and they become permanently unreachable.
         "toolsearch",
     }
@@ -3950,9 +3950,9 @@ def anthropic_model_is_first_party(model_name: str) -> bool:
     First-party tool search (``tool_search_tool_*`` + ``defer_loading``) is
     rejected by Bedrock and Vertex, which the chat path skips by upstream URL.
     Gateway callers name those deployments in the model id instead:
-    ``bedrock/anthropic.claude-…``, ``anthropic.claude-…-v2:0``,
-    ``vertex_ai/claude-…``, ``claude-sonnet-4@20250514``. A LiteLLM-style
-    ``anthropic/claude-…`` prefix is first-party and stays eligible.
+    ``bedrock/anthropic.claude-...``, ``anthropic.claude-...-v2:0``,
+    ``vertex_ai/claude-...``, ``claude-sonnet-4@20250514``. A LiteLLM-style
+    ``anthropic/claude-...`` prefix is first-party and stays eligible.
     """
     lowered = (model_name or "").strip().lower()
     if not lowered:
@@ -3981,7 +3981,7 @@ def tools_are_anthropic_shaped(tools: Any) -> bool:
         if "function" in tool:
             return False
         if tool.get("type"):
-            continue  # typed server tool (web_search, computer, …)
+            continue  # typed server tool (web_search, computer, ...)
         if not tool.get("name") or "input_schema" not in tool:
             return False
         saw_real_tool = True
@@ -4286,7 +4286,7 @@ def inject_tool_search_deferral(
             or tool.get("type")
             or _tool_search_resident_key(tool.get("name")) in core_keys
         ):
-            # Non-dict, server/typed tools (web_search, computer, …), and core
+            # Non-dict, server/typed tools (web_search, computer, ...), and core
             # tools stay resident and unchanged.
             out.append(tool)
             if isinstance(tool, dict) and not tool.get("type"):
@@ -4332,7 +4332,7 @@ def inject_tool_search_deferral(
 # That is fine for a client's main loop — the proxy re-injects the same tools
 # array every turn — but Claude Code also replays the SAME transcript on
 # side-requests that carry a different, smaller tools array (the prompt-type
-# Stop hook evaluator, /compact, …). The proxy cannot predict those tool sets,
+# Stop hook evaluator, /compact, ...). The proxy cannot predict those tool sets,
 # so instead we repair the history: when the outbound request cannot support
 # the tool-search blocks, drop them. Deterministic (same request → same output,
 # so the prefix still caches), stateless (no session bookkeeping), and

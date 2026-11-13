@@ -486,12 +486,12 @@ mod tests {
         // Touch s1 so s2 becomes the eviction candidate.
         t.record_and_get_sticky_betas(BetaProvider::Anthropic, "s1", None);
         t.record_and_get_sticky_betas(BetaProvider::Anthropic, "s3", Some("c"));
-        // s1 survived the s3 insert…
+        // s1 survived the s3 insert...
         assert_eq!(
             t.record_and_get_sticky_betas(BetaProvider::Anthropic, "s1", None),
             "a"
         );
-        // …and s2 did not.
+        // ...and s2 did not.
         assert_eq!(
             t.record_and_get_sticky_betas(BetaProvider::Anthropic, "s2", None),
             ""
@@ -587,9 +587,9 @@ mod tests {
             HeaderValue::from_bytes(&[0xfa, 0xfb]).unwrap(),
         );
         apply_sticky_betas(&t, BetaProvider::Anthropic, "s1", &mut map, "req-1");
-        // Wire bytes untouched…
+        // Wire bytes untouched...
         assert_eq!(map.get("anthropic-beta").unwrap().as_bytes(), &[0xfa, 0xfb]);
-        // …and nothing recorded: the next ASCII turn sees only its
+        // ...and nothing recorded: the next ASCII turn sees only its
         // own tokens.
         let got = t.record_and_get_sticky_betas(BetaProvider::Anthropic, "s1", Some("y"));
         assert_eq!(got, "y");

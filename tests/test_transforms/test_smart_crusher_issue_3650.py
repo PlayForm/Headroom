@@ -30,7 +30,7 @@ def _issue_payload() -> str:
 
 def test_scalar_sentinel_recognized_by_python_shim() -> None:
     """Pure-Python coverage: the new string sentinel is a CCR sentinel."""
-    sentinel = "… 104 more items <<ccr:4f03caae30bb 104_items_offloaded>>"
+    sentinel = "... 104 more items <<ccr:4f03caae30bb 104_items_offloaded>>"
     assert is_ccr_sentinel(sentinel)
     # The dict sentinel keeps working.
     assert is_ccr_sentinel({"_ccr_dropped": "<<ccr:abc123 5_rows_offloaded>>"})
@@ -75,5 +75,5 @@ def test_issue_3650_router_emits_visible_retrievable_sentinel() -> None:
     doc = json.loads(compressed)
     assert doc["total"] == 120
     assert isinstance(doc["slugs"], list)
-    assert len(doc["slugs"]) < 120  # some were dropped…
-    assert any(is_ccr_sentinel(x) for x in doc["slugs"])  # …but marked
+    assert len(doc["slugs"]) < 120  # some were dropped...
+    assert any(is_ccr_sentinel(x) for x in doc["slugs"])  # ...but marked

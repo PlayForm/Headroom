@@ -88,7 +88,7 @@ def _name_candidates(model_lower: str) -> tuple[str, ...]:
     deviation on identical text: +15% English, -33% JSON, -38% logs. Affected
     every ``bedrock/``, ``vertex_ai/``, ``openrouter/``, ``anthropic/``,
     ``azure/``, ``groq/`` and ``litellm/`` form, plus Bedrock's bare
-    ``anthropic.claude-…`` and its ``us.``/``eu.``/``apac.`` region variants.
+    ``anthropic.claude-...`` and its ``us.``/``eu.``/``apac.`` region variants.
 
     Yielding candidates rather than rewriting the name keeps the exact-match case
     first, so no currently-correct resolution can change.

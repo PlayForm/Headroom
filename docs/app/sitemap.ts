@@ -26,7 +26,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   ];
 
   // Every Fumadocs page (introduction, quickstart, installation,
-  // integrations, …). ``page.url`` is the relative URL like
+  // integrations, ...). ``page.url`` is the relative URL like
   // ``/docs/quickstart``; ``page.data`` carries the front-matter.
   const docPages: MetadataRoute.Sitemap = source.getPages().map((page) => ({
     url: `${SITE_URL}${page.url}`,

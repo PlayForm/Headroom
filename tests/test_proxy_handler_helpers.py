@@ -1777,7 +1777,7 @@ class TestHasNewCcrMarkers:
 
     ``overlay_cached_prefix`` replays the previously-forwarded compressed prefix
     byte-identical to keep the messages cache warm — which reintroduces its old
-    ``hash=…`` markers. If those replayed markers counted as "new", the handler
+    ``hash=...`` markers. If those replayed markers counted as "new", the handler
     would re-inject the retrieve tool every frozen turn and bust the *tools*
     cache. ``has_new_ccr_markers`` filters them out.
     """

@@ -827,7 +827,7 @@ class SmartCrusherConfig:
     # applies, but any path that would emit a CCR marker (lossy row-drop
     # OR opaque-blob offload) leaves the content uncompacted instead, so
     # the output is always marker-free and byte-recoverable. Mirrors the
-    # Rust default. See also `CCRConfig` — with this on, no `<<ccr:…>>`
+    # Rust default. See also `CCRConfig` — with this on, no `<<ccr:...>>`
     # markers are produced regardless of CCR settings.
     lossless_only: bool = False
 

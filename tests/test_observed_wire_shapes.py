@@ -37,7 +37,7 @@ def _eq(a, b):
 #   (a) moves the ephemeral cache_control marker to the newest block,
 #   (b) attaches `caller: {type: direct}` to tool_use on the stored copy,
 #   (c) flips tool_result.content between a bare string and [{type:text,text}],
-# while the observation payload itself (`<returncode>N</returncode>\n<output>…</output>`)
+# while the observation payload itself (`<returncode>N</returncode>\n<output>...</output>`)
 # is unchanged. All three must be ignored by the prefix compare.
 
 _RC = "<returncode>0</returncode>\n<output>\n./suma/apps/foo.py\n</output>"  # real observation form

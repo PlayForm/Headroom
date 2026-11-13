@@ -50,7 +50,7 @@ def main() -> int:
                 print(f"ERROR: {tool_name}/{platform}: non-https url {url!r}", file=sys.stderr)
                 return 2
             if url not in seen:
-                print(f"fetching {tool_name}/{platform} …", file=sys.stderr)
+                print(f"fetching {tool_name}/{platform} ...", file=sys.stderr)
                 seen[url] = _fetch_sha256(url)
             digest = seen[url]
             if asset.get("sha256") != digest:

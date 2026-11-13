@@ -156,7 +156,7 @@ class CompressConfig:
     ``HEADROOM_DIAGNOSTICS=1`` environment variable.  When True, the returned
     :class:`CompressResult` carries a ``diagnostics`` list of
     :class:`~headroom.config.MessageDecision` objects — one per message —
-    describing which action was taken (compressed, protected, skipped …) and
+    describing which action was taken (compressed, protected, skipped ...) and
     how many tokens were spent before/after."""
 
     # Regime

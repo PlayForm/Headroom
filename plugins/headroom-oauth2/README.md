@@ -5,7 +5,7 @@ Generic **OAuth2 client-credentials** upstream-auth extension for the
 
 When Headroom routes to an OpenAI-compatible backend that is protected by an
 OAuth2 client-credentials flow (enterprise AI gateways, Azure AD / Entra, Okta,
-Auth0, Keycloak, Cognito, …), this extension mints a bearer token from a
+Auth0, Keycloak, Cognito, ...), this extension mints a bearer token from a
 configurable token endpoint, caches + refreshes it (single-flight), and injects
 `Authorization: Bearer <token>` on each upstream request. Optional static upstream
 headers are sent via litellm. **Fully vendor-neutral — no provider is hard-coded.**

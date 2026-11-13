@@ -113,7 +113,7 @@ pub struct SmartCrusherConfig {
 }
 
 impl SmartCrusherConfig {
-	/// Whether opaque blobs should be offloaded to a `<<ccr:…>>` marker.
+	/// Whether opaque blobs should be offloaded to a `<<ccr:...>>` marker.
 	///
 	/// Single source of truth for the opaque-marker gate. Markers are
 	/// emitted only when CCR markers are enabled AND strict lossless

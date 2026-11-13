@@ -2,9 +2,9 @@
 
 Exposes:
 
-    headroom sg …           ->  ast-grep (from the ast-grep-cli PyPI wheel)
-    headroom diff A B …     ->  difftastic
-    headroom loc [PATH] …   ->  scc
+    headroom sg ...           ->  ast-grep (from the ast-grep-cli PyPI wheel)
+    headroom diff A B ...     ->  difftastic
+    headroom loc [PATH] ...   ->  scc
     headroom tools install  ->  pre-fetch all bundled binaries
     headroom tools doctor   ->  print a status table
     headroom tools list     ->  show the registry

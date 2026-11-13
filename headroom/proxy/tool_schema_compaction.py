@@ -294,7 +294,7 @@ def _truncate_description(desc: str, max_chars: int) -> str:
     - If the first sentence fits in *max_chars*, keep it and optionally
       append the second sentence when the combined length ≤ 1.5× *max_chars*.
     - If the first sentence alone exceeds *max_chars*, hard-truncate
-      and append ``…``.
+      and append ``...``.
     """
     if max_chars <= 0:
         return desc
@@ -316,7 +316,7 @@ def _truncate_description(desc: str, max_chars: int) -> str:
         return first
 
     # First sentence too long → hard truncation.
-    return desc[:max_chars].rstrip() + "…"
+    return desc[:max_chars].rstrip() + "..."
 
 
 def _is_semantic_param_name(name: str) -> bool:

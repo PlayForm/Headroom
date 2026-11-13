@@ -65,7 +65,7 @@ pub(crate) fn caller_is_local(peer: SocketAddr, headers: &HeaderMap) -> bool {
             .is_some_and(host_is_loopback)
 }
 
-/// `127.0.0.1`, `127.0.0.1:8787`, `[::1]:8787`, `localhost:8787`, …
+/// `127.0.0.1`, `127.0.0.1:8787`, `[::1]:8787`, `localhost:8787`, ...
 fn host_is_loopback(host: &str) -> bool {
     let host = host.trim();
     // A bare IP with no port must be recognised before any port

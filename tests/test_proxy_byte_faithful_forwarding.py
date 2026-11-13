@@ -1895,7 +1895,7 @@ def test_ws_http_fallback_uses_canonical_serializer() -> None:
 
 _TB_SIGNED_BLOCK = {
     "type": "thinking",
-    "thinking": "Let me think about this… café",
+    "thinking": "Let me think about this... café",
     "signature": "EuYBCkQYBCKMAQ==",
 }
 

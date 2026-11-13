@@ -1083,7 +1083,7 @@ class HeadroomProxy(
                 router_config.fallback_strategy = CompressionStrategy.PASSTHROUGH
         # `HEADROOM_LOSSLESS_ONLY=1` routes SmartCrusher through strict
         # marker-free mode: lossless tabular compaction still applies, but
-        # any path that would emit a `<<ccr:…>>` marker (row-drop or
+        # any path that would emit a `<<ccr:...>>` marker (row-drop or
         # opaque-blob offload) leaves the content uncompacted instead — so
         # the session needs no CCR retrieval round-trips to stay recoverable.
         if "HEADROOM_LOSSLESS_ONLY" in os.environ:
@@ -6714,7 +6714,7 @@ def _proxy_config_from_env() -> ProxyConfig:
 def create_app_from_env() -> FastAPI:
     # Seed the coding-profile defaults into the process env BEFORE reading config,
     # so the uvicorn factory launch gets Headroom's out-of-box posture (cache mode,
-    # tool-search, dedupe, read protection, …). setdefault → explicit env wins.
+    # tool-search, dedupe, read protection, ...). setdefault → explicit env wins.
     from headroom.agent_savings import seed_proxy_env_defaults
 
     seeded_env_keys = seed_proxy_env_defaults()

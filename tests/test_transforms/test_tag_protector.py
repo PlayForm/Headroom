@@ -264,7 +264,7 @@ class TestBugFixesPhase3e4:
         assert restore_tags(cleaned, protected) == text
 
     def test_fixed_in_3e4_placeholder_collision_avoided(self):
-        """Bug #5: input contains a literal `{{HEADROOM_TAG_…}}`
+        """Bug #5: input contains a literal `{{HEADROOM_TAG_...}}`
         substring. Python silently used the same prefix and let the
         collision break restoration. Rust salts the prefix when this
         happens."""

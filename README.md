@@ -98,7 +98,7 @@ Zero code changes. [Agent compatibility](#agent-compatibility) ·
 
 ```
  Your agent / app
-   (Claude Code, Cursor, Codex, LangChain, Agno, Strands, your own code…)
+   (Claude Code, Cursor, Codex, LangChain, Agno, Strands, your own code...)
         │   prompts · tool outputs · logs · RAG results · files
         ▼
     ┌────────────────────────────────────────────────────┐
@@ -113,7 +113,7 @@ Zero code changes. [Agent compatibility](#agent-compatibility) ·
     └────────────────────────────────────────────────────┘
         │   compressed prompt  +  retrieval tool
         ▼
- LLM provider  (Anthropic · OpenAI · Bedrock · …)
+ LLM provider  (Anthropic · OpenAI · Bedrock · ...)
 ```
 
 - **ContentRouter** detects the content type and selects a compressor for it.
@@ -219,7 +219,7 @@ shows no detectable difference rather than an improvement.
 
 Everything above shrinks the prompt you **send**. You also pay for every token
 the model **writes back**, and on Opus-class models output costs 5× input. Much
-of that output is ceremony: "Great, let me…" preambles, code re-printed straight
+of that output is ceremony: "Great, let me..." preambles, code re-printed straight
 back at you, and deep reasoning spent on routine steps like reading a file.
 
 Headroom trims it from the proxy, with no change to your code:
@@ -264,7 +264,7 @@ and labels it as one:
 
 ```bash
 headroom output-savings
-# Reduction: 31.7%  (95% CI 27.7% … 35.7%)   [estimated]
+# Reduction: 31.7%  (95% CI 27.7% ... 35.7%)   [estimated]
 ```
 
 For a measured number instead, hold out 10% of conversations as an unshaped
@@ -425,7 +425,7 @@ has the full list.
 
 | Your setup | Hook in with |
 |---|---|
-| Any Python app | `compress(messages, model=…)` |
+| Any Python app | `compress(messages, model=...)` |
 | Any TypeScript app | `await compress(messages, { model })` |
 | Anthropic / OpenAI SDK | `withHeadroom(new Anthropic())` · `withHeadroom(new OpenAI())` |
 | Vercel AI SDK | `wrapLanguageModel({ model, middleware: headroomMiddleware() })` |

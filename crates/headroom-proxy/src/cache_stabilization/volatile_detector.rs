@@ -4,15 +4,15 @@
 //! bust prompt-cache hits when they appear inside the cached prefix
 //! (system prompt, tool definitions, historical messages):
 //!
-//!   1. **ISO-8601 timestamps** (`YYYY-MM-DDTHH:MM:SS...`) — almost
+//!   1. **ISO-8601 timestamps** (`YYYY-MM-DDTHH:MM:SS...`) - almost
 //!      always rendered freshly per request, so any cache hit on a
 //!      prefix containing one is accidental.
-//!   2. **UUID v4** (`xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`) — the
+//!   2. **UUID v4** (`xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`) - the
 //!      version-4 nibble at position 14 distinguishes UUIDs the
 //!      caller is generating per-request from random hex strings
 //!      (build hashes are usually v0, fixed identifiers wouldn't
 //!      change between requests at all).
-//!   3. **ID-named JSON fields** — keys whose name matches one of
+//!   3. **ID-named JSON fields** - keys whose name matches one of
 //!      the known volatile field names (`request_id`, `trace_id`,
 //!      `session_id`, `correlation_id`). Even non-empty UUIDs
 //!      embedded in a normal text field are caught by (1)/(2);
@@ -23,8 +23,8 @@
 //!
 //! This module **never** mutates the request body. It takes
 //! `&serde_json::Value` (already parsed by the proxy gate above)
-//! and walks read-only. The Phase A cache-safety invariant —
-//! bytes-in == bytes-out for any non-modifying request — still
+//! and walks read-only. The Phase A cache-safety invariant -
+//! bytes-in == bytes-out for any non-modifying request - still
 //! holds; the caller's `debug_assert_eq!` on length and the
 //! integration tests' SHA-256 byte-equality continue to gate
 //! regressions.
@@ -45,7 +45,7 @@
 //! - **Path scoping.** OpenAI and Anthropic shape their JSON
 //!   bodies differently; the [`ApiKind`] enum picks the right
 //!   walker. Bedrock / Vertex / etc. follow in a Phase E
-//!   follow-up — this PR keeps the surface tight.
+//!   follow-up - this PR keeps the surface tight.
 
 use serde_json::Value;
 
@@ -60,7 +60,7 @@ pub const MAX_FINDINGS_PER_REQUEST: usize = 10;
 pub const SAMPLE_TRUNCATE_BYTES: usize = 80;
 
 /// JSON field names that are conventionally per-request unique IDs.
-/// Matched case-insensitively against the *substring* of a key —
+/// Matched case-insensitively against the *substring* of a key -
 /// a key named `"x_request_id"` or `"meta.session_id"` is caught.
 const ID_FIELD_NEEDLES: &[&str] = &["request_id", "trace_id", "session_id", "correlation_id"];
 
@@ -106,7 +106,7 @@ pub struct VolatileFinding {
 }
 
 /// Which provider's body shape to walk. Selected by the caller
-/// from the request path — see [`from_endpoint`].
+/// from the request path - see [`from_endpoint`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApiKind {
 	/// Anthropic `/v1/messages` shape: top-level `system` (string
@@ -122,7 +122,7 @@ pub enum ApiKind {
 impl ApiKind {
 	/// Map a [`CompressibleEndpoint`] (already classified by the
 	/// proxy gate) to the corresponding [`ApiKind`]. Bedrock /
-	/// Vertex / etc. are not yet wired — their walkers land in a
+	/// Vertex / etc. are not yet wired - their walkers land in a
 	/// follow-up PR.
 	pub fn from_endpoint(endpoint: CompressibleEndpoint) -> Self {
 		match endpoint {
@@ -136,7 +136,7 @@ impl ApiKind {
 ///
 /// Walks the parsed body for the given API shape and returns up to
 /// [`MAX_FINDINGS_PER_REQUEST`] findings. Caller is responsible for
-/// passing the *parsed* body — re-parsing on the hot path here
+/// passing the *parsed* body - re-parsing on the hot path here
 /// would double the JSON cost.
 pub fn detect_volatile_content(body: &Value, kind: ApiKind) -> Vec<VolatileFinding> {
 	let mut findings: Vec<VolatileFinding> = Vec::new();
@@ -352,7 +352,7 @@ fn scan_string(s: &str, location: &str, out: &mut Vec<VolatileFinding>) {
 /// Positions 5..7: 2 ASCII digits (month).
 /// Position 7: `-`.
 /// Positions 8..10: 2 ASCII digits (day).
-/// Position 10: `T` or `t` or ` ` (space — RFC 3339 §5.6 allows it).
+/// Position 10: `T` or `t` or ` ` (space - RFC 3339 §5.6 allows it).
 /// Positions 11..13: 2 ASCII digits (hour).
 /// Position 13: `:`.
 /// Positions 14..16: 2 ASCII digits (minute).
@@ -453,9 +453,9 @@ fn truncate_sample(s: &str) -> String {
 	while cut > 0 && !s.is_char_boundary(cut) {
 		cut -= 1;
 	}
-	let mut out = String::with_capacity(cut + 1);
+	let mut out = String::with_capacity(cut + 3);
 	out.push_str(&s[..cut]);
-	out.push('…');
+	out.push_str("...");
 	out
 }
 
@@ -534,7 +534,7 @@ mod tests {
 			"system": "You are a helpful assistant. Be concise.",
 			"messages": [
 				{"role": "user", "content": "Summarize the document below."},
-				{"role": "assistant", "content": "Sure — please paste it."},
+				{"role": "assistant", "content": "Sure - please paste it."},
 			],
 			"tools": [{
 				"name": "search",
@@ -613,7 +613,7 @@ mod tests {
 			"Anthropic shape: tools[].description (NOT tools[].function.description)",
 		);
 
-		// OpenAI shape on the same body should find nothing — it
+		// OpenAI shape on the same body should find nothing - it
 		// expects tools[].function.description, not tools[].description.
 		let openai_findings = detect_volatile_content(&body, ApiKind::OpenAi);
 		assert!(
@@ -640,7 +640,7 @@ mod tests {
 
 	#[test]
 	fn id_field_with_empty_value_does_not_fire() {
-		// request_id present but empty — schemas / clients that
+		// request_id present but empty - schemas / clients that
 		// declare the field but don't fill it shouldn't trigger.
 		let body = json!({
 			"tools": [{
@@ -694,7 +694,7 @@ mod tests {
 		let out = truncate_sample(&s);
 		// Round-trip through String (would panic on invalid UTF-8).
 		let _ = out.as_bytes();
-		assert!(out.ends_with('…'));
+		assert!(out.ends_with("..."));
 	}
 
 	#[test]

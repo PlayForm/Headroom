@@ -10,12 +10,12 @@
 //!
 //! - `strategy`  — the compressor identifier (`smart_crusher`,
 //!   `log_compressor`, `search_compressor`, `diff_compressor`,
-//!   `e3_anthropic_cache_control`, `e1_tool_array_sort`, …). The
+//!   `e3_anthropic_cache_control`, `e1_tool_array_sort`, ...). The
 //!   label vocabulary is bounded by the static `&'static str` set
 //!   the compressors return on their `BlockAction::Compressed`
 //!   manifests — never a customer-controlled value.
 //! - `content_type` — the detection-tier output for the block
-//!   (`source_code`, `log`, `search_output`, `diff`, `text`, …).
+//!   (`source_code`, `log`, `search_output`, `diff`, `text`, ...).
 //!   Cardinality bounded by `headroom_core::transforms::ContentType`.
 //!
 //! Counter twin: `proxy_compression_rejected_by_token_check_total{strategy}`

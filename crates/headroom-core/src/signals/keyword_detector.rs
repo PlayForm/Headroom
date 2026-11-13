@@ -19,7 +19,7 @@
 //!    are part of the error set the automaton consumes.
 //! 2. `SECURITY_KEYWORDS` included `token`, which false-positives on
 //!    every reference to LLM tokens (`input_tokens`,
-//!    `tokens_saved`, …). In an LLM-token-saturated codebase the
+//!    `tokens_saved`, ...). In an LLM-token-saturated codebase the
 //!    security signal was uselessly noisy. **Fixed here**: `token` is
 //!    dropped from the security set.
 //!

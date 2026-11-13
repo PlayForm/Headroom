@@ -149,5 +149,5 @@ The proxy uses the correct prefix automatically when constructing fallback model
 | Proxy receives no requests | Claude Code is in Bedrock mode, bypassing proxy | Set `CLAUDE_CODE_USE_BEDROCK=0` |
 | `400 The provided model identifier is invalid` | Bedrock rejected the model name format | Use standard cross-region profile names (`claude-sonnet-4-6`) or a valid application inference profile ARN |
 | `403 AccessDeniedException` on system-defined profiles | IAM policy only permits application profiles | Use `--bedrock-profile` with an authorized profile and pass application inference profile ARNs as model values |
-| `400 … Try calling via converse route` | Old proxy version routing ARNs to invoke path | Upgrade to headroom ≥ 0.27.1 |
+| `400 ... Try calling via converse route` | Old proxy version routing ARNs to invoke path | Upgrade to headroom ≥ 0.27.1 |
 | Model map empty at startup | boto3 not installed or wrong AWS profile | `pip install boto3`; check `--bedrock-profile` / `AWS_PROFILE` |

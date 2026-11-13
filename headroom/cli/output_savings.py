@@ -54,7 +54,7 @@ def output_savings() -> None:
     click.echo(f"  Baseline:  {est.baseline_tokens:,.0f} output tokens expected")
     click.echo(f"  Saved:     {est.tokens_saved:,.0f} output tokens")
     click.echo(
-        f"  Reduction: {est.pct:.1f}%   (95% CI {est.ci_low_pct:.1f}% … {est.ci_high_pct:.1f}%)"
+        f"  Reduction: {est.pct:.1f}%   (95% CI {est.ci_low_pct:.1f}% ... {est.ci_high_pct:.1f}%)"
     )
     if est.kind == "estimated":
         click.echo(

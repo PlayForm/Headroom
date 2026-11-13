@@ -883,7 +883,7 @@ def format_report(report: PerfReport) -> str:
             # These four buckets are NOT the router's full outcome space — the
             # `[router] route_counts=` line carries 17 keys, and the ones omitted
             # here (cache_hit, system_msg, error_protected, already_compressed,
-            # …) are individually larger than "Excluded". Percentages taken over
+            # ...) are individually larger than "Excluded". Percentages taken over
             # this subset therefore overstate every share: on real traffic the
             # "skipped" bucket read 77% here against 49.5% of actual terminal
             # fates, which reads as a mis-set threshold rather than a narrow

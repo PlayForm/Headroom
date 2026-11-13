@@ -516,9 +516,9 @@ async fn body_bytes_stay_byte_equal_while_header_is_rewritten() {
 
     let seen = captured.lock().unwrap().clone();
     assert_eq!(seen.len(), 2);
-    // Header was rewritten to the union…
+    // Header was rewritten to the union...
     assert_eq!(seen[1].beta.as_deref(), Some("a,b"));
-    // …but the body bytes are untouched.
+    // ...but the body bytes are untouched.
     assert_eq!(
         Sha256::digest(&seen[1].body),
         Sha256::digest(&turn2),

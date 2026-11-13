@@ -632,7 +632,7 @@ fn diff_cc_regex() -> &'static Regex {
 	RE.get_or_init(|| Regex::new(r"^diff --cc (.+)$").expect("static regex compiles"))
 }
 
-/// Returns true if `line` is any kind of `diff --…` file-section header
+/// Returns true if `line` is any kind of `diff --...` file-section header
 /// (regular `--git`, or the combined-diff `--combined` / `--cc` variants).
 fn is_diff_header(line: &str) -> bool {
 	diff_git_regex().is_match(line) || diff_combined_regex().is_match(line) || diff_cc_regex().is_match(line)
@@ -965,7 +965,7 @@ fn select_hunks(hunks: Vec<DiffHunk>, max_per_file: usize) -> (Vec<DiffHunk>, Ve
 }
 
 /// Number of `+`/`-` prefix columns on a hunk's lines: one per parent, so 1
-/// for `@@` and N for a combined-diff `@@@…` header with N parents.
+/// for `@@` and N for a combined-diff `@@@...` header with N parents.
 fn hunk_parents(header: &str) -> usize {
 	header.bytes().take_while(|&b| b == b'@').count().saturating_sub(1).max(1)
 }

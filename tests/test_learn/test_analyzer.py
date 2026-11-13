@@ -181,7 +181,7 @@ class TestDigestBuilder:
         digest = _build_digest(_project(), sessions)
         assert "Traceback" in digest
         assert "KeyError: 'the-actual-root-cause'" in digest
-        assert "…" in digest
+        assert "..." in digest
 
     def test_short_error_output_not_truncated(self):
         short = "ModuleNotFoundError: No module named 'foo'"
@@ -201,7 +201,7 @@ class TestDigestBuilder:
         ]
         digest = _build_digest(_project(), sessions)
         assert short in digest
-        assert "…" not in digest
+        assert "..." not in digest
 
 
 # =============================================================================

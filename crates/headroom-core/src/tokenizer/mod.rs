@@ -23,7 +23,7 @@
 //! # What is here
 //! - [`TiktokenCounter`] — OpenAI / o-series, byte-equal to Python `tiktoken`.
 //! - [`HfTokenizer`] — any model with a public `tokenizer.json` (Cohere
-//!   `command-*`, Llama-3.x, Mistral, Qwen, BERT, T5, …). Construct it from
+//!   `command-*`, Llama-3.x, Mistral, Qwen, BERT, T5, ...). Construct it from
 //!   bytes or a file path; register it via [`register_hf`] to make it the
 //!   default for a given model-name prefix.
 //! - [`EstimatingCounter`] — last-resort `chars / cpt` fallback for Anthropic

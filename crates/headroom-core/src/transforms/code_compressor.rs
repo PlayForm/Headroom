@@ -14,7 +14,7 @@
 //! grammars; this port uses the per-language `tree-sitter-<lang>` crates.
 //! Byte-parity requires node-for-node identical ASTs (same node `kind`
 //! strings, same tree shape, same `start_point`/`end_point` rows). The
-//! Cargo pins (`tree-sitter-python = "=0.25.0"`, …) match the exact PyPI
+//! Cargo pins (`tree-sitter-python = "=0.25.0"`, ...) match the exact PyPI
 //! wheel versions the fixtures were recorded against; a canary over 9
 //! samples × 8 languages confirmed 100% identical node-type + line-span
 //! trees. See `crates/headroom-core/Cargo.toml` for the full pin table.
@@ -426,7 +426,7 @@ fn query_context_tokens(context: &str) -> (BTreeSet<String>, String, bool) {
 	static DELIMS: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 	let delims = DELIMS.get_or_init(|| {
 		// Same class as Python `_CONTEXT_DELIMS`.
-		regex::Regex::new(r#"[\s,;:.()\[\]{}"'，、；：。．！？（）【】「」『』《》〈〉·…—　]+"#).unwrap()
+		regex::Regex::new(r#"[\s,;:.()\[\]{}"'，、；：。．！？（）【】「」『』《》〈〉·...—　]+"#).unwrap()
 	});
 	static CJK: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 	let cjk = CJK.get_or_init(|| {

@@ -750,7 +750,7 @@ async fn run_anthropic_state_machine(
 
     let mut framer = SseFramer::new();
     let mut state = AnthropicStreamState::new();
-    // Converse-native frames (`metadata`, `messageStart`, …) carry no
+    // Converse-native frames (`metadata`, `messageStart`, ...) carry no
     // Anthropic `type`, so they arrive here as event-name-less frames
     // the Anthropic state machine drops. Their camelCase usage block
     // is the ONLY usage signal on a native Converse stream — scan

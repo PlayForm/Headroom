@@ -60,7 +60,7 @@ Disable it with `HEADROOM_BEACON=off`, `HEADROOM_TELEMETRY=off` (or `--no-teleme
 | `--log-messages` | `false` | Store full request/response content for the live feed |
 | `--budget` | None | Daily budget limit in USD |
 | `--openai-api-url` | `https://api.openai.com` | Custom OpenAI API URL |
-| `--provider-name` | Detected from `--openai-api-url` | Display name for the OpenAI-compatible upstream on the dashboard (e.g. `OpenRouter`). Well-known hosts (OpenRouter, Groq, Together, Azure OpenAI, …) are detected automatically; this overrides them. Routing and pricing are unaffected. |
+| `--provider-name` | Detected from `--openai-api-url` | Display name for the OpenAI-compatible upstream on the dashboard (e.g. `OpenRouter`). Well-known hosts (OpenRouter, Groq, Together, Azure OpenAI, ...) are detected automatically; this overrides them. Routing and pricing are unaffected. |
 | `--anthropic-api-url` | Anthropic default | Custom Anthropic API URL |
 | `--gemini-api-url` | Gemini default | Custom Gemini API URL |
 | `--backend` | `anthropic` | Backend: `anthropic`, `bedrock`, `openrouter`, `anyllm`, or `litellm-<provider>` |
@@ -406,7 +406,7 @@ Rewrite the upstream model per request — for example, send small, tool-free ca
 | `--log-messages` | `false` | Include full message bodies in the log (may contain sensitive data). |
 | `HEADROOM_LOG_PAYLOAD_PREVIEW` | `off` | Include up to 4 KB of the retrieved [CCR](/docs/ccr) payload in each `headroom_retrieve` line of the runtime log (`~/.headroom/logs/proxy-<port>.log`). Off by default: the payload is verbatim tool-result content and can carry source code, credentials the redactor does not recognize, or customer data; the log otherwise records byte counts only. Turn it on with `1`/`true`/`yes`/`on`. Do not share a log captured with this on. |
 | `HEADROOM_LOG_LEVEL` | `warning` | uvicorn's log level (`critical`, `error`, `warning`, `info`, `debug`, `trace`). Raise to `info` for the per-request access log when diagnosing a deployed proxy. An unrecognized value warns and falls back to `warning`. |
-| `HEADROOM_OTEL_METRICS_ENABLED` | `false` | Export OpenTelemetry metrics (`HEADROOM_OTEL_METRICS_ENDPOINT`, …). See [OTLP export](/docs/metrics#opentelemetry-otlp-export). |
+| `HEADROOM_OTEL_METRICS_ENABLED` | `false` | Export OpenTelemetry metrics (`HEADROOM_OTEL_METRICS_ENDPOINT`, ...). See [OTLP export](/docs/metrics#opentelemetry-otlp-export). |
 | `HEADROOM_LANGFUSE_ENABLED` | `false` | Emit Langfuse traces (`LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY`). |
 
 See [Metrics](/docs/metrics) for the Prometheus and Grafana setup.
@@ -419,7 +419,7 @@ content — `--log-messages` bodies, wire-debug dumps, and CCR payload previews
 when they are enabled.
 
 - **Linux and macOS:** every log file Headroom creates is `0600`, owner-read/write
-  only, and so is every rotated backup (`proxy-8000.log.1`, …). This is not
+  only, and so is every rotated backup (`proxy-8000.log.1`, ...). This is not
   conditional on which content switch is on. If the log path already exists as a
   symlink, Headroom refuses to log rather than write through it, and says so.
 - **Windows:** Headroom restricts the log file too, through an NTFS ACL —
@@ -648,7 +648,7 @@ Keep carrying both yourself and send them upstream unchanged. Two consequences w
 
 **`config.mode` values:**
 
-- **unset (default)** — marker-free. Emits no `<<ccr:…>>` retrieval markers and writes nothing to the CCR store, so you can forward the returned messages straight to a provider. This is the right mode for a gateway or guardrail that just swaps `messages` and forwards.
+- **unset (default)** — marker-free. Emits no `<<ccr:...>>` retrieval markers and writes nothing to the CCR store, so you can forward the returned messages straight to a provider. This is the right mode for a gateway or guardrail that just swaps `messages` and forwards.
 - **`ccr`** — emits CCR markers and writes to the store. Only for callers that also inject the `headroom_retrieve` tool *and* can reach `/v1/retrieve` (itself loopback-only). Markers are a dangling pointer for the model otherwise.
 - **`lossy_inline`** (alias `lossless_then_lossy`) — runs the lossless byte/data fold first, then compresses the folded remainder. Marker-free.
 - **`lossless`** — format-native folds only, with no markers and no retrieval. For a sidecar with no retrieval loop; a registered lossless provider still applies. Keep the mode stable within a `session_id`, because session mode replays earlier turns byte-for-byte.
@@ -811,7 +811,7 @@ The rule behind it is the proxy's own **no shrink without reload**, moved to the
 **What changes on the request half.** Every top-level field other than `messages`, `model`, `token_budget`, `config` and `gateway` passes through into the returned `body`: `system`, `tools`, `temperature`, `stream`, `metadata`, anything the provider accepts. `tools` is compacted deterministically (`tool_schema_compaction` in `transforms_applied`, plus `tool_desc_compaction` when `HEADROOM_TOOL_DESC_MAX_CHARS` is set), so identical tools come back byte-identical every turn. Two more request-only, streaming-safe levers run here exactly as they do on the proxy path:
 
 - **Tool-search deferral (Anthropic) is an extension's job on this path.** OSS core does not mark tools `defer_loading` on `/v1/compress`; the [headroom-tool-search](https://github.com/headroomlabs-ai/headroom-tool-search) extension's native tier does, through the turn-hook contract, when it is installed, enabled (`HEADROOM_PROXY_EXTENSIONS=tool_search`) and licensed. It applies the same primitives as the proxy path (12 or more Anthropic-shaped tools on a first-party Claude model, the same resident set, the same client-already-searching check, `HEADROOM_TOOL_SEARCH=0` as the kill switch), is a pure function of the input tools so the tools prefix keeps prompt-caching turn over turn, and is named `tool_search:native_deferral:<n>tools:<n>tok` in `transforms_applied` and credited as `tool_schema_tokens_saved` in `/stats`. Without the extension the tools pass through compacted and `headers` is `{}`. Tool-search history repair stays in core regardless: once a transcript carries Anthropic's tool-search blocks, a later request whose tools cannot support them (a side request with a smaller tools array) has those blocks replaced in place by an inert placeholder text block, as on the proxy path (`router:tool_search_repair:<n>blocks`).
-- **Output steering.** When the output shaper is on (`HEADROOM_OUTPUT_SHAPER=1` or the `proxy_output_shaper` rollout; off in `mode="cache"` for steering), the byte-stable verbosity block is appended to the tail of `system` (Anthropic) or the last system/developer message (OpenAI chat), the conversation-stable `HEADROOM_OUTPUT_HOLDOUT` arm is honoured, and the `output_shaper:stratum:…` / `output_shaper:control:…` label rides `transforms_applied` — it is what turns the response half's relayed `output_tokens` into output savings in `/stats`. The block is identical every turn, so the prefix still caches; it is applied to the returned `body` only, never to the session snapshot, so it is re-appended once per turn rather than accumulating.
+- **Output steering.** When the output shaper is on (`HEADROOM_OUTPUT_SHAPER=1` or the `proxy_output_shaper` rollout; off in `mode="cache"` for steering), the byte-stable verbosity block is appended to the tail of `system` (Anthropic) or the last system/developer message (OpenAI chat), the conversation-stable `HEADROOM_OUTPUT_HOLDOUT` arm is honoured, and the `output_shaper:stratum:...` / `output_shaper:control:...` label rides `transforms_applied` — it is what turns the response half's relayed `output_tokens` into output savings in `/stats`. The block is identical every turn, so the prefix still caches; it is applied to the returned `body` only, never to the session snapshot, so it is re-appended once per turn rather than accumulating.
 
 Both fail open: any error leaves the body as built and `headers` empty.
 
@@ -1050,7 +1050,7 @@ Cannot start proxy: Vertex backend selected but the Vertex SDK is missing. ...
 
 This is a startup check rather than a per-request failure, because the backend
 would otherwise construct cleanly and then fail on every call with an opaque
-`litellm.BadRequestError: … No module named 'vertexai'`.
+`litellm.BadRequestError: ... No module named 'vertexai'`.
 
 **2. Set the LiteLLM project/location variables.** LiteLLM reads the GCP project
 and region from `VERTEXAI_PROJECT` / `VERTEXAI_LOCATION` — these are **not** the
@@ -1119,7 +1119,7 @@ without the flag can return a `404` for a model you never asked for.
 ### Reading Vertex errors
 
 When Vertex rejects a request with `401`, `403`, `404` or `429`, Headroom appends
-a `[headroom] hint: …` note to `error.message`, sets an `x-headroom-hint`
+a `[headroom] hint: ...` note to `error.message`, sets an `x-headroom-hint`
 response header, and logs a warning. The hint names the likely cause — expired
 ADC, a partner model not yet enabled in Model Garden, or a model that is not
 served in the requested location. Successful responses are never modified.

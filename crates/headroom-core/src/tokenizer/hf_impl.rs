@@ -4,7 +4,7 @@
 //! tokens via real BPE / Unigram / WordPiece - whatever the file describes.
 //! This closes the gap between OpenAI (tiktoken, byte-equal) and the
 //! Anthropic/Google chars-per-token fallback: every other major family
-//! (Cohere `command-*`, Llama-3.x, Mistral, Qwen, BERT, T5, …) publishes a
+//! (Cohere `command-*`, Llama-3.x, Mistral, Qwen, BERT, T5, ...) publishes a
 //! `tokenizer.json` on the HuggingFace Hub and the `tokenizers` crate is a
 //! pure-Rust loader, so we don't have to estimate.
 //!
@@ -14,7 +14,7 @@
 //! - [`HfTokenizer::from_pretrained`] - pulls `tokenizer.json` from the
 //!   HuggingFace Hub via `hf-hub`. First call downloads into the hub cache
 //!   Python's `huggingface_hub` uses (`HF_HUB_CACHE`, `HF_HOME/hub`,
-//!   `~/.cache/huggingface/hub`, …), subsequent calls hit it. Blocking;
+//!   `~/.cache/huggingface/hub`, ...), subsequent calls hit it. Blocking;
 //!   call from `main()` or `tokio::task::spawn_blocking`. Gated repos
 //!   (Llama, Mistral) need a token: `HF_TOKEN`, or the file
 //!   `hf auth login` writes (`HF_HOME/token`, or `HF_TOKEN_PATH`).

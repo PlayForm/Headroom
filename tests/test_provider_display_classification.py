@@ -1,7 +1,7 @@
 """Upstream-provider display classification for OpenAI-compatible endpoints.
 
 Covers issue #1533: when ``--openai-api-url`` points at a non-OpenAI upstream
-(OpenRouter, Groq, …), the dashboard should show that provider instead of
+(OpenRouter, Groq, ...), the dashboard should show that provider instead of
 always "openai". The internal provider key stays ``openai`` so pricing and
 request formatting are unaffected — only the display label changes.
 """

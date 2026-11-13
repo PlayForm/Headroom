@@ -2715,7 +2715,7 @@ def _get_definition_name(node: Any) -> str | None:
 # Symbol names are ASCII identifiers; CJK relevance queries have no spaces and use
 # CJK/full-width punctuation, so the ASCII-only delimiter class would collapse the
 # whole query into one blob and never isolate an ASCII name the user asked to keep.
-_CONTEXT_DELIMS = re.compile(r"[\s,;:.()\[\]{}\"'，、；：。．！？（）【】「」『』《》〈〉·…—　]+")
+_CONTEXT_DELIMS = re.compile(r"[\s,;:.()\[\]{}\"'，、；：。．！？（）【】「」『』《》〈〉·...—　]+")
 _CJK_CHARS = re.compile(r"[　-鿿가-힯＀-￯]")
 
 

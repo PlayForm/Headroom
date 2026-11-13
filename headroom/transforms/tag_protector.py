@@ -28,7 +28,7 @@ is now a thin shim that:
   second loop with the same first-occurrence-replace bug for
   self-closers. Rust handles them in the same single pass.
 * **#5: Placeholder collision.** If the input contained a literal
-  ``{{HEADROOM_TAG_…}}`` substring, Python silently let the collision
+  ``{{HEADROOM_TAG_...}}`` substring, Python silently let the collision
   stand. Rust detects it and salts the prefix.
 """
 

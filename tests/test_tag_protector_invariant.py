@@ -44,8 +44,8 @@ def _is_name_start(ch: str) -> bool:
 
 
 def count_open_tags(s: str) -> int:
-    """Count `<name…>` style opening tags. Excludes `</…>` closes and
-    `<…/>` self-closers."""
+    """Count `<name...>` style opening tags. Excludes `</...>` closes and
+    `<.../>` self-closers."""
     count = 0
     i = 0
     n = len(s)
@@ -102,7 +102,7 @@ def count_close_tags(s: str) -> int:
 # ──────────────────────────────────────────────────────────────────────
 # Deterministic content generator. Yields a mix of:
 #   - random ASCII letters/punct
-#   - balanced custom-tag pairs (`<sys>x</sys>`, `<tool>y</tool>`, …)
+#   - balanced custom-tag pairs (`<sys>x</sys>`, `<tool>y</tool>`, ...)
 #   - bare orphan opens / closes / self-closers
 #   - HTML tags that should not be protected
 # Seed is fixed so failures reproduce.

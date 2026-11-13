@@ -59,7 +59,7 @@ class FinishedTurn:
     """What ``finish`` hands back to the handler."""
 
     #: Extra top-level keys merged into the JSON answer (a gateway's ``body``,
-    #: ``turn_id``, ``route``, ``obligations``, ``headers`` …).
+    #: ``turn_id``, ``route``, ``obligations``, ``headers`` ...).
     fields: dict[str, Any] = field(default_factory=dict)
     #: The complete ``transforms_applied`` list for the answer AND the outcome
     #: (the pipeline's plus the turn's own).

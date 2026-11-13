@@ -1054,7 +1054,7 @@ class TrafficLearner:
     # ---------------------------------------------------------------
     # The detector is regex-free on purpose. The previous regex-based
     # implementation matched scaffolding ("don't mention this
-    # reminder…" injected by Claude Code's system-reminder blocks) and
+    # reminder..." injected by Claude Code's system-reminder blocks) and
     # produced mid-sentence truncations because ``.{10,100}`` captured
     # an arbitrary 100-char window with no boundary awareness. A
     # tokenized scanner is easier to reason about, doesn't suffer
@@ -1099,7 +1099,7 @@ class TrafficLearner:
         Defends against GH #464 noise sources:
 
         * Claude Code (and other agent harnesses) inject
-          ``<system-reminder>…</system-reminder>`` blocks into user-role
+          ``<system-reminder>...</system-reminder>`` blocks into user-role
           message bodies. Their content is *not* user-stated
           preferences ("don't mention this reminder", "use colgrep
           instead of Grep") but the old correction regexes matched
@@ -1217,7 +1217,7 @@ class TrafficLearner:
     def _tokenize(text: str) -> list[tuple[str, int, int]]:
         """Whitespace-split tokenizer.
 
-        Returns ``[(lower_token, start, end), …]``. Positions are byte
+        Returns ``[(lower_token, start, end), ...]``. Positions are byte
         offsets into the original string so callers can resume
         scanning from the end of a token. Tokens are lowercased once,
         up front, so trigger comparisons don't have to call
@@ -1239,7 +1239,7 @@ class TrafficLearner:
 
     @staticmethod
     def _strip_system_reminders(text: str) -> str:
-        """Remove ``<system-reminder>…</system-reminder>`` blocks from text.
+        """Remove ``<system-reminder>...</system-reminder>`` blocks from text.
 
         Uses a literal scan (``str.find``) rather than a regex so the
         matcher cannot accidentally pick up unrelated ``<*>``-shaped

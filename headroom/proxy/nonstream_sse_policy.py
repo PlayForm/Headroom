@@ -38,9 +38,9 @@ Behaviour matrix
 Client asked for streaming?   Upstream C-T    Status     Result
 ============================  ==============  =========  ====================
 yes                           any             any        untouched
-no                            application/…   any        untouched
-no                            text/event-…    != 200     untouched (real error)
-no                            text/event-…    200        recover, else refuse
+no                            application/...   any        untouched
+no                            text/event-...    != 200     untouched (real error)
+no                            text/event-...    200        recover, else refuse
 ============================  ==============  =========  ====================
 
 Recovery reuses ``StreamingMixin._parse_sse_to_response``, the same

@@ -145,7 +145,7 @@ Short version: run Claude Code in **normal Anthropic mode** (`ANTHROPIC_BASE_URL
 
 > ⚠️ Do **not** put Claude Code into Vertex mode and point `ANTHROPIC_VERTEX_BASE_URL`
 > at the proxy. Claude Code's client-side model probe rejects any non-Google Vertex
-> URL before sending a request ("model … not available on your vertex deployment"),
+> URL before sending a request ("model ... not available on your vertex deployment"),
 > so the proxy is never reached. Use the Anthropic-mode runbook above instead.
 >
 > ⚠️ Two easy-to-miss requirements: `pip install "headroom-ai[proxy,vertex]"`

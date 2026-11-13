@@ -4,7 +4,7 @@ Copilot CLI (and other Responses-native harnesses) read files two ways:
 
 1. A first-class ``view`` tool (the Copilot equivalent of Claude Code's ``Read``)
    whose output is raw file content the model will byte-patch against.
-2. Shell reads through ``bash`` (``cat``/``nl``/``sed -n`` …), which the
+2. Shell reads through ``bash`` (``cat``/``nl``/``sed -n`` ...), which the
    chat/Anthropic path protects via ``HEADROOM_PROTECT_READS`` read-command
    detection in ``ContentRouter``.
 
@@ -345,7 +345,7 @@ def test_responses_malformed_arguments_do_not_break_extraction(monkeypatch):
 
 
 def test_responses_protected_read_survives_cross_turn_dedup(monkeypatch):
-    """A repeated protected read must not be replaced by a [↑…] dedup pointer."""
+    """A repeated protected read must not be replaced by a [↑...] dedup pointer."""
     monkeypatch.setenv("HEADROOM_PROTECT_READS", "1")
     router = _lossy_router()
     router._cross_turn_dedup_enabled = True

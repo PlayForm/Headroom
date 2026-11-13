@@ -306,13 +306,13 @@ fn candidates(model: &str) -> Vec<String> {
         }
     };
     push(lower.clone());
-    // Bedrock cross-region profile: `eu.anthropic.claude…` falls back
-    // to `anthropic.claude…` when the region itself isn't in the
+    // Bedrock cross-region profile: `eu.anthropic.claude...` falls back
+    // to `anthropic.claude...` when the region itself isn't in the
     // table. GEO_PREFIXES (shared with the compression vendor gate)
     // covers every geo the vendored table fronts, `us-gov.` included.
     let geo = strip_geo_prefix(&lower).to_string();
     push(geo.clone());
-    // Bedrock revision suffix: `…-v1:0`. ONLY a numeric suffix is
+    // Bedrock revision suffix: `...-v1:0`. ONLY a numeric suffix is
     // trimmed. A non-numeric colon suffix is a routing/tier variant
     // (`:exacto`, `:free`, `:nitro`) that can genuinely bill at its
     // own rate — the vendored table lists
@@ -322,7 +322,7 @@ fn candidates(model: &str) -> Vec<String> {
     // which this module exists to avoid. They miss and WARN instead.
     push_revision_trimmed(&mut push, &geo);
     push_revision_trimmed(&mut push, &lower);
-    // Provider-routed ids (`openai/gpt-4o`, `github-copilot/claude…`):
+    // Provider-routed ids (`openai/gpt-4o`, `github-copilot/claude...`):
     // the bare tail is how LiteLLM stores first-party models. Try the
     // tail both verbatim and `:rev`-trimmed, so a combined
     // `vendor/model:rev` id can still reach a fully-stripped entry.

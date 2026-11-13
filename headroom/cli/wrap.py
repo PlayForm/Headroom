@@ -2234,7 +2234,7 @@ def _setup_headroom_mcp(
     """Register the headroom MCP server with the given agent (idempotent).
 
     The proxy compresses tool_result payloads and emits ``[Retrieve more:
-    hash=…]`` markers. Without this registration those markers point at
+    hash=...]`` markers. Without this registration those markers point at
     nothing — the agent has no ``headroom_retrieve`` tool to call.
 
     Generic across registrars: ``ClaudeRegistrar``, ``CodexRegistrar``, and
@@ -2651,7 +2651,7 @@ def _index_serena_project(*, verbose: bool = False) -> None:
     # Opted back into a blocking pre-index. Announce the wait: indexing a large
     # repo legitimately takes minutes and the output is redirected, so without
     # this line the wrap looks hung.
-    click.echo(f"  Serena: pre-indexing project (waiting up to {wait_seconds}s)…")
+    click.echo(f"  Serena: pre-indexing project (waiting up to {wait_seconds}s)...")
     try:
         proc.wait(timeout=wait_seconds)
     except subprocess.TimeoutExpired:
@@ -3621,7 +3621,7 @@ def _inject_codex_provider_config(port: int) -> str | None:
     added in a marker-delimited block at the top of the file.  If the
     user *has* declared one or both, the existing lines are rewritten
     in place to the headroom values (with the previous value kept in a
-    ``# was: …`` trailing comment) so the resulting file stays TOML-valid
+    ``# was: ...`` trailing comment) so the resulting file stays TOML-valid
     — TOML rejects duplicate top-level keys, which would break
     ``codex`` startup.
 
@@ -8750,7 +8750,7 @@ def opencode(
     if not no_serena:
         from headroom.mcp_registry import OpencodeRegistrar
 
-        # Serena ships no "opencode" context (only agent/codex/claude-code/ide/…);
+        # Serena ships no "opencode" context (only agent/codex/claude-code/ide/...);
         # passing --context opencode crashes Serena on launch (#1549/#1572). Use
         # the generic "agent" context, which OpenCode is.
         _setup_serena_mcp(OpencodeRegistrar(), context="agent", verbose=verbose, force=True)

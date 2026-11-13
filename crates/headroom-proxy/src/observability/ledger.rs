@@ -443,7 +443,7 @@ impl PersistedStats {
         // trim below: `trim_oldest` evicts the lexicographically
         // first key on the assumption first == oldest, and a
         // hand-edited key like "garbage" sorts AFTER every real
-        // `2026-…` date — it would survive forever while the trim
+        // `2026-...` date — it would survive forever while the trim
         // silently deleted genuine history in its place. (It would
         // also desync the week/month rollups, which validate keys
         // asymmetrically at read time.)

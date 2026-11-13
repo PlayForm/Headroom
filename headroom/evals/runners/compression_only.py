@@ -567,7 +567,7 @@ class CompressionOnlyRunner:
 
         The compaction pass must never strip a key that appears as a property
         *name* under a JSON Schema `properties` object, even if the same key
-        is in the annotation drop-list (title, deprecated, readOnly, examples, …).
+        is in the annotation drop-list (title, deprecated, readOnly, examples, ...).
 
         Assertions per case:
         - token count is smaller after compaction (annotations were stripped)

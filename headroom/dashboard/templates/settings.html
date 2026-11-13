@@ -237,7 +237,7 @@
                 },
 
                 async save() {
-                    this.busy = true; this.status = 'Saving…'; this.fieldErrors = {};
+                    this.busy = true; this.status = 'Saving...'; this.fieldErrors = {};
                     try {
                         const res = await fetch('/settings', {
                             method: 'POST',
@@ -265,7 +265,7 @@
                 },
 
                 async applyAndRestart() {
-                    this.busy = true; this.status = 'Applying…'; this.fieldErrors = {};
+                    this.busy = true; this.status = 'Applying...'; this.fieldErrors = {};
                     try {
                         const res = await fetch('/settings/apply', {
                             method: 'POST',
@@ -282,8 +282,8 @@
                         }
                         this.applyMode = data.mode || '';
                         if (data.restarted && data.mode === 'service') {
-                            this.banner = 'Restarting…';
-                            this.status = 'Waiting for the proxy to come back…';
+                            this.banner = 'Restarting...';
+                            this.status = 'Waiting for the proxy to come back...';
                             await this.pollHealth();
                         } else if (data.mode === 'docker') {
                             this.applyCommand = data.command || '';

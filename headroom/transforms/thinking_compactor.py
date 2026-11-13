@@ -201,7 +201,7 @@ def compact_thinking_to_text(
 def _compact_think_spans(
     content: str, kompress: Any, min_words: int, *, drop: bool = False
 ) -> tuple[str, int, int, int]:
-    """Compact each ``<think>…</think>`` span (GLM / DeepSeek-R1 inline reasoning).
+    """Compact each ``<think>...</think>`` span (GLM / DeepSeek-R1 inline reasoning).
 
     ``drop=False`` (warm) Kompresses the inner text; ``drop=True`` (cold hook)
     removes the whole span. Returns (new_content, blocks, words_before,
@@ -260,7 +260,7 @@ def compact_reasoning_openai_chat(
     Two shapes, both handled:
 
     * **Kimi:** the assistant message's ``reasoning_content`` field.
-    * **GLM / DeepSeek-R1:** inline ``<think>…</think>`` in string content.
+    * **GLM / DeepSeek-R1:** inline ``<think>...</think>`` in string content.
 
     ``drop=False`` (warm): Kompress the reasoning (deterministic → cache-stable).
     ``drop=True`` (cold-prefix hook): remove the reasoning outright — the full
@@ -317,7 +317,7 @@ def compact_reasoning_openai_chat(
                     stats["blocks"] += 1
                     stats["words_before"] += len(rc.split())
                     stats["words_after"] += len(comp.split())
-        # (2) GLM / DeepSeek-R1: inline <think>…</think> in string content
+        # (2) GLM / DeepSeek-R1: inline <think>...</think> in string content
         c = m.get("content")
         if isinstance(c, str) and "<think>" in c:
             new_c, b, wb, wa = _compact_think_spans(c, kompress, min_words, drop=use_drop)

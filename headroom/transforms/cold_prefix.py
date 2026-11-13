@@ -161,7 +161,7 @@ def has_plaintext_reasoning(messages: list[dict[str, Any]]) -> bool:
     """True if any assistant turn carries reasoning as PLAIN TEXT we can drop/compress.
 
     Two shapes: a Kimi-style ``reasoning_content`` field, or an inline
-    ``<think>…</think>`` span in string content (GLM / DeepSeek-R1). Encrypted
+    ``<think>...</think>`` span in string content (GLM / DeepSeek-R1). Encrypted
     reasoning (Claude signature / OpenAI ``encrypted_content``) never appears in
     these forms, so this is False for those — which routes them to the dedupe /
     superseded-read branch instead.

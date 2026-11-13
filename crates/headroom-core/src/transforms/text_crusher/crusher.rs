@@ -28,7 +28,7 @@ static WORD_SEGMENTER: LazyLock<WordSegmenterBorrowed<'static>> =
 	LazyLock::new(|| WordSegmenter::new_dictionary(Default::default()));
 
 /// True for CJK ideographs, kana, Hangul, plus CJK punctuation (。、「」) and
-/// half/full-width forms — scripts/marks without ASCII spaces or terminators,
+/// half/full-width forms - scripts/marks without ASCII spaces or terminators,
 /// which the default ASCII splitter/tokenizer can't segment. CJK-bearing text
 /// takes the ICU path; pure-ASCII text is byte-identical to before.
 fn is_cjk(c: char) -> bool {
@@ -41,7 +41,7 @@ fn is_cjk(c: char) -> bool {
 			| 0xAC00..=0xD7AF  // Hangul syllables
 			| 0xF900..=0xFAFF  // CJK Compatibility ideographs
 			| 0xFF00..=0xFFEF  // half/full-width forms (！？ ｶﾅ)
-			| 0x20000..=0x2FA1F // CJK Ext B–F + Compat Supplement
+			| 0x20000..=0x2FA1F // CJK Ext B-F + Compat Supplement
 	)
 }
 
@@ -291,7 +291,7 @@ fn apply_length_fallback(segs: Vec<String>) -> Vec<String> {
 		for c in s.chars() {
 			piece.push(c);
 			let n = piece.chars().count();
-			let soft = c.is_whitespace() || matches!(c, '、' | '，' | '；' | '：' | '·' | '…');
+			let soft = c.is_whitespace() || matches!(c, '、' | '，' | '；' | '：' | '·' | '\u{2026}');
 			if (soft && n >= hard / 2) || n >= hard {
 				let t = piece.trim();
 				if !t.is_empty() {

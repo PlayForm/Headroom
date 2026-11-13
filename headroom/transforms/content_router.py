@@ -628,7 +628,7 @@ def _malformed_tool_call_ids(messages: list[dict[str, Any]]) -> set[str]:
 def _tool_call_args_text(raw: Any) -> str:
     """Compact, query-usable text from a tool call's args.
 
-    Anthropic passes ``input`` as a dict ({"command": "grep …"}); OpenAI passes
+    Anthropic passes ``input`` as a dict ({"command": "grep ..."}); OpenAI passes
     ``arguments`` as a JSON string. Either way we want the scalar values (the
     grep pattern, the read path) as a short query fragment. Capped so a giant
     arg blob can't dominate the relevance query.
@@ -659,7 +659,7 @@ def read_protection_enabled() -> bool:
 def _tool_call_command_text(raw: Any) -> str:
     """Extract the raw shell command from a tool call's args, if present.
 
-    Anthropic ``input`` is a dict ({"command": "grep …"}); OpenAI ``arguments``
+    Anthropic ``input`` is a dict ({"command": "grep ..."}); OpenAI ``arguments``
     is a JSON string; Codex's shell uses a ``command`` list. Returns "" when
     there is no command field (non-shell tools).
     """
@@ -713,7 +713,7 @@ def _custom_tool_call_commands(raw: Any) -> list[str | None]:
     Codex sends shell commands as a Responses ``custom_tool_call`` named ``exec``
     whose ``input`` is a JavaScript snippet rather than JSON arguments::
 
-        const r = await tools.exec_command({"cmd": "sed -n '1,80p' f.py", "workdir": "…"});
+        const r = await tools.exec_command({"cmd": "sed -n '1,80p' f.py", "workdir": "..."});
         text(r.output);
 
     The argument is usually a JavaScript object literal rather than JSON
@@ -804,11 +804,11 @@ _LOCKFILE_RE = re.compile(
 def _strip_cd_prefix(command: str) -> str:
     """Peel leading ``cd <dir> &&|; `` chains from a shell command.
 
-    Agent harnesses (mini-swe-agent, Codex, Cursor, …) prefix nearly every command
+    Agent harnesses (mini-swe-agent, Codex, Cursor, ...) prefix nearly every command
     with ``cd <repo> && `` (or ``cd <repo>; ``) to run in the checkout. Command-
     classification helpers must strip this first, or the parsed program is ``cd``
-    instead of the real tool (``grep``/``cat``/…) — which silently disables read-
-    protection and the lossless search-fold (observed: 100% of ``cd … && rg``
+    instead of the real tool (``grep``/``cat``/...) — which silently disables read-
+    protection and the lossless search-fold (observed: 100% of ``cd ... && rg``
     output went uncompacted). Provider/harness-agnostic: operates on the plain
     shell string that every client ultimately produces. Only ``&&`` and ``;``
     connectors are peeled (a mis-parse is harmless — the caller falls through to
@@ -851,7 +851,7 @@ def _is_read_command(command: str) -> bool:
     from the read segment next to it.
 
     CHAINED commands are scanned segment by segment: agents routinely batch a read
-    with other work (``wc -l a.py && sed -n '1,60p' a.py``, ``grep … ; head -80 b.py``),
+    with other work (``wc -l a.py && sed -n '1,60p' a.py``, ``grep ... ; head -80 b.py``),
     and matching only the FIRST program left every such read unprotected — the file
     content was lossy-compressed despite read protection being enabled.
     """
@@ -972,7 +972,7 @@ def _segment_is_read(c: str) -> bool:
     if not prog:
         return False
     if prog in {"sh", "bash", "zsh", "dash"} and rest:
-        # `bash -lc "cat …"` (Codex): the real command is the -c argument.
+        # `bash -lc "cat ..."` (Codex): the real command is the -c argument.
         for j, tok in enumerate(rest):
             if tok in {"-c", "-lc", "-lic", "-ic"} and j + 1 < len(rest):
                 return _is_read_command(" ".join(rest[j + 1 :]).strip("'\""))
@@ -1057,7 +1057,7 @@ def _sed_is_quiet_read(rest: list[str]) -> bool:
 
 
 # Shell wrappers that prefix the real program — peeled to find it. Shell
-# grammar, not tunable policy: rtk (the user's token proxy), sudo/env/timeout/…
+# grammar, not tunable policy: rtk (the user's token proxy), sudo/env/timeout/...
 _SHELL_WRAPPERS = frozenset(
     {
         "rtk",
@@ -1105,7 +1105,7 @@ def _bash_program(command: str) -> tuple[str, list[str]]:
 
 def _bash_command_is_search(command: str, search_commands: frozenset[str]) -> bool:
     """True when ``command`` is a read-only search whose output folds byte-
-    losslessly (grep/rg/git grep/…). Peels wrappers and recurses into ``sh -c``.
+    losslessly (grep/rg/git grep/...). Peels wrappers and recurses into ``sh -c``.
     """
     # Peel `cd <dir> && ` chains first — harnesses prefix every command with a
     # cd, so without this the parsed program is `cd` and the fold never fires.
@@ -1114,7 +1114,7 @@ def _bash_command_is_search(command: str, search_commands: frozenset[str]) -> bo
     if not prog:
         return False
     if prog in {"sh", "bash", "zsh", "dash"} and rest:
-        # `bash -lc "grep …"` (Codex): the real command is the -c argument.
+        # `bash -lc "grep ..."` (Codex): the real command is the -c argument.
         for j, tok in enumerate(rest):
             if tok in {"-c", "-lc", "-lic", "-ic"} and j + 1 < len(rest):
                 inner = " ".join(rest[j + 1 :]).strip("'\"")
@@ -1572,7 +1572,7 @@ def _read_output_should_be_protected(text: Any) -> bool:
     ``_is_read_command`` says "this came from a cat/sed/head file read (and isn't a
     lockfile)". Protection exists so the agent keeps EXACT BYTES of code it will patch.
     Because the code detector recognizes only a handful of languages, we do NOT gate on
-    "is this SOURCE_CODE" (that would leave Ruby/C/SQL/… code — seen as PLAIN_TEXT —
+    "is this SOURCE_CODE" (that would leave Ruby/C/SQL/... code — seen as PLAIN_TEXT —
     unprotected and lossy-compressed). Instead we PROTECT unless the content is a
     confidently non-code data type (JSON object/array, CSV/tabular, build/test log, git
     diff, HTML, search output), which are never byte-patched and route to a compressor.
@@ -2392,7 +2392,7 @@ class ContentRouterConfig:
     # No-CCR lossless mode. When True the router compresses LOG/SEARCH/DIFF
     # content with format-native lossless compaction (headroom.transforms.
     # lossless_compaction) instead of the lossy Rust drop path, and never
-    # emits a `<<ccr:…>>` / `Retrieve …` retrieval marker. SmartCrusher is
+    # emits a `<<ccr:...>>` / `Retrieve ...` retrieval marker. SmartCrusher is
     # additionally forced marker-free via smart_crusher_lossless_only.
     lossless: bool = False
 
@@ -2783,7 +2783,7 @@ class ContentRouter(Transform):
         self.config = config or ContentRouterConfig()
         # No-CCR lossless mode is self-consistent regardless of how the config
         # was built: force marker-free output and marker-free SmartCrusher so
-        # the invariant (no `<<ccr:…>>` / `Retrieve …`) holds even when a caller
+        # the invariant (no `<<ccr:...>>` / `Retrieve ...`) holds even when a caller
         # constructs ContentRouterConfig(lossless=True) directly.
         if self.config.lossless:
             self.config.ccr_inject_marker = False
@@ -4433,7 +4433,7 @@ class ContentRouter(Transform):
         # This is how nested/embedded JSON reaches the JSON compressors at all —
         # today's linear splitter never sees it. Each span goes through the
         # UNCHANGED path, so SmartCrusher/CodeCompressor register their
-        # `<<ccr:…>>` markers exactly as for a whole-block JSON (CCR is hash-
+        # `<<ccr:...>>` markers exactly as for a whole-block JSON (CCR is hash-
         # keyed → location-agnostic). `_allow_embedded=False` on the recursive
         # call is a one-shot re-entrancy guard (NOT a depth cap). Deterministic +
         # benefit-gated (no size/min thresholds) → prefix-cache- and CCR-store-
@@ -4472,7 +4472,7 @@ class ContentRouter(Transform):
         # first, in every mode — it banks a guaranteed, fully-recoverable win up
         # front (search --heading, log run-collapse, diff index-strip; blank-run
         # collapse otherwise). Detection is content-based (strategy is assigned by
-        # content_detector on the OUTPUT), so `cd DIR && rg …`, pipes and unknown
+        # content_detector on the OUTPUT), so `cd DIR && rg ...`, pipes and unknown
         # tools route here by structure, not by command. `_lossless_first` is
         # self-verifying (exact inverse or unchanged) → never loses information,
         # and is a strict no-op returning (content, None) when nothing folds.
@@ -6100,7 +6100,7 @@ class ContentRouter(Transform):
         Supports both OpenAI and Anthropic message formats. Also populates
         ``self._tool_call_args`` (id → compact args text) in the same scan, so
         the relevance split can score a tool output against the *precise* ask
-        that triggered it (grep pattern, read path, …), not just the user
+        that triggered it (grep pattern, read path, ...), not just the user
         prompt. Read-only after build → safe to read from the parallel
         compression pass.
         """
@@ -6884,7 +6884,7 @@ class ContentRouter(Transform):
                         # Protected from lossy compression — but grep/log/json
                         # output can still be losslessly compacted, UNLESS this is
                         # a file read: every fold rewrites the bytes the model
-                        # copies into `Edit(old_string=…)`, and a missed edit costs
+                        # copies into `Edit(old_string=...)`, and a missed edit costs
                         # a whole turn (see DEFAULT_BYTE_EXACT_EXCLUDE_TOOLS).
                         compacted = (
                             None
@@ -6970,7 +6970,7 @@ class ContentRouter(Transform):
                     continue
 
             # Read protection (ROLE / SHAPE-AGNOSTIC). An observation produced by
-            # a file read command (cat/sed/head/…) is passed VERBATIM so the agent
+            # a file read command (cat/sed/head/...) is passed VERBATIM so the agent
             # keeps exact bytes to patch — regardless of how THIS harness labels
             # it. The SAME operation surfaces under different roles/shapes across
             # harnesses (Anthropic tool_use, OpenAI/Kimi `role:tool`, text-harness
@@ -7509,7 +7509,7 @@ class ContentRouter(Transform):
         # Per-request routing visibility (grep `[router] route_counts`): how many
         # messages/blocks hit each route this request — skip reasons (small,
         # user_msg, non_string, recent_code, analysis_ctx, content_blocks,
-        # excluded_tool, read_protected, error_protected, already_compressed, …)
+        # excluded_tool, read_protected, error_protected, already_compressed, ...)
         # plus successful compressions. Makes "what is Headroom missing?" answerable
         # per provider shape (e.g. OpenAI plain-string user obs vs Anthropic
         # tool_result blocks) directly from a run's logs. INFO so it's on by default.
@@ -7592,7 +7592,7 @@ class ContentRouter(Transform):
 
         "Information-preserving" is the guarantee, and it is weaker than it looks
         from in here: recoverability is OURS, but the string the model copies into
-        the next ``Edit(old_string=…)`` is the one we SHOWED it. All three folds
+        the next ``Edit(old_string=...)`` is the one we SHOWED it. All three folds
         show something the file does not contain — minified JSON, ``... (repeated
         N times)``, a hoisted path heading — so all three break a read-then-edit.
         Callers must therefore NOT route a file read here: every call site gates
@@ -7656,7 +7656,7 @@ class ContentRouter(Transform):
         """Byte-lossless fold for a read-only search run through a shell tool.
 
         ``bash`` is not excluded, so its output normally takes the lossy strategy
-        path. But when the command is a read-only search (grep/rg/git grep/…),
+        path. But when the command is a read-only search (grep/rg/git grep/...),
         its output is byte-losslessly foldable — so fold it (the same guarantee
         excluded Grep gets) instead of lossy-compressing. The command whitelist
         is only a *gate to attempt*: ``compact_lossless`` verifies reversibility
@@ -7749,7 +7749,7 @@ class ContentRouter(Transform):
 
             def _is_user_read_observation(idx: int) -> bool:
                 # A file read can land in a plain ``role:user`` STRING (text
-                # harnesses: the assistant emits a fenced ``cat/sed/head …`` and the
+                # harnesses: the assistant emits a fenced ``cat/sed/head ...`` and the
                 # output comes back as the next user turn). Fold those too, but ONLY
                 # when the preceding assistant turn actually issued a read command —
                 # never ordinary user prose. Same OUTCOME the router uses to protect
@@ -8107,7 +8107,7 @@ class ContentRouter(Transform):
                 bias = self._get_tool_bias(tool_name) if tool_name else 1.0
 
                 # Enrich the relevance query with the triggering tool call's
-                # args (grep pattern, read path, …) — the sharpest, per-output
+                # args (grep pattern, read path, ...) — the sharpest, per-output
                 # signal. Gated so default behavior is byte-identical.
                 block_context = context
                 if self.config.relevance_split and tool_use_id:

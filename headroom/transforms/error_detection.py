@@ -11,7 +11,7 @@ Phase 3e.1 ported the keyword data + scoring logic to
    see :func:`_registry` for why that matters to the proxy.
 2. Re-exports the legacy ``frozenset`` and compiled-regex names
    (``ERROR_KEYWORDS``, ``ERROR_PATTERN``, ``PRIORITY_PATTERNS_TEXT``,
-   …) so the existing callers in ``search_compressor``,
+   ...) so the existing callers in ``search_compressor``,
    ``diff_compressor``, and ``intelligent_context`` keep working
    without same-PR refactors.
 3. Delegates ``content_has_error_indicators`` to the Rust
@@ -31,7 +31,7 @@ The Rust implementation fixes two bugs the Python originals carried:
   ``"FATAL: timeout connecting upstream"`` now flag as errors via
   the regex too.
 * ``token`` was dropped from ``SECURITY_KEYWORDS`` (it false-positived
-  on every reference to LLM tokens — input_tokens, tokens_saved, …).
+  on every reference to LLM tokens — input_tokens, tokens_saved, ...).
 """
 
 from __future__ import annotations
@@ -92,7 +92,7 @@ def _registry() -> dict[str, list[str]]:
 
 
 def _alternation(words: list[str]) -> str:
-    """Compile a `\b(w1|w2|…)\b` regex source from the Rust-supplied list.
+    """Compile a `\b(w1|w2|...)\b` regex source from the Rust-supplied list.
 
     The keywords are static (compiled once on first use) so we don't need
     `re.escape` for the current set, but using it keeps the shim

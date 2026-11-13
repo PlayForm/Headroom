@@ -228,7 +228,7 @@ def _litellm_provider(backend: str) -> str:
     # `litellm-vertex` is the name in our docs/help, but LiteLLM (and our
     # provider registry) keys Google Vertex on `vertex_ai`. Without this alias
     # the provider falls through to a generic pass-through: wrong model prefix
-    # (`vertex/…` instead of `vertex_ai/…`), region dropped, auth mishandled.
+    # (`vertex/...` instead of `vertex_ai/...`), region dropped, auth mishandled.
     if provider in ("vertex", "google-vertex", "googlevertex"):
         return "vertex_ai"
     return provider

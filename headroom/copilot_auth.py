@@ -342,7 +342,7 @@ def is_copilot_completions_host(url: str | None) -> bool:
     if host == "copilot-proxy.githubusercontent.com":
         return True
     # Per-SKU hosts GitHub hands out via `endpoints.proxy`, e.g.
-    # proxy.individual.githubcopilot.com / proxy.business… / proxy.enterprise….
+    # proxy.individual.githubcopilot.com / proxy.business... / proxy.enterprise....
     return host.startswith("proxy.") and host.endswith(".githubcopilot.com")
 
 

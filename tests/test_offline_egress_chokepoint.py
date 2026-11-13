@@ -612,7 +612,7 @@ class TestLiteLLMCostMapOffline:
         assert outcome["attempts"] == []
 
     def test_every_litellm_import_is_pinned_first(self) -> None:
-        """Each ``import litellm`` / ``from litellm…`` in ``headroom/`` must
+        """Each ``import litellm`` / ``from litellm...`` in ``headroom/`` must
         follow a ``pin_litellm_cost_map_local()`` call in the same function (or
         at module level for a module-level import). A pin in another scope does
         not count: it ran at a different time from the import."""

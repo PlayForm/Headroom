@@ -2593,7 +2593,7 @@ class OpenAIHandlerMixin:
             if is_tool_excluded(fn_name, DEFAULT_VERBATIM_EXCLUDE_TOOLS)
         }
         # A file read is protected from the lossless FOLD only — its bytes come
-        # back as the model's `Edit(old_string=…)` anchor, so a rewrite costs a
+        # back as the model's `Edit(old_string=...)` anchor, so a rewrite costs a
         # missed edit. Deliberately NOT folded into verbatim_excluded_call_ids:
         # that set also gates the Responses cross-turn dedup below, and dedup
         # leaves the true bytes in context (see DEFAULT_BYTE_EXACT_EXCLUDE_TOOLS).
@@ -2605,15 +2605,15 @@ class OpenAIHandlerMixin:
 
         # Read protection (HEADROOM_PROTECT_READS) — parity with the
         # chat/Anthropic path (ContentRouter.apply). Output of a file-READ
-        # command (cat/nl/sed -n/head/tail/…) must stay verbatim: the agent
+        # command (cat/nl/sed -n/head/tail/...) must stay verbatim: the agent
         # byte-patches against it, and lossy reads caused re-reads /
         # turn-inflation + resolve loss on SWE-bench. The Responses wire carries
         # the producing command in two shapes, both normalized by the shared
         # _tool_call_command_text helper:
-        #   - function_call.arguments  (Copilot bash, Codex exec_command, …)
+        #   - function_call.arguments  (Copilot bash, Codex exec_command, ...)
         #   - local_shell_call.action  (native Responses shell; argv or string)
         #   - custom_tool_call.input   (Codex code-mode `exec`: JavaScript calling
-        #                               tools.exec_command({"cmd": …}))
+        #                               tools.exec_command({"cmd": ...}))
         # Content is gated per-output by _read_output_should_be_protected so
         # confidently non-code DATA reads (lockfiles, JSON, logs, search) stay
         # compressible, exactly like the chat path.
@@ -2655,7 +2655,7 @@ class OpenAIHandlerMixin:
                 ):
                     read_command_by_call_id[call_id] = command
         # Outputs protected by read-command detection. Also unioned into the
-        # cross-turn dedup protection set below: a [↑…] fold of a read would
+        # cross-turn dedup protection set below: a [↑...] fold of a read would
         # break the exact-bytes contract just like lossy compression would.
         read_protected_call_ids: set[str] = set()
 
@@ -2707,7 +2707,7 @@ class OpenAIHandlerMixin:
                     # array structure (non-text parts like images are left untouched).
                     # A file read skips the fold entirely: this is the Codex wire,
                     # where `read` really does return raw file bytes, so a fold here
-                    # is exactly what breaks the next `Edit(old_string=…)`.
+                    # is exactly what breaks the next `Edit(old_string=...)`.
                     raw_output = item.get("output")
                     if call_id in byte_exact_call_ids:
                         pass  # byte-exact: no fold
@@ -4829,7 +4829,7 @@ class OpenAIHandlerMixin:
         # Kimi/GLM/DeepSeek-R1 resend reasoning as PLAIN TEXT billed as input (Kimi
         # K2.7: ~1,558 tok/block, kept every turn) — so Kompress can actually shrink
         # it. Shape-driven: compacts the `reasoning_content` field (Kimi) and inline
-        # `<think>…</think>` (GLM/DeepSeek); no-ops when neither is present (OpenAI's
+        # `<think>...</think>` (GLM/DeepSeek); no-ops when neither is present (OpenAI's
         # own encrypted models). Deterministic → forwarded prefix stays cache-stable;
         # keep_last_turns protects the active reasoning. Never breaks the request.
         if os.environ.get("HEADROOM_THINKING_COMPACT", "").strip().lower() in (
@@ -5039,7 +5039,7 @@ class OpenAIHandlerMixin:
                 tokens_saved = net_hook_tool_saving(_th_raw_saved, tags, _th_saved)
 
         # Compatibility shim: GPT-5 / o-series chat models REJECT the legacy
-        # `max_tokens` ("Unsupported parameter … Use 'max_completion_tokens'
+        # `max_tokens` ("Unsupported parameter ... Use 'max_completion_tokens'
         # instead"); gpt-4o/4.1 accept `max_completion_tokens` too. openai-
         # compatible clients (opencode, older SDKs) still send `max_tokens`, so
         # translate it here — the proxy already owns the outbound body — and

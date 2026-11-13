@@ -31,5 +31,5 @@ def wire_debug_preview(value: Any, *, max_chars: int | None = None) -> str:
 
     text = " ".join(text.split())
     if max_chars is not None and len(text) > max_chars:
-        return text[: max_chars - 1] + "…"
+        return text[: max_chars - 1] + "..."
     return text

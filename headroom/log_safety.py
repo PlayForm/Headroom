@@ -234,7 +234,7 @@ def redact_url(url: str) -> str:
 
 
 def _is_hostless_local_url(url: str, scheme: str) -> bool:
-    """True for ``file:///…``, ``sqlite:///…`` or ``unix:///…`` as urlsplit read it."""
+    """True for ``file:///...``, ``sqlite:///...`` or ``unix:///...`` as urlsplit read it."""
     cleaned = url.lstrip(_URL_LEADING_JUNK).translate(_URL_REMOVED)
     match = _HOSTLESS_URL.match(cleaned)
     return scheme in _LOCAL_SCHEMES and match is not None and match.group(1).lower() == scheme
@@ -271,7 +271,7 @@ def safe_id(value: object) -> str:
     text = _builtin_repr(value)
     if len(text) <= _ID_MAX_CHARS:
         return text
-    return f"{text[:_ID_MAX_CHARS]}…(+{len(text) - _ID_MAX_CHARS} chars)"
+    return f"{text[:_ID_MAX_CHARS]}...(+{len(text) - _ID_MAX_CHARS} chars)"
 
 
 def _builtin_repr(value: object) -> str:

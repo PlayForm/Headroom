@@ -21,7 +21,7 @@ RESULT_ORIGINAL = {
 }
 RESULT_COMPRESSED = {
     "role": "user",
-    "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "x…"}],
+    "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "x..."}],
 }
 CALL = {
     "role": "assistant",

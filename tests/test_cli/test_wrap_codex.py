@@ -1113,9 +1113,9 @@ class TestInjectAvoidsDuplicateTopLevelKeys:
     """Wrap must not produce a TOML-validity-breaking duplicate-key error.
 
     Codex's ``config.toml`` is parsed strictly: two top-level
-    ``model_provider = …`` (or two ``openai_base_url = …``) declarations
+    ``model_provider = ...`` (or two ``openai_base_url = ...``) declarations
     cause ``codex`` to refuse to start with
-    ``Error loading config.toml: …: …:1: duplicate key``.  The injector
+    ``Error loading config.toml: ...: ...:1: duplicate key``.  The injector
     used to unconditionally prepend a top-level block, breaking any user
     who had already configured their own provider (e.g. ``ccswitch``).
     """

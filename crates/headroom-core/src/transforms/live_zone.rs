@@ -15,7 +15,7 @@
 //! [`compress_anthropic_live_zone`] — that handles the Anthropic
 //! Messages API shape (`/v1/messages`). Other providers (OpenAI
 //! Chat Completions, OpenAI Responses, Google Gemini, Bedrock with
-//! native payloads, …) need their own dispatchers because their
+//! native payloads, ...) need their own dispatchers because their
 //! request shapes diverge in load-bearing ways:
 //!
 //! - OpenAI Chat Completions puts tool results in their own
@@ -858,7 +858,7 @@ fn arm_disabled(content_type: ContentType) -> bool {
 ///
 /// - `messages: [{role, content}]`, with `content` either a JSON
 ///   string or an array of typed blocks (`text`, `tool_result`,
-///   `tool_use`, `thinking`, `image`, …).
+///   `tool_use`, `thinking`, `image`, ...).
 /// - The "live zone" is the latest `role == "user"` message at or
 ///   above `frozen_message_count`. Earlier messages are in the
 ///   prompt cache hot zone and are byte-preserved.
@@ -880,7 +880,7 @@ fn arm_disabled(content_type: ContentType) -> bool {
 ///   `function_response` parts (not `tool_result`). Function
 ///   responses can be either string or structured object.
 /// - **Bedrock InvokeModel** — the embedded payload follows the
-///   model's native format (Anthropic, Llama, Cohere, …); route
+///   model's native format (Anthropic, Llama, Cohere, ...); route
 ///   to the matching dispatcher.
 ///
 /// Phase C (`REALIGNMENT/05-phase-C-rust-proxy.md`) introduces the

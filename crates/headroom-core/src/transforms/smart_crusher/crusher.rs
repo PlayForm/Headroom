@@ -756,7 +756,7 @@ impl SmartCrusher {
 	///
 	/// The two differ on the prose-hook path: there, `items` are rows whose
 	/// leaves have ALREADY been rewritten (prose extractively compressed,
-	/// opaque blobs swapped for `<<ccr:…>>` markers). Storing those as the
+	/// opaque blobs swapped for `<<ccr:...>>` markers). Storing those as the
 	/// entry's "original" hands a retrieving caller compressed output rather
 	/// than the dropped rows — the data the marker promises is simply not in
 	/// the store (#2694, same defect class as #1209). `ccr_source` is the
@@ -1096,7 +1096,7 @@ impl SmartCrusher {
 			store.put(&hash, &canonical);
 		}
 		kept.push(Value::String(format!(
-			"… {dropped} more items <<ccr:{hash} {dropped}_items_offloaded>>"
+			"... {dropped} more items <<ccr:{hash} {dropped}_items_offloaded>>"
 		)));
 	}
 }
@@ -1296,7 +1296,7 @@ mod tests {
 			.and_then(|v| v.as_str())
 			.expect("last element is the string sentinel");
 		assert!(
-			sentinel.starts_with(&format!("… {dropped} more items ")),
+			sentinel.starts_with(&format!("... {dropped} more items ")),
 			"sentinel shows the visible drop count, got: {sentinel}"
 		);
 		assert!(
@@ -1349,7 +1349,7 @@ mod tests {
 			.last()
 			.and_then(|v| v.as_str())
 			.expect("last element is the string sentinel");
-		assert!(sentinel.starts_with(&format!("… {dropped} more items ")));
+		assert!(sentinel.starts_with(&format!("... {dropped} more items ")));
 		let stored = stored_original(&crusher, sentinel);
 		assert_eq!(stored.len(), 120);
 	}
@@ -1372,7 +1372,7 @@ mod tests {
 			.filter(|s| s.contains("_items_offloaded>>"))
 			.collect();
 		assert_eq!(sentinels.len(), 1, "exactly one sentinel, got {sentinels:?}");
-		assert!(sentinels[0].starts_with(&format!("… {dropped} more items ")));
+		assert!(sentinels[0].starts_with(&format!("... {dropped} more items ")));
 		let stored = stored_original(&crusher, sentinels[0]);
 		assert_eq!(stored.len(), 120);
 	}

@@ -9,8 +9,8 @@ Two selection gaps, both measured against real counters on identical text:
 
 2. Every pattern is ``^``-anchored, which is right for a bare model id and wrong
    for the wrapped ids gateways send. ``bedrock/anthropic.claude-3-5-sonnet``,
-   ``vertex_ai/claude-…``, ``openrouter/anthropic/claude-…``, ``azure/gpt-4o``
-   and Bedrock's ``us.anthropic.claude-…`` all matched nothing. LiteLLM's
+   ``vertex_ai/claude-...``, ``openrouter/anthropic/claude-...``, ``azure/gpt-4o``
+   and Bedrock's ``us.anthropic.claude-...`` all matched nothing. LiteLLM's
    ``headroom`` guardrail passes exactly these forms.
 
 The estimator is a legitimate FALLBACK; the bug is reaching it when a real

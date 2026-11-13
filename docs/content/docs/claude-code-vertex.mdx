@@ -63,7 +63,7 @@ Claude Code ──(Vertex request)──▶ Headroom ──(compressed)──▶
    (your ADC token) ───────────── passed through ───────────▶ authenticates you
 ```
 
-Claude Code sends its normal Vertex `…:rawPredict` / `:streamRawPredict` request to
+Claude Code sends its normal Vertex `...:rawPredict` / `:streamRawPredict` request to
 Headroom. Headroom compresses the messages (keeping the Vertex request shape
 intact), then forwards to the correct regional Vertex host — derived from the
 request itself, so multi-region and `global` both work — using the Google token

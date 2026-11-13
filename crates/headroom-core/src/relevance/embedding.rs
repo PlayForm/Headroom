@@ -15,7 +15,7 @@
 //! construction may need network access to fetch the model. The files
 //! live in the HuggingFace hub cache directory Python's `huggingface_hub`
 //! would pick (`HF_HUB_CACHE`, `HF_HOME/hub`, `~/.cache/huggingface/hub`,
-//! …; see `crate::hf_cache::hub_cache_dir`), shared with Python.
+//! ...; see `crate::hf_cache::hub_cache_dir`), shared with Python.
 //!
 //! When constructed, `is_available()` returns `true` and `HybridScorer`
 //! switches off the BM25-fallback path automatically. If construction

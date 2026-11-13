@@ -2,7 +2,7 @@
 
 Every helper here is pure stdlib and keeps its output *looking like its own
 type* — grep stays grep, logs stay logs, diffs stay diffs. No retrieval
-marker (``<<ccr:…>>`` / ``Retrieve …``) is ever emitted, so the proxy needs
+marker (``<<ccr:...>>`` / ``Retrieve ...``) is ever emitted, so the proxy needs
 no MCP retrieve round-trip to stay recoverable.
 
 The reversible transforms ship with exact inverses and are self-checked at

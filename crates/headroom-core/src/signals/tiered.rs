@@ -68,7 +68,7 @@ impl LineImportanceDetector for Tiered<dyn LineImportanceDetector> {
 
 impl Tiered<dyn LineImportanceDetector> {
 	/// Convenience: take an owned detector, box it, coerce it to the
-	/// trait object. Keeps callsites free of `as Box<dyn …>` clutter.
+	/// trait object. Keeps callsites free of `as Box<dyn ...>` clutter.
 	pub fn with_detector<D: LineImportanceDetector + 'static>(self, detector: D) -> Self {
 		self.with(Box::new(detector) as Box<dyn LineImportanceDetector>)
 	}

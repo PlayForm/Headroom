@@ -93,7 +93,7 @@ pub fn classify_cell(value: &Value, cfg: &ClassifyConfig) -> CellClass {
 
 fn classify_string(s: &str, cfg: &ClassifyConfig) -> CellClass {
 	// Never re-offload our own output (#2694). A string carrying a
-	// `<<ccr:…>>` marker is *compressed output*, not source content: the
+	// `<<ccr:...>>` marker is *compressed output*, not source content: the
 	// real bytes already live in the store under the marker's hash. Hashing
 	// it again would stash the MARKER as the new entry's "original", so
 	// `headroom_retrieve` hands the caller a placeholder instead of the

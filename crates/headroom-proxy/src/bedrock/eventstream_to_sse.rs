@@ -1,10 +1,10 @@
 //! Translate Bedrock binary EventStream messages into Anthropic SSE
-//! frames — Phase D PR-D2.
+//! frames - Phase D PR-D2.
 //!
 //! # Why translate
 //!
 //! Bedrock's `/model/{id}/invoke-with-response-stream` returns
-//! `application/vnd.amazon.eventstream` — a binary, length-prefixed,
+//! `application/vnd.amazon.eventstream` - a binary, length-prefixed,
 //! CRC-checksummed framing format. Most clients of Headroom (Claude
 //! Code, the Anthropic SDK in non-Bedrock mode, the Headroom Python
 //! SDK) speak SSE (`text/event-stream`). When the client requested
@@ -30,7 +30,7 @@
 //! - `Accept: text/event-stream`, `Accept: */*`, or absent → translate.
 //!
 //! Operators override the recognised Accept values via the
-//! `--bedrock-eventstream-accept-values` CLI flag (CSV) — though the
+//! `--bedrock-eventstream-accept-values` CLI flag (CSV) - though the
 //! defaults cover every Bedrock client we know about today.
 
 use bytes::{Bytes, BytesMut};
@@ -86,18 +86,18 @@ impl OutputMode {
 pub enum TranslateOutcome {
 	/// Emit these bytes to the client. For `OutputMode::Sse` this is
 	/// `data: {payload}\n\n`; for `OutputMode::EventStream` it is the
-	/// upstream bytes themselves (we don't ever pass through here —
+	/// upstream bytes themselves (we don't ever pass through here -
 	/// passthrough mode is handled by the streaming forwarder, which
 	/// never bothers parsing).
 	Emit(Bytes),
-	/// Skip — the message has no client-facing translation. Used for
+	/// Skip - the message has no client-facing translation. Used for
 	/// `:event-type` values that AWS emits for protocol-internal
 	/// signalling (not yet observed for Bedrock Anthropic responses,
 	/// but we surface a structured outcome rather than guess).
 	Skip { event_type: String },
 }
 
-/// Errors during translation. Per project rules these are loud — the
+/// Errors during translation. Per project rules these are loud - the
 /// handler 5xx's the client when an unknown `:message-type` arrives,
 /// rather than silently swallowing.
 #[derive(Debug, thiserror::Error)]
@@ -108,7 +108,7 @@ pub enum TranslateError {
 	#[error("Bedrock stream emitted exception: {payload_preview}")]
 	UpstreamException { payload_preview: String },
 	/// The translator's input message is missing a required header
-	/// (`:event-type`). Wire-format violation — AWS would never emit.
+	/// (`:event-type`). Wire-format violation - AWS would never emit.
 	#[error("Bedrock message missing required `:event-type` header")]
 	MissingEventType,
 }
@@ -117,9 +117,9 @@ pub enum TranslateError {
 ///
 /// Side-effect-free: emits a `tracing::info!` per `chunk` translation
 /// and `tracing::warn!` for unknown event types. The hot path is
-/// allocation-bounded — one `BytesMut` of `payload.len() + 8`.
+/// allocation-bounded - one `BytesMut` of `payload.len() + 8`.
 pub fn translate_message(message: &EventStreamMessage, mode: OutputMode) -> Result<TranslateOutcome, TranslateError> {
-	// Always check for `:message-type == exception` first — that's a
+	// Always check for `:message-type == exception` first - that's a
 	// structural error regardless of mode. AWS reserves this value to
 	// indicate a service-side fault ON the stream (vs an HTTP-level
 	// error from the initial request).
@@ -133,10 +133,10 @@ pub fn translate_message(message: &EventStreamMessage, mode: OutputMode) -> Resu
 	match (mode, event_type) {
 		(OutputMode::EventStream, _) => {
 			// Passthrough mode never reaches this function on the hot
-			// path — the streaming handler short-circuits to byte
+			// path - the streaming handler short-circuits to byte
 			// copy. We still support the call so tests can assert
 			// semantic equivalence: re-emit the exact bytes (which
-			// requires re-serialising — costly — so we don't here).
+			// requires re-serialising - costly - so we don't here).
 			// Surface a structured Skip; the caller picks bytes from
 			// the raw upstream stream.
 			Ok(TranslateOutcome::Skip { event_type: event_type.to_string() })
@@ -177,7 +177,7 @@ pub fn translate_message(message: &EventStreamMessage, mode: OutputMode) -> Resu
 /// Anthropic's direct `/v1/messages` SSE wire format emits BOTH an
 /// `event:` line (the event name like `message_start`) AND a `data:`
 /// line (the JSON payload). The proxy's `AnthropicStreamState`
-/// requires the `event:` line — without it every event is dropped
+/// requires the `event:` line - without it every event is dropped
 /// with a `sse_unknown_event` warn.
 ///
 /// The Bedrock binary EventStream encodes the event name on the
@@ -187,7 +187,7 @@ pub fn translate_message(message: &EventStreamMessage, mode: OutputMode) -> Resu
 /// Anthropic format.
 ///
 /// If the JSON is malformed or `type` is missing, we still emit a
-/// `data:`-only frame (best-effort) and log a warn — the byte path
+/// `data:`-only frame (best-effort) and log a warn - the byte path
 /// to the client never breaks.
 fn payload_to_sse_frame(payload: &[u8]) -> Bytes {
 	let event_name = extract_anthropic_event_type(payload);
@@ -210,7 +210,7 @@ fn payload_to_sse_frame(payload: &[u8]) -> Bytes {
 /// Extract `type` field from an Anthropic SSE JSON payload. We do a
 /// targeted byte-level scan rather than a full JSON parse so the hot
 /// path is allocation-free in the common case. Falls back to `None`
-/// on any malformed input — never panics.
+/// on any malformed input - never panics.
 fn extract_anthropic_event_type(payload: &[u8]) -> Option<String> {
 	// Cheap path: parse with serde_json, take `.type` if it's a string.
 	// The JSON is small (typical Anthropic event ~200 bytes), so the
@@ -236,7 +236,7 @@ pub fn header_value_preview(v: &HeaderValue) -> String {
 				while !s.is_char_boundary(end) {
 					end -= 1;
 				}
-				format!("{}…", &s[..end])
+				format!("{}...", &s[..end])
 			}
 		},
 		HeaderValue::Bytes(b) => format!("[{} bytes]", b.len()),
@@ -319,7 +319,7 @@ mod tests {
 
 	#[test]
 	fn translate_chunk_falls_back_on_malformed_payload() {
-		// Payload is not valid JSON — translator must still emit a
+		// Payload is not valid JSON - translator must still emit a
 		// data:-only frame (no event: line) and the byte path must
 		// not panic.
 		let bytes = build_chunk_message("not json at all");
@@ -405,12 +405,12 @@ mod tests {
 	#[test]
 	fn header_value_preview_truncates_at_char_boundary() {
 		// 63 ASCII bytes + a 2-byte UTF-8 char (é = U+00E9) puts a char
-		// boundary at byte 63 but NOT at byte 64 — the old `&s[..64]`
+		// boundary at byte 63 but NOT at byte 64 - the old `&s[..64]`
 		// would panic here. floor_char_boundary(64) must return 63.
 		let s = "x".repeat(63) + "éfoo";
 		assert!(s.len() > 64);
 		let preview = header_value_preview(&HeaderValue::String(s));
-		assert!(preview.ends_with('…'), "expected ellipsis suffix: {preview:?}");
+		assert!(preview.ends_with("..."), "expected ellipsis suffix: {preview:?}");
 		assert!(!preview.contains('é'), "must not include the split codepoint");
 	}
 
