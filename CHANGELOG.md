@@ -20,13 +20,28 @@ release-cycle contract lives in [RELEASE-CYCLE.md](RELEASE-CYCLE.md).
 > upstream syncs. The upstream file is preserved in git history
 > (`git show HEAD:CHANGELOG.md` inside the fork).
 
-## [0.2.0] - unreleased
+## [0.2.1] - 2026-11-14
+
+Range: `d4558b7c` .. this commit. Dependency-security release, no API change.
+
+`libsqlite3-sys` 0.38.2 bundles SQLite 3.53.2, which is affected by
+RUSTSEC-2026-0459 (CVE-2026-119375): a database file opened together with a
+sibling `-wal` whose page size differs from the database's can return
+uninitialized page-cache memory to ordinary queries. `rusqlite` moves
+0.40.2 -> 0.41, which pulls `libsqlite3-sys` 0.39.1 (SQLite 3.54.1). The
+`CcrStore` trait, `SqliteCcrStore` and the retention surface are unchanged, so
+the parent pin moves with no code delta.
+
+Published with Aphrodite `1.8.1`; parent pin `crates/aphrodite/Cargo.toml` :55.
+
+## [0.2.0] - 2026-11-08
 
 Range: `aphrodite-v0.10.0` (`02706ea1`, 2026-09-19) .. `d4558b7c` (2026-11-08).
 Carries the two dependency-update commits that followed the 0.1.3 tag, the
 CCR-store retention work, the fork-workspace build/lint fixes, and the
 upstream sync below (merge commit `d4558b7c`, parents `62b09ccf` x
-`bb8d18a5`). Committed; not tagged, not published.
+`bb8d18a5`). Published as `0.2.0` with Aphrodite `1.8.0` (crates.io
+`max_version` 0.2.0); no fork tag was cut.
 
 ### Store retention (new API)
 
