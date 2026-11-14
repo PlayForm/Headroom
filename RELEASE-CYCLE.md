@@ -17,7 +17,7 @@ state.
 | 0.1.2 | `c6b61470` (2026-07-14) | - (no fork tag) | `version = "0.1.2"` (committed through `Aphrodite/v1.5.0`, 2026-09-20) | published 2026-07-14 |
 | 0.1.3 | `02706ea1` (2026-09-19) | `aphrodite-v0.10.0` | `version = "0.1.3"` | published 2026-09-20 - **max_version before 0.2.0** |
 | 0.2.0 | `d4558b7c` (2026-11-08; merge of upstream `bb8d18a5` carrying store retention + index-driven sweep + fork-workspace build/lint fixes) | - (no fork tag) | `version = "0.2.0"` (committed through `Aphrodite/v1.8.0`) | published 2026-11-08 - **max_version before 0.2.1** |
-| 0.2.1 | `SELF` (2026-11-14; `rusqlite` 0.40.2 -> 0.41 / `libsqlite3-sys` 0.39.1 for RUSTSEC-2026-0459; no API change) | `aphrodite-v0.12.0` (to cut) | `version = "0.2.1"` | published with `Aphrodite/v1.8.1` |
+| 0.2.1 | `f9556f13` (2026-11-14; `rusqlite` 0.40.2 -> 0.41 / `libsqlite3-sys` 0.39.1 for RUSTSEC-2026-0459; no API change) | `aphrodite-v0.12.0` (to cut) | `version = "0.2.1"` | published with `Aphrodite/v1.8.1` |
 
 Rules:
 
